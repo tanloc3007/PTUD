@@ -1,0 +1,167 @@
+﻿
+
+
+
+ĐẶC TẢ CHỨC NĂNG PHÂN HỆ CLIENT
+
+
+Dự án: Xây dựng hệ thống nhật ký cảm xúc và hỗ trợ tư vấn tâm lý ẩn danh dành cho sinh viên
+
+
+Người thực hiện: Ngô Tấn Lộc (Tuần 31/08/2026 – 06/09/2026)
+
+
+
+
+
+
+1. Sơ đồ Use Case
+
+
+
+
+
+
+
+
+
+2. Đặc tả chức năng chi tiết
+
+
+
+
+
+STT
+
+
+Tên chức năng (Use Case)
+
+
+Tác nhân
+
+
+Mô tả
+
+
+Luồng sự kiện chính
+
+
+
+ 
+
+
+1
+
+
+Đăng ký / Đăng nhập
+
+
+Sinh viên
+
+
+Tạo tài khoản mới và đăng nhập vào hệ thống để đảm bảo tính an toàn và bảo mật dữ liệu.
+
+
+Truy cập trang Đăng ký/Đăng nhập.
+
+
+Điền thông tin cá nhân.
+
+
+Hệ thống mã hóa và lưu trữ.
+
+
+Đăng nhập vào hệ thống bằng tài khoản vừa tạo.
+
+
+2
+
+
+Viết nhật ký &amp; Thống kê tâm trạng
+
+
+Sinh viên
+
+
+Lưu trữ nhật ký cảm xúc hàng ngày và trực quan hóa bằng biểu đồ (theo ngày/tuần/tháng).
+
+
+Chọn chức năng &quot;Viết nhật ký&quot;, nhập nội dung và dùng trí tuệ nhân tạo để đánh giá cảm xúc của sinh viên hiện tại.
+
+
+Hệ thống ghi nhận và lưu trữ dữ liệu.
+
+
+Chuyển sang tab &quot;Thống kê&quot; để xem biểu đồ biến thiên tâm trạng được vẽ tự động.
+
+
+3
+
+
+Thực hiện bài kiểm tra tâm lý
+
+
+Sinh viên
+
+
+Thực hiện các bài trắc nghiệm cơ bản và nhận kết quả tự động đánh giá từ hệ thống.
+
+
+Truy cập danh sách bài kiểm tra có sẵn.
+
+
+Trả lời các câu hỏi trắc nghiệm.
+
+
+Nộp bài, hệ thống tính điểm và hiển thị kết quả đánh giá tình trạng tâm lý.
+
+
+4
+
+
+Tham gia cộng đồng ẩn danh
+
+
+Sinh viên
+
+
+Chia sẻ nội dung, tâm sự trong không gian ẩn danh để giải tỏa áp lực mà không lo lộ danh tính.
+
+
+Truy cập &quot;Góc chia sẻ&quot;.
+
+
+Hệ thống tự động áp dụng cơ chế ẩn danh.
+
+
+Đăng tải bài viết, đọc và bình luận tương tác với các sinh viên khác.
+
+
+5
+
+
+Đăng ký và quản lý lịch tư vấn
+
+
+Sinh viên
+
+
+Kết nối, đăng ký và theo dõi lịch hẹn tư vấn với chuyên viên tâm lý trực tuyến.
+
+
+Xem danh sách chuyên viên tâm lý.
+
+
+Chọn chuyên viên, chọn ngày, giờ và nhập lý do tư vấn (nếu có).
+
+
+Xác nhận yêu cầu đặt lịch hẹn.
+
+
+Theo dõi trạng thái duyệt và quản lý lịch hẹn trên hệ thống.
+
+
+
+
+
+

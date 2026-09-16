@@ -1,0 +1,264 @@
+﻿
+
+
+
+Đăng ký thuyết minh đề tài
+
+
+Học phần phát triển ứng dụng
+
+— O0O —
+
+
+Thông tin sinh viên
+
+
+MSSV (Đại diện): 120000212           Họ và tên (Đại diện): Ngô Tấn Lộc
+
+
+Danh sách sinh viên trong nhóm:
+
+
+STT
+
+
+MSSV
+
+
+Họ và tên
+
+
+Ký tên
+
+
+01
+
+
+120000212
+
+
+Ngô Tấn Lộc
+
+
+148802-50589
+
+
+
+02
+
+
+120000352
+
+
+Lê Minh Luân
+
+
+64135-41487
+
+
+
+
+
+
+Thông tin giáo viên hướng dẫn
+
+Họ và tên GV: Lê Minh Nhật
+
+Điện thoại: 0389571228 
+
+Email: nhatlm@lhu.edu.vn
+
+
+Tên dự án/ đề tài (dự kiến) thực hiện trong học phần
+
+Xây dựng hệ thống nhật ký cảm xúc và hỗ trợ tư vấn tâm lý ẩn danh dành cho sinh viên  
+
+
+Tóm tắt đề tài
+
+
+Đề tài tập trung xây dựng một website hỗ trợ chăm sóc sức khỏe tinh thần dành cho sinh viên, giúp người dùng theo dõi cảm xúc cá nhân, ghi lại nhật ký tâm trạng và kết nối với chuyên viên tư vấn tâm lý thông qua hệ thống đặt lịch trực tuyến.
+
+
+Nhằm gia tăng hiệu quả hỗ trợ, ứng dụng được tích hợp thêm các công cụ mở rộng như biểu đồ theo dõi tâm trạng hàng tuần, các bài kiểm tra tâm lý cơ bản và một góc chia sẻ ẩn danh để người dùng thoải mái trút bỏ áp lực học đường.
+
+
+Hệ thống cung cấp các chức năng chính gồm: quản lý nhật ký cảm xúc, theo dõi sự thay đổi tâm trạng bằng biểu đồ thống kê, thực hiện các bài kiểm tra tâm lý cơ bản, chia sẻ nội dung trong cộng đồng ẩn danh và đăng ký lịch tư vấn với chuyên viên.
+
+
+Mục tiêu và kết quả mong đợi 
+
+Mục tiêu của đề tài:
+
+
+Góp phần giải quyết vấn đề sinh viên gặp khó khăn trong việc nhận diện, theo dõi và kiểm soát trạng thái cảm xúc của bản thân trong quá trình học tập, dẫn đến nguy cơ căng thẳng, lo âu kéo dài nếu không được phát hiện và hỗ trợ kịp thời. 
+
+
+Tạo ra một kênh hỗ trợ tâm lý thuận tiện, riêng tư và dễ tiếp cận, giúp sinh viên chủ động chăm sóc sức khỏe tinh thần mà không e ngại về vấn đề danh tính hay sự kỳ thị. 
+
+
+Rút ngắn khoảng cách giữa sinh viên có nhu cầu tư vấn và chuyên viên tâm lý, thông qua một kênh kết nối trực tuyến nhanh chóng, thay vì phải liên hệ trực tiếp hoặc qua các quy trình thủ công. 
+
+
+Xây dựng nền tảng có khả năng vận hành ổn định, bảo mật thông tin cá nhân và dữ liệu tâm lý nhạy cảm của người dùng, tạo được sự tin tưởng khi sử dụng lâu dài. 
+
+
+Đặt nền tảng dữ liệu và quy trình quản lý phù hợp để hệ thống có thể mở rộng, nâng cấp thêm các tính năng hỗ trợ tâm lý trong tương lai.
+
+Kết quả của đề tài:
+
+
+Module quản lý tài khoản và phân quyền người dùng – cho phép đăng ký/đăng nhập và phân biệt 3 vai trò: sinh viên, chuyên viên tâm lý, quản trị viên, đảm bảo an toàn và bảo mật dữ liệu người dùng.
+
+
+Module nhật ký cảm xúc và thống kê tâm trạng – lưu trữ nhật ký cảm xúc hàng ngày của sinh viên và trực quan hóa diễn biến tâm trạng theo ngày/tuần/tháng bằng biểu đồ.
+
+
+Module kiểm tra tâm lý – tích hợp các bài trắc nghiệm tâm lý cơ bản và tự động trả kết quả đánh giá cho sinh viên.
+
+
+Module đặt lịch và quản lý tư vấn tâm lý – kết nối sinh viên với chuyên viên tâm lý thông qua tính năng đăng ký, theo dõi và xử lý lịch hẹn tư vấn.
+
+
+Module quản trị và giám sát hệ thống – hỗ trợ quản trị viên quản lý tài khoản, phân quyền và theo dõi hoạt động toàn hệ thống.
+
+
+Cơ sở dữ liệu SQL Server được thiết kế đầy đủ, chuẩn hóa, đáp ứng toàn bộ nghiệp vụ của hệ thống.
+
+
+Bộ tài liệu phân tích và thiết kế hệ thống (đặc tả yêu cầu, sơ đồ use case, thiết kế cơ sở dữ liệu, thiết kế giao diện...) phục vụ nghiệm thu.
+
+
+Sản phẩm website hoàn chỉnh cùng mã nguồn (source code) sẵn sàng triển khai và bàn giao.
+
+
+Kế hoạch thực hiện 
+
+STT
+
+Phân công: Ngô Tấn Lộc
+
+Phân công: Lê Minh Luân
+
+Thời gian
+
+01
+
+Khảo sát với giáo viên hướng dẫn: Trao đổi trực tiếp với giảng viên để chốt danh sách chức năng, yêu cầu giao diện và phân loại nhóm người dùng.
+
+Hoàn thiện thuyết minh: Tổng hợp góp ý từ giảng viên, tiến hành chỉnh sửa và hoàn thiện file thuyết minh đề tài dự án.
+
+Tuần 1
+
+(24/08 - 30/08)
+
+02
+
+Phân tích (Phân hệ Client): Vẽ sơ đồ Use Case và đặc tả chức năng dành riêng cho ứng dụng của người dùng.
+
+Phân tích (Phân hệ Admin/Expert): Vẽ Use Case cho chuyên gia/admin và tổng hợp thành tài liệu đặc tả chung.
+
+Tuần 2
+
+(31/08 - 06/09)
+
+03
+
+Thiết kế CSDL (Module 1): Xây dựng các bảng dữ liệu về thông tin người dùng, nhật ký cảm xúc và bài test.
+
+Thiết kế CSDL (Module 2): Xây dựng các bảng dữ liệu về chuyên gia, lịch hẹn, phân quyền và bảo mật.
+
+Tuần 3
+
+(07/09 - 13/09)
+
+04
+
+Thiết kế UI/UX (Frontend): Dựng Wireframe/Mockup cho ứng dụng người dùng (Trang chủ, nhật ký, bài test).
+
+Thiết kế UI/UX (Backend): Dựng Wireframe/Mockup cho Dashboard quản lý của tư vấn viên và Admin.
+
+Tuần 4-5
+
+(14/09 - 27/09)
+
+05
+
+Code Backend (Dữ liệu cá nhân): Lập trình API quản lý tài khoản, luồng nhật ký và tích hợp AI đánh giá cảm xúc.
+
+Code Backend (Nghiệp vụ): Lập trình API xử lý đặt lịch, thuật toán chống trùng lịch và cơ chế mã hóa ẩn danh.
+
+Tuần 6-7
+
+(28/09 - 11/10)
+
+06
+
+Code Frontend (Tính năng cốt lõi): Ghép API cho luồng đăng nhập, viết nhật ký và vẽ biểu đồ trực quan hóa tâm trạng.
+
+Code Frontend (Dịch vụ): Ghép API cho luồng hiển thị danh sách chuyên gia, chọn giờ và xác nhận đặt lịch hẹn.
+
+Tuần 8-9
+
+(12/10 - 25/10)
+
+07
+
+Code Module mở rộng (Cá nhân): Lập trình giao diện và logic chấm điểm cho các bài kiểm tra tâm lý cơ bản.
+
+Code Module mở rộng (Cộng đồng): Lập trình không gian góc chia sẻ ẩn danh và các tính năng tương tác.
+
+Tuần 10-11
+
+(26/10 - 08/11)
+
+08
+
+Kiểm thử chéo (Phần của Luân): Thực hiện test kịch bản đặt lịch hẹn, góc chia sẻ và tối ưu hiệu năng giao diện.
+
+Kiểm thử chéo (Phần của Lộc): Thực hiện test kịch bản luồng nhật ký, bảo mật đăng nhập và vá lỗi API.
+
+Tuần 12
+
+(09/11 - 15/11)
+
+09
+
+Viết Báo cáo (Lý thuyết &amp; Phân tích): Biên soạn chương cơ sở lý thuyết và kết quả phân tích thiết kế hệ thống.
+
+Viết Báo cáo (Thực nghiệm &amp; HDSD): Biên soạn chương kết quả thực nghiệm và làm tài liệu hướng dẫn sử dụng.
+
+Tuần 13
+
+(15/11 - 22/11)
+
+
+
+
+Đồng Nai, Ngày … tháng … năm 202..
+
+
+             GVHDSinh viên đại diện
+
+
+(Ký tên và ghi rõ họ tên)(Ký tên và ghi rõ họ tên)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

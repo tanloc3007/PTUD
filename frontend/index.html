@@ -1,0 +1,1263 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UniMind - Hệ Thống Nhật Ký Cảm Xúc & Tư Vấn Tâm Lý Ẩn Danh Học Đường</title>
+  <meta name="description" content="Nền tảng bảo mật và ẩn danh dành cho sinh viên ghi chép nhật ký cảm xúc, làm trắc nghiệm DASS-21, chia sẻ cộng đồng và đặt lịch tham vấn tâm lý 1-1.">
+  <link rel="icon" type="image/png" href="logo.png">
+  <link rel="stylesheet" href="src/shared/styles/serene-theme.css">
+  <style>
+    /* Additional custom component styles for the views */
+    .view-container { display: none; }
+    .view-container.active { display: block; animation: fadeIn 0.3s ease; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+    
+    /* Breathing animation circle */
+    .breath-circle {
+      width: 140px; height: 140px; border-radius: 50%;
+      background: radial-gradient(circle, #99f6e4, #0d9488);
+      margin: 20px auto; display: flex; align-items: center; justify-content: center;
+      color: #ffffff; font-weight: 800; font-size: 15px; box-shadow: 0 0 30px rgba(20, 184, 166, 0.5);
+      transition: transform 4s ease-in-out;
+    }
+    .breath-circle.inhale { transform: scale(1.4); }
+    .breath-circle.hold { transform: scale(1.4); filter: brightness(1.2); }
+    .breath-circle.exhale { transform: scale(0.9); }
+
+    /* SVG spline chart */
+    .chart-container { width: 100%; height: 220px; position: relative; }
+    .chart-container svg { width: 100%; height: 100%; overflow: visible; }
+    
+    /* Video call SafeRoom simulator */
+    .video-stage-box {
+      background: #090e17; border-radius: var(--radius-lg); position: relative;
+      height: 480px; overflow: hidden; display: flex; align-items: center; justify-content: center;
+    }
+    .video-pip-student {
+      position: absolute; bottom: 20px; right: 20px; width: 190px; height: 130px;
+      background: #1e293b; border-radius: 12px; border: 2px solid var(--primary-500);
+      overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      color: #ffffff; font-size: 11px; z-index: 10;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ========================================================================
+       TOP BAR: UNIMIND SUITE HEADER (Kiến trúc 3 phân hệ độc lập)
+       ======================================================================== -->
+  <header class="unimind-suite-bar">
+    <div class="suite-brand-area">
+      <div class="suite-logo-badge">
+        <img src="logo.png" alt="UniMind Logo">
+      </div>
+      <div class="suite-title-box">
+        <div class="suite-title-row">
+          <span class="suite-title-text">UniMind Suite</span>
+          <span class="suite-pill-tag">Kiến Trúc 3 Phân Hệ Độc Lập</span>
+        </div>
+        <span class="suite-subtitle">Điều hướng 100% không sót menu • Đồng bộ phong cách Serene Sanctuary</span>
+      </div>
+    </div>
+
+    <!-- 3 Subsystem Switcher Buttons -->
+    <nav class="suite-switcher-nav" aria-label="Chuyển đổi phân hệ">
+      <button class="subsystem-btn active" id="btnSubsystemStudent" onclick="switchSubsystem('student')">
+        <span>👤 1. Phân Hệ Sinh Viên</span>
+        <span class="badge-count">6 Trang</span>
+      </button>
+      <button class="subsystem-btn" id="btnSubsystemExpert" onclick="switchSubsystem('expert')">
+        <span>🩺 2. Phân Hệ Chuyên Viên</span>
+        <span class="badge-count">4 Trang</span>
+      </button>
+      <button class="subsystem-btn" id="btnSubsystemAdmin" onclick="switchSubsystem('admin')">
+        <span>⚙️ 3. Phân Hệ Quản Trị (Admin)</span>
+        <span class="badge-count">3 Trang</span>
+      </button>
+    </nav>
+
+    <!-- Right Controls -->
+    <div class="suite-right-controls">
+      <div class="security-pill">
+        <div class="security-dot"></div>
+        <span>Mã hóa E2EE 256-bit An toàn</span>
+      </div>
+      <div class="user-session-pill" id="userBadge" onclick="openLoginModal()">
+        <span>#</span>
+        <span id="txtUserBadge">Sinh viên: Bạn Ẩn Yên #382</span>
+      </div>
+      <a href="http://localhost:5080/swagger" target="_blank" class="btn-swagger-link" title="Kiểm thử API trực tiếp qua Swagger UI">
+        <span>⚡ Swagger API</span>
+      </a>
+      <button class="btn-secondary" style="padding: 5px 12px; font-size: 12px;" onclick="openLoginModal()" id="btnAuthToggle">
+        Đăng nhập
+      </button>
+    </div>
+  </header>
+
+  <!-- ========================================================================
+       MAIN APP CONTAINER (Sidebar + Main Content Stage)
+       ======================================================================== -->
+  <div class="app-container">
+
+    <!-- LEFT SIDEBAR -->
+    <aside class="sidebar-panel">
+      <div class="sidebar-header">
+        <img src="logo.png" alt="Logo UniMind" class="sidebar-logo-img">
+        <div>
+          <div class="sidebar-brand-name">UniMind</div>
+          <div class="sidebar-brand-sub" id="txtSidebarRoleSub">Không Gian Sinh Viên</div>
+        </div>
+      </div>
+
+      <!-- MENU DÀNH CHO PHÂN HỆ SINH VIÊN -->
+      <div id="menuStudentGroup">
+        <div class="sidebar-section-title">Phân Hệ Sinh Viên</div>
+        <ul class="nav-menu-list">
+          <li>
+            <button class="nav-item-btn active" id="btnNavStudentHome" onclick="switchView('student', 'home')">
+              <div class="nav-item-left"><span class="nav-icon">🏠</span><span>Trang chủ An Yên</span></div>
+            </button>
+          </li>
+          <li>
+            <button class="nav-item-btn" id="btnNavStudentFeed" onclick="switchView('student', 'feed')">
+              <div class="nav-item-left"><span class="nav-icon">💬</span><span>Bảng tin & Đăng bài</span></div>
+              <span class="nav-pill-badge" style="background:#e0f2fe; color:#0369a1;">Mới</span>
+            </button>
+          </li>
+          <li>
+            <button class="nav-item-btn" id="btnNavStudentBooking" onclick="switchView('student', 'booking')">
+              <div class="nav-item-left"><span class="nav-icon">📅</span><span>Đặt lịch Chuyên viên 1-1</span></div>
+            </button>
+          </li>
+          <li>
+            <button class="nav-item-btn" id="btnNavStudentJournal" onclick="switchView('student', 'journal')">
+              <div class="nav-item-left"><span class="nav-icon">📖</span><span>Nhật ký & Mood Tracker</span></div>
+            </button>
+          </li>
+          <li>
+            <button class="nav-item-btn" id="btnNavStudentTest" onclick="switchView('student', 'test')">
+              <div class="nav-item-left"><span class="nav-icon">📊</span><span>Trắc nghiệm DASS-21</span></div>
+            </button>
+          </li>
+          <li>
+            <button class="nav-item-btn" id="btnNavStudentSafeRoom" onclick="switchView('student', 'saferoom')">
+              <div class="nav-item-left"><span class="nav-icon">📹</span><span>SafeRoom Cuộc họp</span></div>
+              <span class="security-dot" style="background:#10b981;"></span>
+            </button>
+          </li>
+        </ul>
+      </div>
+
+      <!-- MENU DÀNH CHO PHÂN HỆ CHUYÊN VIÊN -->
+      <div id="menuExpertGroup" style="display: none;">
+        <div class="sidebar-section-title">Nghiệp vụ Chuyên viên</div>
+        <ul class="nav-menu-list">
+          <li>
+            <button class="nav-item-btn" id="btnNavExpertWorkspace" onclick="switchView('expert', 'workspace')">
+              <div class="nav-item-left"><span class="nav-icon">🩺</span><span>Workspace Tổng quan</span></div>
+            </button>
+          </li>
+          <li>
+            <button class="nav-item-btn" id="btnNavExpertSchedule" onclick="switchView('expert', 'schedule')">
+              <div class="nav-item-left"><span class="nav-icon">🗓️</span><span>Quản lý Ca trực & Lịch hẹn</span></div>
+              <span class="nav-pill-badge" style="background:#fee2e2; color:#b91c1c;">4 Ca</span>
+            </button>
+          </li>
+          <li>
+            <button class="nav-item-btn" id="btnNavExpertAnalytics" onclick="switchView('expert', 'analytics')">
+              <div class="nav-item-left"><span class="nav-icon">📈</span><span>Phân tích Tâm lý & Cảnh báo</span></div>
+            </button>
+          </li>
+          <li>
+            <button class="nav-item-btn" id="btnNavExpertModeration" onclick="switchView('expert', 'moderation')">
+              <div class="nav-item-left"><span class="nav-icon">🛡️</span><span>Duyệt bài & Từ khóa nhạy cảm</span></div>
+              <span class="nav-pill-badge" style="background:#fef3c7; color:#92400e;">Lọc AI</span>
+            </button>
+          </li>
+        </ul>
+      </div>
+
+      <!-- MENU DÀNH CHO PHÂN HỆ QUẢN TRỊ ADMIN -->
+      <div id="menuAdminGroup" style="display: none;">
+        <div class="sidebar-section-title">Quản Trị Hệ Thống</div>
+        <ul class="nav-menu-list">
+          <li>
+            <button class="nav-item-btn" id="btnNavAdminDashboard" onclick="switchView('admin', 'dashboard')">
+              <div class="nav-item-left"><span class="nav-icon">📊</span><span>Trung Tâm Điều Hành</span></div>
+            </button>
+          </li>
+          <li>
+            <button class="nav-item-btn" id="btnNavAdminUsers" onclick="switchView('admin', 'users')">
+              <div class="nav-item-left"><span class="nav-icon">👥</span><span>Quản Trị Nhân Sự & Tài Khoản</span></div>
+            </button>
+          </li>
+          <li>
+            <button class="nav-item-btn" id="btnNavAdminModeration" onclick="switchView('admin', 'moderation')">
+              <div class="nav-item-left"><span class="nav-icon">🛡️</span><span>Kiểm Duyệt Forum & Bộ Lọc AI</span></div>
+              <span class="nav-pill-badge" style="background:#fee2e2; color:#b91c1c;">SOS</span>
+            </button>
+          </li>
+        </ul>
+      </div>
+
+      <!-- User card bottom -->
+      <div class="user-identity-card">
+        <div class="identity-avatar" id="avatarBox">ẨN</div>
+        <div class="identity-info">
+          <div class="identity-name" id="sidebarUserName">Bạn Ẩn Yên #382</div>
+          <div class="identity-sub" id="sidebarUserSub">Định danh tự hủy 24h</div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- MAIN STAGE PANEL -->
+    <main class="main-stage-panel">
+
+      <!-- TOP BAR IN STAGE -->
+      <div class="stage-top-bar">
+        <div class="search-input-box">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="globalSearchInput" placeholder="Tìm kiếm thông điệp, chủ đề tâm lý, bài viết hoặc chuyên gia...">
+        </div>
+        <div class="stage-top-actions">
+          <button class="btn-sos-hotline" onclick="triggerSosEmergency()">
+            <span>🚨 SOS 24/7 (1900 1267)</span>
+          </button>
+          <button class="btn-secondary" style="border-radius: 20px; padding: 8px 14px;" onclick="openBreathingModal()">
+            <span>🌬️ Luyện thở 4-7-8</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- ====================================================================
+           1. PHÂN HỆ SINH VIÊN - CÁC TRANG (VIEWS)
+           ==================================================================== -->
+      
+      <!-- 1.1. Trang chủ An Yên (Home) -->
+      <div class="view-container active" id="viewStudentHome">
+        <div style="margin-bottom: 24px;">
+          <div style="display:flex; align-items:center; gap:10px; margin-bottom: 6px;">
+            <h1 style="font-size: 24px; font-weight: 800; color: var(--primary-950);">Trang Chủ An Yên Học Đường</h1>
+            <span class="suite-pill-tag">Dành riêng cho Sinh viên</span>
+          </div>
+          <p style="color: var(--slate-500); font-size: 14px;">Không gian lắng đọng, bảo mật tuyệt đối. Bạn không hề đơn độc trong hành trình này.</p>
+        </div>
+
+        <!-- Banner Check-in cảm xúc hôm nay -->
+        <div style="background: linear-gradient(135deg, var(--primary-800), var(--primary-900)); color: #ffffff; border-radius: var(--radius-xl); padding: 32px; box-shadow: var(--shadow-lg); position: relative; overflow: hidden; margin-bottom: 28px;">
+          <div style="display: inline-block; background: rgba(255,255,255,0.15); font-size: 12px; font-weight: 700; padding: 4px 14px; border-radius: 20px; margin-bottom: 12px;">
+            Check-in Cảm xúc hôm nay
+          </div>
+          <h2 style="font-size: 28px; font-weight: 800; margin-bottom: 10px; letter-spacing: -0.5px;">Chào bạn, tâm trạng của bạn lúc này thế nào?</h2>
+          <p style="color: var(--primary-100); font-size: 14.5px; margin-bottom: 22px; max-width: 620px;">
+            Dành 30 giây ghi lại năng lượng để hệ thống đề xuất bài tập thở, gợi ý thấu cảm và hỗ trợ kịp thời.
+          </p>
+          <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <button class="btn-secondary" style="background: rgba(255,255,255,0.15); color: #fff; border: 1px solid rgba(255,255,255,0.25);" onclick="quickSelectMood('Peaceful')">
+              🌱 Bình yên
+            </button>
+            <button class="btn-secondary" style="background: rgba(255,255,255,0.15); color: #fff; border: 1px solid rgba(255,255,255,0.25);" onclick="quickSelectMood('Stressed')">
+              🌧️ Căng thẳng đồ án
+            </button>
+            <button class="btn-secondary" style="background: rgba(255,255,255,0.15); color: #fff; border: 1px solid rgba(255,255,255,0.25);" onclick="quickSelectMood('Exhausted')">
+              💭 Trống rỗng, mất ngủ
+            </button>
+            <button class="btn-secondary" style="background: rgba(255,255,255,0.15); color: #fff; border: 1px solid rgba(255,255,255,0.25);" onclick="quickSelectMood('Great')">
+              ✨ Đầy hy vọng
+            </button>
+          </div>
+        </div>
+
+        <!-- 3 Lối tắt hành động -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px;">
+          <div class="card-white" style="cursor: pointer; transition: all 0.2s;" onclick="switchView('student', 'saferoom')">
+            <div style="width: 44px; height: 44px; border-radius: 12px; background: #ccfbf1; color: var(--primary-700); display: flex; align-items: center; justify-content: center; font-size: 20px; margin-bottom: 14px;">
+              🎙️
+            </div>
+            <h3 style="font-size: 16px; font-weight: 700; color: var(--primary-950); margin-bottom: 6px;">Phòng Tư Vấn SafeRoom</h3>
+            <p style="font-size: 13px; color: var(--slate-500); margin-bottom: 14px;">Cuộc gọi mã hóa 2 chiều với mặt nạ AI bảo vệ diện mạo 100%.</p>
+            <span style="font-size: 13px; font-weight: 700; color: var(--primary-700);">Vào phòng trực tuyến →</span>
+          </div>
+
+          <div class="card-white" style="cursor: pointer; transition: all 0.2s;" onclick="switchView('student', 'test')">
+            <div style="width: 44px; height: 44px; border-radius: 12px; background: #e0e7ff; color: #4338ca; display: flex; align-items: center; justify-content: center; font-size: 20px; margin-bottom: 14px;">
+              📊
+            </div>
+            <h3 style="font-size: 16px; font-weight: 700; color: var(--primary-950); margin-bottom: 6px;">Trắc Nghiệm DASS-21</h3>
+            <p style="font-size: 13px; color: var(--slate-500); margin-bottom: 14px;">Đo lường 3 thang chuẩn y khoa: Trầm cảm, Lo âu và Căng thẳng.</p>
+            <span style="font-size: 13px; font-weight: 700; color: #4338ca;">Làm bài kiểm tra →</span>
+          </div>
+
+          <div class="card-white" style="cursor: pointer; transition: all 0.2s;" onclick="triggerSosEmergency()">
+            <div style="width: 44px; height: 44px; border-radius: 12px; background: #fee2e2; color: #b91c1c; display: flex; align-items: center; justify-content: center; font-size: 20px; margin-bottom: 14px;">
+              ⏰
+            </div>
+            <h3 style="font-size: 16px; font-weight: 700; color: var(--primary-950); margin-bottom: 6px;">Hỗ Trợ SOS Khẩn Cấp</h3>
+            <p style="font-size: 13px; color: var(--slate-500); margin-bottom: 14px;">Kết nối tức thì tổng đài tâm lý trường 24/7 (Hotline 1900 1267).</p>
+            <span style="font-size: 13px; font-weight: 700; color: #b91c1c;">Sẵn sàng 24/24 →</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 1.2. Bảng tin & Đăng bài (Community Feed) -->
+      <div class="view-container" id="viewStudentFeed">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:20px; flex-wrap:wrap; gap:12px;">
+          <div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span class="suite-pill-tag">KHÔNG GIAN BẢO MẬT • CỐ ĐỊNH ẨN DANH</span>
+              <span style="font-size:12px; color:var(--slate-500);">• 1,420 sinh viên đang online</span>
+            </div>
+            <h1 style="font-size:24px; font-weight:800; color:var(--primary-950); margin-top:4px;">Bảng Tin Chia Sẻ Ẩn Danh & Thấu Cảm</h1>
+            <p style="font-size:13.5px; color:var(--slate-500);">Nơi trút bỏ gánh nặng học tập, mở lòng cùng cộng đồng và nhận phản hồi ấm áp từ chuyên viên tâm lý.</p>
+          </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns: 2fr 1fr; gap:22px;">
+          <!-- Cột bài viết -->
+          <div style="display:flex; flex-direction:column; gap:20px;">
+            <!-- Box Đăng bài ẩn danh -->
+            <div class="card-white" style="border: 1px solid var(--primary-200);">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                <div style="display:flex; align-items:center; gap:8px;">
+                  <span style="font-size:18px;">🎭</span>
+                  <span style="font-size:13px; font-weight:700; color:var(--primary-900);">Bí danh của bạn:</span>
+                  <strong id="txtPostPseudonym" style="color:var(--primary-800); font-size:13px;">Cú Mèo Say Ngủ #402</strong>
+                  <button style="border:none; background:none; cursor:pointer; font-size:13px;" onclick="regeneratePseudonym()" title="Đổi bí danh mới">🔄</button>
+                </div>
+                <span class="security-pill" style="font-size:11px; padding:2px 8px;">Mã hóa AES-256</span>
+              </div>
+
+              <!-- Bộ chọn cảm xúc khi đăng bài -->
+              <div style="margin-bottom:12px; display:flex; gap:6px; flex-wrap:wrap;">
+                <span style="font-size:12px; color:var(--slate-500); align-self:center;">Bạn đang trải qua cảm giác gì?</span>
+                <button class="category-chip active" onclick="selectPostCategory(this, 'Áp lực học tập')">📚 Quá tải học tập</button>
+                <button class="category-chip" onclick="selectPostCategory(this, 'Lo âu tương lai')">🌱 Lo âu tương lai</button>
+                <button class="category-chip" onclick="selectPostCategory(this, 'Cô đơn')">🌧️ Cô đơn</button>
+                <button class="category-chip" onclick="selectPostCategory(this, 'Cần lời khuyên')">💡 Cần lời khuyên</button>
+              </div>
+
+              <textarea id="txtPostContent" rows="4" style="width:100%; border:1px solid var(--slate-200); border-radius:var(--radius-md); padding:12px; font-family:inherit; font-size:13.5px; outline:none; resize:vertical;" placeholder="Viết ra những điều đang đè nặng trong lòng bạn... Không phán xét, không danh tính, chỉ có sự lắng nghe chân thành."></textarea>
+              
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px; flex-wrap:wrap; gap:10px;">
+                <label style="display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--slate-600); cursor:pointer;">
+                  <input type="checkbox" id="chkRequestExpert" checked>
+                  <span>Yêu cầu chuyên viên tâm lý phản hồi ẩn danh</span>
+                </label>
+                <button class="btn-primary" onclick="submitCommunityPost()">
+                  <span>Gửi gắm tâm sự 🕊️</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Feed Filter Tabs -->
+            <div style="display:flex; gap:8px; overflow-x:auto; padding-bottom:4px;">
+              <button class="category-chip active" onclick="filterFeedCategory(this, 'Tất cả')">Tất cả</button>
+              <button class="category-chip" onclick="filterFeedCategory(this, 'Áp lực học tập')">Áp lực học tập</button>
+              <button class="category-chip" onclick="filterFeedCategory(this, 'Mối quan hệ & Gia đình')">Mối quan hệ & Gia đình</button>
+              <button class="category-chip" onclick="filterFeedCategory(this, 'Chia sẻ tích cực')">Chia sẻ tích cực</button>
+            </div>
+
+            <!-- Danh sách bài viết -->
+            <div id="communityPostsFeed" style="display:flex; flex-direction:column; gap:16px;">
+              <!-- Render via app.js -->
+            </div>
+          </div>
+
+          <!-- Cột widget phải -->
+          <div style="display:flex; flex-direction:column; gap:18px;">
+            <!-- Thời tiết cảm xúc hôm nay -->
+            <div class="card-white">
+              <h3 style="font-size:15px; font-weight:800; color:var(--primary-950); margin-bottom:8px; display:flex; align-items:center; gap:6px;">
+                <span>🌤️</span> Thời tiết cảm xúc hôm nay
+              </h3>
+              <p style="font-size:12px; color:var(--slate-500); margin-bottom:14px;">Tổng hợp từ 2,340 lượt check-in cảm xúc ẩn danh toàn trường trong 24 giờ qua.</p>
+              <div style="display:flex; flex-direction:column; gap:10px; font-size:12.5px;">
+                <div>
+                  <div style="display:flex; justify-content:space-between; margin-bottom:3px;">
+                    <span style="font-weight:600; color:#0d9488;">🟢 Tích cực & Ổn định</span>
+                    <strong style="color:#0d9488;">68%</strong>
+                  </div>
+                  <div style="background:#e2e8f0; height:7px; border-radius:10px; overflow:hidden;">
+                    <div style="background:#0d9488; width:68%; height:100%;"></div>
+                  </div>
+                </div>
+                <div>
+                  <div style="display:flex; justify-content:space-between; margin-bottom:3px;">
+                    <span style="font-weight:600; color:#3b82f6;">🔵 Căng thẳng mùa thi & Đồ án</span>
+                    <strong style="color:#3b82f6;">22%</strong>
+                  </div>
+                  <div style="background:#e2e8f0; height:7px; border-radius:10px; overflow:hidden;">
+                    <div style="background:#3b82f6; width:22%; height:100%;"></div>
+                  </div>
+                </div>
+                <div>
+                  <div style="display:flex; justify-content:space-between; margin-bottom:3px;">
+                    <span style="font-weight:600; color:#e11d48;">🔴 Cần nghỉ ngơi & Quá tải</span>
+                    <strong style="color:#e11d48;">10%</strong>
+                  </div>
+                  <div style="background:#e2e8f0; height:7px; border-radius:10px; overflow:hidden;">
+                    <div style="background:#e11d48; width:10%; height:100%;"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Góc chăm sóc bản thân: Thở 4-7-8 -->
+            <div class="card-white" style="background: linear-gradient(135deg, #f0fdfa, #e0f2fe); border:1px solid #99f6e4;">
+              <h3 style="font-size:15px; font-weight:800; color:var(--primary-950); margin-bottom:6px;">🌬️ Thực hành thở 4-7-8</h3>
+              <p style="font-size:12px; color:var(--slate-600); margin-bottom:12px;">Phương pháp kích hoạt hệ phó giao cảm giúp giảm lo âu cấp tốc trong 60 giây.</p>
+              <button class="btn-primary" style="width:100%; justify-content:center; font-size:13px;" onclick="openBreathingModal()">
+                Bắt đầu hít thở ngay →
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 1.3. Đặt lịch Chuyên viên 1-1 (Booking) -->
+      <div class="view-container" id="viewStudentBooking">
+        <div style="margin-bottom: 22px;">
+          <span class="suite-pill-tag">CHUẨN ẨN DANH TUYỆT ĐỐI • MÃ HÓA E2EE</span>
+          <h1 style="font-size: 24px; font-weight: 800; color: var(--primary-950); margin-top: 4px;">Đặt Lịch Tư Vấn Tâm Lý Riêng Tư & Bảo Mật</h1>
+          <p style="font-size: 13.5px; color: var(--slate-500);">Chuyên viên sẽ sắp xếp thời gian có mặt theo lịch bạn chọn. Không lưu hồ sơ vào hệ thống điểm rèn luyện hay học tập.</p>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 24px;">
+          <!-- Cột danh sách chuyên viên -->
+          <div style="display: flex; flex-direction: column; gap: 18px;" id="expertListContainer">
+            <!-- Render via app.js -->
+          </div>
+
+          <!-- Cột Panel xác nhận đặt lịch -->
+          <div class="card-white" style="height: fit-content; position: sticky; top: 90px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; border-bottom:1px solid var(--slate-100); padding-bottom:10px;">
+              <h3 style="font-size: 16px; font-weight: 800; color: var(--primary-950);">📋 Xác Nhận Đặt Lịch</h3>
+              <span class="security-dot" style="background:#10b981;"></span>
+            </div>
+
+            <div style="display:flex; flex-direction:column; gap:12px; font-size:13px;">
+              <div>
+                <span style="color:var(--slate-500);">Chuyên viên:</span>
+                <strong id="bookingExpertName" style="color:var(--primary-800); display:block; font-size:14px;">ThS. Tâm lý Nguyễn Thanh Hà</strong>
+              </div>
+              <div>
+                <span style="color:var(--slate-500);">Thời gian chọn:</span>
+                <strong id="bookingSlotTime" style="display:block;">Thứ 4, 15/05 • 09:00 - 09:50</strong>
+              </div>
+              
+              <div>
+                <span style="color:var(--slate-500);">Hình thức gặp gỡ:</span>
+                <div style="display:flex; gap:10px; margin-top:4px;">
+                  <label style="display:flex; align-items:center; gap:5px; font-weight:600; cursor:pointer;">
+                    <input type="radio" name="rdoConsultType" value="Physical" checked> Trực tiếp (P.302)
+                  </label>
+                  <label style="display:flex; align-items:center; gap:5px; font-weight:600; cursor:pointer;">
+                    <input type="radio" name="rdoConsultType" value="Online"> Trực tuyến SafeRoom
+                  </label>
+                </div>
+              </div>
+
+              <div>
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                  <span style="color:var(--slate-500);">Bí danh bảo mật:</span>
+                  <button style="background:none; border:none; color:var(--primary-700); font-size:11px; cursor:pointer;" onclick="randomBookingPseudonym()">Tạo bí danh khác</button>
+                </div>
+                <input type="text" id="txtBookingPseudonym" value="Mây Trắng #841" style="width:100%; padding:8px 12px; border:1px solid var(--slate-200); border-radius:var(--radius-sm); font-family:inherit; margin-top:3px;">
+              </div>
+
+              <div>
+                <span style="color:var(--slate-500);">Ghi chú điều bạn muốn chia sẻ (Không bắt buộc):</span>
+                <textarea id="txtBookingNotes" rows="3" style="width:100%; padding:8px; border:1px solid var(--slate-200); border-radius:var(--radius-sm); font-family:inherit; font-size:12.5px; margin-top:3px;" placeholder="Ví dụ: Mình cảm thấy kiệt sức vì deadline dồn dập..."></textarea>
+              </div>
+
+              <label style="display:flex; align-items:flex-start; gap:6px; font-size:12px; color:var(--slate-600); cursor:pointer;">
+                <input type="checkbox" id="chkBookingAgree" checked style="margin-top:2px;">
+                <span>Tôi hiểu rằng lịch hẹn hoàn toàn miễn phí và danh tính sinh viên được bảo vệ tuyệt đối theo chuẩn đạo đức nghề nghiệp.</span>
+              </label>
+
+              <button class="btn-primary" style="width:100%; justify-content:center; margin-top:8px;" onclick="confirmBookAppointment()">
+                🔒 Xác nhận Đặt lịch bảo mật
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 1.4. Nhật ký Cảm xúc & Mood Tracker (Journal) -->
+      <div class="view-container" id="viewStudentJournal">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; flex-wrap:wrap; gap:12px;">
+          <div>
+            <span class="suite-pill-tag">MÃ HÓA 256-BIT • CHỈ BẠN XEM ĐƯỢC</span>
+            <h1 style="font-size:24px; font-weight:800; color:var(--primary-950); margin-top:4px;">Nhật Ký Cảm Xúc & Bản Đồ Tâm Trạng</h1>
+            <p style="font-size:13.5px; color:var(--slate-500);">Không gian an toàn, riêng tư tuyệt đối để bạn lắng nghe và gọi tên từng cảm xúc mỗi ngày.</p>
+          </div>
+          <button class="btn-secondary" onclick="exportJournalPdf()">
+            📥 Xuất báo cáo PDF gửi chuyên viên
+          </button>
+        </div>
+
+        <div style="display:grid; grid-template-columns: 3fr 2fr; gap:24px;">
+          <!-- Form Nhật ký -->
+          <div class="card-white">
+            <h3 style="font-size:16px; font-weight:800; color:var(--primary-950); margin-bottom:14px;">Hôm nay cảm xúc chủ đạo của bạn là gì?</h3>
+            
+            <div style="display:grid; grid-template-columns: repeat(5, 1fr); gap:8px; margin-bottom:18px;">
+              <button class="mood-box-btn" onclick="selectMoodBox(this, 'Great')">
+                <span style="font-size:22px;">✨</span>
+                <strong>Tuyệt vời</strong>
+                <small>Rất vui</small>
+              </button>
+              <button class="mood-box-btn active" onclick="selectMoodBox(this, 'Peaceful')">
+                <span style="font-size:22px;">🌱</span>
+                <strong>Bình yên</strong>
+                <small>Thư thái</small>
+              </button>
+              <button class="mood-box-btn" onclick="selectMoodBox(this, 'Stressed')">
+                <span style="font-size:22px;">⚡</span>
+                <strong>Căng thẳng</strong>
+                <small>Áp lực</small>
+              </button>
+              <button class="mood-box-btn" onclick="selectMoodBox(this, 'Exhausted')">
+                <span style="font-size:22px;">🥀</span>
+                <strong>Mệt mỏi</strong>
+                <small>Quá tải</small>
+              </button>
+              <button class="mood-box-btn" onclick="selectMoodBox(this, 'Sad')">
+                <span style="font-size:22px;">🌧️</span>
+                <strong>Buồn bã</strong>
+                <small>Cô đơn</small>
+              </button>
+            </div>
+
+            <div style="margin-bottom:16px;">
+              <div style="display:flex; justify-content:space-between; margin-bottom:4px; font-size:13px;">
+                <span style="font-weight:600; color:var(--slate-700);">Mức năng lượng hiện tại (Energy Level):</span>
+                <strong id="txtEnergyVal" style="color:var(--primary-800);">7 / 10 • Khá tốt</strong>
+              </div>
+              <input type="range" id="rngEnergy" min="1" max="10" value="7" style="width:100%; accent-color:var(--primary-700);" oninput="document.getElementById('txtEnergyVal').textContent = this.value + ' / 10'">
+            </div>
+
+            <div style="margin-bottom:16px;">
+              <span style="font-size:13px; font-weight:600; color:var(--slate-700); display:block; margin-bottom:6px;">Yếu tố ảnh hưởng lớn nhất hôm nay (Triggers):</span>
+              <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                <button class="trigger-chip active" onclick="toggleTrigger(this)">☕ Áp lực thi cử</button>
+                <button class="trigger-chip active" onclick="toggleTrigger(this)">💻 Đồ án tốt nghiệp</button>
+                <button class="trigger-chip" onclick="toggleTrigger(this)">👥 Bạn bè / Tình cảm</button>
+                <button class="trigger-chip active" onclick="toggleTrigger(this)">🌙 Mất ngủ</button>
+                <button class="trigger-chip" onclick="toggleTrigger(this)">💰 Tài chính sinh viên</button>
+              </div>
+            </div>
+
+            <div style="margin-bottom:16px;">
+              <span style="font-size:13px; font-weight:600; color:var(--slate-700); display:block; margin-bottom:6px;">Tâm sự & Suy tư của bạn:</span>
+              <textarea id="txtJournalContent" rows="4" style="width:100%; border:1px solid var(--slate-200); border-radius:var(--radius-md); padding:12px; font-family:inherit; font-size:13.5px; outline:none;" placeholder="Hãy viết ra mọi điều bạn đang trải qua hôm nay... Mọi trút bỏ đều quý giá và được giữ kín tuyệt đối."></textarea>
+            </div>
+
+            <div style="background:var(--primary-50); border:1px solid var(--primary-200); border-radius:var(--radius-md); padding:12px; margin-bottom:16px; font-size:13px; color:var(--primary-900);">
+              <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+                <strong>🤖 UniMind AI Thấu Cảm & Gợi ý tức thời:</strong>
+                <span class="security-dot" style="background:#10b981;"></span>
+              </div>
+              <p id="txtAiJournalLivePreview">"Có vẻ như bạn đã vượt qua một buổi bảo vệ tiểu luận tương đối căng thẳng sáng nay. Hãy tự khen ngợi bản thân vì đã không bỏ cuộc. Uống một ngụm nước ấm và thử bài thở 4-7-8 trước khi ngủ nhé!"</p>
+            </div>
+
+            <button class="btn-primary" style="width:100%; justify-content:center;" onclick="saveMoodJournal()">
+              💾 Lưu nhật ký cảm xúc hôm nay
+            </button>
+          </div>
+
+          <!-- Biến thiên tâm trạng & Biểu đồ -->
+          <div style="display:flex; flex-direction:column; gap:18px;">
+            <div class="card-white">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                <h3 style="font-size:15px; font-weight:800; color:var(--primary-950);">Biến Thiên Tâm Trạng (7 Ngày)</h3>
+                <span style="font-size:11.5px; color:var(--slate-500);">Theo dõi diễn biến</span>
+              </div>
+              
+              <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:8px; margin-bottom:16px; text-align:center;">
+                <div style="background:#f0fdfa; padding:10px; border-radius:8px;">
+                  <strong style="font-size:20px; color:#0d9488;">4</strong>
+                  <div style="font-size:11px; color:#0f766e;">Ngày Bình yên</div>
+                </div>
+                <div style="background:#fffbeb; padding:10px; border-radius:8px;">
+                  <strong style="font-size:20px; color:#d97706;">2</strong>
+                  <div style="font-size:11px; color:#b45309;">Ngày Căng thẳng</div>
+                </div>
+                <div style="background:#fff1f2; padding:10px; border-radius:8px;">
+                  <strong style="font-size:20px; color:#e11d48;">1</strong>
+                  <div style="font-size:11px; color:#be123c;">Ngày Mệt mỏi</div>
+                </div>
+              </div>
+
+              <!-- Biểu đồ SVG Spline -->
+              <div class="chart-container">
+                <svg viewBox="0 0 400 180">
+                  <defs>
+                    <linearGradient id="gradPeace" x1="0%" y1="0%" x2="0%" y2="100%">
+                      <stop offset="0%" stop-color="#14b8a6" stop-opacity="0.3"/>
+                      <stop offset="100%" stop-color="#14b8a6" stop-opacity="0.0"/>
+                    </linearGradient>
+                  </defs>
+                  <!-- Lưới ngang -->
+                  <line x1="0" y1="40" x2="400" y2="40" stroke="#f1f5f9" stroke-width="1"/>
+                  <line x1="0" y1="90" x2="400" y2="90" stroke="#f1f5f9" stroke-width="1"/>
+                  <line x1="0" y1="140" x2="400" y2="140" stroke="#f1f5f9" stroke-width="1"/>
+                  <!-- Đường sóng Bình An -->
+                  <path d="M 20 120 Q 80 110, 140 130 T 260 70 T 380 40 L 380 160 L 20 160 Z" fill="url(#gradPeace)"/>
+                  <path d="M 20 120 Q 80 110, 140 130 T 260 70 T 380 40" fill="none" stroke="#0d9488" stroke-width="3"/>
+                  <!-- Đường sóng Căng Thẳng -->
+                  <path d="M 20 70 Q 80 90, 140 80 T 260 140 T 380 150" fill="none" stroke="#e11d48" stroke-width="2" stroke-dasharray="4"/>
+                  <!-- Các điểm mốc -->
+                  <circle cx="20" cy="120" r="4" fill="#0d9488"/>
+                  <circle cx="140" cy="130" r="4" fill="#0d9488"/>
+                  <circle cx="260" cy="70" r="4" fill="#0d9488"/>
+                  <circle cx="380" cy="40" r="5" fill="#0d9488"/>
+                </svg>
+              </div>
+              <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--slate-400); margin-top:6px;">
+                <span>T2</span><span>T3</span><span>T4 (Đồ án)</span><span>T5</span><span>T6</span><span>Hôm nay</span><span>CN</span>
+              </div>
+            </div>
+
+            <!-- Lịch sử các ngày qua -->
+            <div class="card-white">
+              <h3 style="font-size:14.5px; font-weight:800; color:var(--primary-950); margin-bottom:10px;">Lịch sử nhật ký gần đây</h3>
+              <div id="journalHistoryList" style="display:flex; flex-direction:column; gap:8px;">
+                <!-- Render via app.js -->
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 1.5. Trắc nghiệm DASS-21 (Test) -->
+      <div class="view-container" id="viewStudentTest">
+        <div style="margin-bottom:20px;">
+          <span class="suite-pill-tag">THẨM ĐỊNH Y KHOA ĐH LẠC HỒNG • MÃ HÓA BỆNH ÁN</span>
+          <h1 style="font-size:24px; font-weight:800; color:var(--primary-950); margin-top:4px;">Góc Trắc Nghiệm & Đánh Giá Sức Khỏe Tinh Thần</h1>
+          <p style="font-size:13.5px; color:var(--slate-500);">Các bài trắc nghiệm chuẩn hóa quốc tế (DASS-21, PHQ-9, GAD-7) giúp bạn nhận diện sớm tình trạng sức khỏe tâm lý.</p>
+        </div>
+
+        <div style="display:grid; grid-template-columns: 2fr 1fr; gap:24px;">
+          <!-- Bài test DASS-21 câu hỏi tương tác -->
+          <div class="card-white" id="dass21QuestionBox">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+              <span class="category-chip active" id="txtTestCategoryTitle">DASS-21 • ĐO LƯỜNG MỨC ĐỘ CĂNG THẲNG</span>
+              <strong id="txtQuestionProgress" style="color:var(--primary-800); font-size:13px;">Câu 7 / 21</strong>
+            </div>
+
+            <div style="background:#e2e8f0; height:6px; border-radius:10px; margin-bottom:20px; overflow:hidden;">
+              <div id="barTestProgress" style="background:var(--primary-600); width:33%; height:100%; transition:width 0.3s;"></div>
+            </div>
+
+            <h2 id="txtQuestionContent" style="font-size:20px; font-weight:700; color:var(--slate-900); margin-bottom:8px; line-height:1.4;">
+              "Trong suốt 1 tuần qua, bạn cảm thấy khó thư giãn hoặc bồn chồn đứng ngồi không yên đến mức nào?"
+            </h2>
+            <p style="font-size:12.5px; color:var(--slate-500); margin-bottom:20px;">Hãy chọn phương án phản ánh đúng nhất trạng thái của bạn, không có câu trả lời đúng hoặc sai.</p>
+
+            <div style="display:flex; flex-direction:column; gap:10px; margin-bottom:24px;" id="testOptionChoices">
+              <label class="test-choice-label" onclick="selectTestScore(0)">
+                <input type="radio" name="rdoTestAnswer" value="0">
+                <div>
+                  <strong>Không đúng với tôi chút nào</strong>
+                  <small style="display:block; color:var(--slate-500);">Không trải qua triệu chứng này trong 7 ngày qua</small>
+                </div>
+                <span class="choice-points">0 điểm</span>
+              </label>
+
+              <label class="test-choice-label" onclick="selectTestScore(1)">
+                <input type="radio" name="rdoTestAnswer" value="1">
+                <div>
+                  <strong>Đúng với tôi một phần, hoặc thỉnh thoảng</strong>
+                  <small style="display:block; color:var(--slate-500);">Xảy ra từ 1 đến 2 ngày nhưng tự giải tỏa được</small>
+                </div>
+                <span class="choice-points">1 điểm</span>
+              </label>
+
+              <label class="test-choice-label active" onclick="selectTestScore(2)">
+                <input type="radio" name="rdoTestAnswer" value="2" checked>
+                <div>
+                  <strong>Đúng với tôi phần nhiều, hoặc khá thường xuyên</strong>
+                  <small style="display:block; color:var(--slate-500);">Xảy ra trong khoảng 3 đến 5 ngày trong tuần</small>
+                </div>
+                <span class="choice-points">2 điểm</span>
+              </label>
+
+              <label class="test-choice-label" onclick="selectTestScore(3)">
+                <input type="radio" name="rdoTestAnswer" value="3">
+                <div>
+                  <strong>Rất đúng với tôi, hoặc hầu như luôn luôn</strong>
+                  <small style="display:block; color:var(--slate-500);">Cảm giác căng cứng chi phối hầu hết thời gian biểu</small>
+                </div>
+                <span class="choice-points">3 điểm</span>
+              </label>
+            </div>
+
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <button class="btn-secondary" onclick="prevTestQuestion()">← Quay lại câu trước</button>
+              <button class="btn-primary" onclick="nextTestQuestion()">Tiếp tục câu sau →</button>
+            </div>
+          </div>
+
+          <!-- Cột phải: Hồ sơ kết quả gần nhất -->
+          <div style="display:flex; flex-direction:column; gap:16px;">
+            <div class="card-white" style="border:1px solid #c7d2fe; background:#f8fafc;">
+              <h3 style="font-size:15px; font-weight:800; color:#1e1b4b; margin-bottom:12px;">📊 Hồ Sơ Tâm Lý Gần Nhất</h3>
+              
+              <div style="display:flex; flex-direction:column; gap:12px; font-size:13px;">
+                <div style="background:#ffffff; padding:10px 14px; border-radius:8px; border-left:4px solid #10b981;">
+                  <div style="display:flex; justify-content:space-between;">
+                    <strong>Trầm cảm (Depression)</strong>
+                    <span style="font-weight:700; color:#10b981;">4 / 21</span>
+                  </div>
+                  <small style="color:var(--slate-500);">Mức: Bình thường • Tâm trạng ổn định</small>
+                </div>
+
+                <div style="background:#ffffff; padding:10px 14px; border-radius:8px; border-left:4px solid #f59e0b;">
+                  <div style="display:flex; justify-content:space-between;">
+                    <strong>Lo âu (Anxiety)</strong>
+                    <span style="font-weight:700; color:#f59e0b;">8 / 21</span>
+                  </div>
+                  <small style="color:var(--slate-500);">Mức: Nhẹ (Mild) • Cần chú ý theo dõi</small>
+                </div>
+
+                <div style="background:#ffffff; padding:10px 14px; border-radius:8px; border-left:4px solid #e11d48;">
+                  <div style="display:flex; justify-content:space-between;">
+                    <strong>Căng thẳng (Stress)</strong>
+                    <span style="font-weight:700; color:#e11d48;">14 / 21</span>
+                  </div>
+                  <small style="color:var(--slate-500);">Mức: Trung bình • Cần can thiệp nghỉ ngơi</small>
+                </div>
+              </div>
+
+              <div style="margin-top:16px; background:#e0e7ff; padding:12px; border-radius:8px; font-size:12.5px; color:#3730a3;">
+                <strong>💡 Nhận định AI & Chuyên gia:</strong>
+                <p style="margin-top:4px;">Hệ thần kinh giao cảm của bạn đang chịu áp lực dồn nén từ khóa luận. Đề xuất gửi kết quả này cho Chuyên viên khi đặt lịch hẹn.</p>
+              </div>
+
+              <button class="btn-primary" style="width:100%; justify-content:center; margin-top:14px; font-size:13px;" onclick="switchView('student', 'booking')">
+                📤 Gửi kết quả cho Chuyên viên khi Đặt lịch
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 1.6. SafeRoom Cuộc họp trực tuyến (SafeRoom) -->
+      <div class="view-container" id="viewStudentSafeRoom">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; flex-wrap:wrap; gap:10px;">
+          <div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span class="suite-pill-tag">SAFEROOM #04 • MÃ HÓA E2EE ZERO-KNOWLEDGE</span>
+              <span style="font-size:12px; color:var(--slate-500);">Chuyên viên: <strong>ThS. Lê Thanh Tâm</strong></span>
+            </div>
+            <h1 style="font-size:22px; font-weight:800; color:var(--primary-950); margin-top:2px;">Phòng Tư Vấn Trực Tuyến 1-1 Mã Hóa</h1>
+          </div>
+          <div style="display:flex; align-items:center; gap:10px;">
+            <div style="background:#f1f5f9; padding:6px 14px; border-radius:20px; font-size:13px; font-weight:700;">
+              ⏱️ Thời gian phiên: <span id="txtSafeRoomTimer" style="color:#0d9488;">32:45 / 50:00</span>
+            </div>
+            <button class="btn-sos-hotline" style="padding:6px 14px; font-size:12px;" onclick="triggerSosEmergency()">Trợ giúp SOS</button>
+            <button class="btn-secondary" style="background:#fee2e2; color:#b91c1c; border-color:#fca5a5; padding:6px 14px; font-size:12px;" onclick="switchView('student', 'home')">Kết thúc phiên</button>
+          </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns: 2.2fr 1fr; gap:18px;">
+          <!-- Khung Video Stage -->
+          <div class="video-stage-box">
+            <!-- Expert avatar visualizer -->
+            <div style="text-align:center; color:#ffffff;">
+              <div style="width:140px; height:140px; border-radius:50%; border:4px solid #14b8a6; display:flex; align-items:center; justify-content:center; margin:0 auto 16px auto; background:#1e293b; font-size:48px; box-shadow:0 0 40px rgba(20, 184, 166, 0.4);">
+                TT
+              </div>
+              <h3 style="font-size:18px; font-weight:700;">ThS. Lê Thanh Tâm</h3>
+              <span style="font-size:13px; color:#94a3b8;">Chuyên gia tâm lý • Đang lắng nghe bạn...</span>
+            </div>
+
+            <!-- Student PiP with 3D Avatar Mask -->
+            <div class="video-pip-student">
+              <div style="background:#059669; padding:2px 8px; border-radius:10px; font-size:10px; margin-bottom:6px;">
+                Mặt nạ 3D Avatar: BẬT
+              </div>
+              <div style="font-size:28px;">面</div>
+              <span>Bạn Ẩn Yên #382</span>
+              <small style="font-size:9.5px; color:#94a3b8;">Khuôn mặt đã làm mờ 100%</small>
+            </div>
+
+            <!-- Bottom Video Toolbar -->
+            <div style="position:absolute; bottom:16px; left:50%; transform:translateX(-50%); display:flex; gap:10px; background:rgba(15,23,42,0.85); backdrop-filter:blur(8px); padding:8px 16px; border-radius:30px;">
+              <button class="btn-secondary" style="padding:8px 14px; font-size:12px; border-radius:20px; color:#fff; background:rgba(255,255,255,0.15);" id="btnMicToggle" onclick="toggleMic()">🎤 Mic: Bật</button>
+              <button class="btn-secondary" style="padding:8px 14px; font-size:12px; border-radius:20px; color:#fff; background:rgba(255,255,255,0.15);" id="btnCamToggle" onclick="toggleCam()">📷 Cam: Bật</button>
+              <button class="btn-secondary" style="padding:8px 14px; font-size:12px; border-radius:20px; color:#34d399; background:rgba(5,150,105,0.25);" onclick="openBreathingModal()">🌬️ Nhịp thở 4-7-8</button>
+            </div>
+          </div>
+
+          <!-- Khung Chat trực tiếp & DASS-21 đầu phiên -->
+          <div class="card-white" style="display:flex; flex-direction:column; height:480px; padding:16px;">
+            <div style="display:flex; border-bottom:1px solid var(--slate-200); margin-bottom:10px; padding-bottom:6px; gap:12px;">
+              <button class="category-chip active" style="font-size:12px;">💬 Trò chuyện</button>
+              <button class="category-chip" style="font-size:12px;">📊 Hồ sơ DASS-21</button>
+            </div>
+
+            <!-- Chat messages list -->
+            <div id="saferoomChatBox" style="flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:10px; font-size:12.5px;">
+              <div style="background:#f1f5f9; padding:8px 12px; border-radius:10px; align-self:flex-start; max-width:85%;">
+                <strong>ThS. Lê Thanh Tâm</strong> <small style="color:var(--slate-400);">14:02</small>
+                <p style="margin-top:2px;">Chào em, Thầy rất trân trọng sự dũng cảm của em khi tham gia phiên hôm nay. Em cứ tự nhiên chia sẻ nhé!</p>
+              </div>
+              <div style="background:var(--primary-100); padding:8px 12px; border-radius:10px; align-self:flex-end; max-width:85%;">
+                <strong>Bạn Ẩn Yên #382</strong> <small style="color:var(--slate-400);">14:04</small>
+                <p style="margin-top:2px;">Dạ em chào Thầy. Tuần này chuẩn bị thi học kỳ mà em cảm giác tim đập rất nhanh và khó thở mỗi khi ngồi vào bàn học...</p>
+              </div>
+            </div>
+
+            <!-- Quick emotional reaction pills -->
+            <div style="display:flex; gap:6px; margin:8px 0; overflow-x:auto;">
+              <button class="trigger-chip" style="font-size:11px;" onclick="sendQuickSafeRoomChat('Cảm ơn Thầy')">🤍 Cảm ơn Thầy</button>
+              <button class="trigger-chip" style="font-size:11px;" onclick="sendQuickSafeRoomChat('Em thấy xúc động')">💧 Xúc động</button>
+              <button class="trigger-chip" style="font-size:11px;" onclick="sendQuickSafeRoomChat('Cần thêm nhịp thở')">🧘 Cần thở chậm</button>
+            </div>
+
+            <!-- Chat input -->
+            <div style="display:flex; gap:8px;">
+              <input type="text" id="txtSafeRoomMsg" placeholder="Nhập tin nhắn tâm sự an toàn..." style="flex:1; border:1px solid var(--slate-200); border-radius:20px; padding:6px 14px; font-size:12.5px; outline:none;" onkeydown="if(event.key==='Enter') sendSafeRoomMsg()">
+              <button class="btn-primary" style="padding:6px 14px; border-radius:20px; font-size:12px;" onclick="sendSafeRoomMsg()">Gửi</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ====================================================================
+           2. PHÂN HỆ CHUYÊN VIÊN - CÁC TRANG (VIEWS)
+           ==================================================================== -->
+
+      <!-- 2.1. Cổng Workspace Tổng Quan Chuyên Viên -->
+      <div class="view-container" id="viewExpertWorkspace">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:20px; flex-wrap:wrap; gap:12px;">
+          <div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span class="suite-pill-tag">ĐANG TRONG CA TRỰC • KHU B - P.302</span>
+              <span style="font-size:12px; color:var(--slate-500);">Thứ Năm • Đã đồng bộ</span>
+            </div>
+            <h1 style="font-size:26px; font-weight:800; color:var(--primary-950); margin-top:4px;">Xin chào, ThS. Lê Thanh Tâm</h1>
+            <p style="font-size:13.5px; color:var(--slate-500);">Hệ thống AI NLP vừa quét thêm 148 bài đăng diễn đàn sinh viên. Có 2 cảnh báo tâm lý cần ưu tiên can thiệp lâm sàng ngay ca chiều nay.</p>
+          </div>
+          <button class="btn-primary" onclick="switchView('student', 'saferoom')">
+            📹 Mở phòng SafeRoom trực tuyến
+          </button>
+        </div>
+
+        <!-- 3 Thống kê ca trực -->
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:16px; margin-bottom:24px;">
+          <div class="card-white" style="border-left:4px solid #0d9488;">
+            <span style="font-size:12px; color:var(--slate-500);">Lịch hẹn hôm nay</span>
+            <div style="font-size:28px; font-weight:800; color:#0d9488; margin:4px 0;">04 <small style="font-size:13px; color:var(--slate-500);">ca tham vấn</small></div>
+            <span style="font-size:11px; color:#059669;">✔ Đã xác nhận</span>
+          </div>
+          <div class="card-white" style="border-left:4px solid #e11d48;">
+            <span style="font-size:12px; color:var(--slate-500);">Báo động NLP</span>
+            <div style="font-size:28px; font-weight:800; color:#e11d48; margin:4px 0;">02 <small style="font-size:13px; color:var(--slate-500);">mức khẩn cấp</small></div>
+            <span style="font-size:11px; color:#e11d48;">⚠ Cần can thiệp gấp</span>
+          </div>
+          <div class="card-white" style="border-left:4px solid #4f46e5;">
+            <span style="font-size:12px; color:var(--slate-500);">Hồi phục & Can thiệp</span>
+            <div style="font-size:28px; font-weight:800; color:#4f46e5; margin:4px 0;">96% <small style="font-size:13px; color:var(--slate-500);">thành công</small></div>
+            <span style="font-size:11px; color:#4f46e5;">✔ Đánh giá 5 sao</span>
+          </div>
+        </div>
+
+        <!-- THẺ BÁO ĐỘNG ĐỎ NGUY CƠ CAO (EXTREME CRISIS BANNER) -->
+        <div class="extreme-crisis-alert-card" style="margin-bottom:24px;">
+          <div class="alert-header-row">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span class="alert-badge-red">🚨 [BÁO ĐỘNG ĐỎ: NGUY CƠ CAO (94/100)]</span>
+              <strong style="font-size:14px; color:var(--red-800);">Bài viết mang xu hướng quá tiêu cực cần chuyên viên và admin giải quyết ngay!</strong>
+            </div>
+            <span class="alert-risk-score">Điểm Rủi Ro AI: 94 / 100</span>
+          </div>
+
+          <div class="alert-snippet">
+            "Mất ngủ kéo dài cả tuần nay, mình nhìn đâu cũng thấy vô định. Cảm giác mệt mỏi từ do không có điểm dừng, mình chỉ muốn buông bỏ tất cả bài thi và cuộc sống này, không còn lối thoát nào nữa..."
+          </div>
+
+          <div class="alert-keywords-row">
+            <strong>Từ khóa kích hoạt rủi ro:</strong>
+            <span class="keyword-pill">mất ngủ kéo dài</span>
+            <span class="keyword-pill">vô định</span>
+            <span class="keyword-pill">buông bỏ</span>
+            <span class="keyword-pill">không còn lối thoát</span>
+            <span style="color:var(--slate-500); margin-left:8px;">(Tác giả: Sinh viên ẩn danh #902 • Khoa CNTT)</span>
+          </div>
+
+          <div class="alert-actions-grid">
+            <button class="btn-urgent-action" onclick="resolveCrisisAlert('SosActivated', 'Sinh viên #902')">
+              ⚡ Kích hoạt Can thiệp SOS Khẩn
+            </button>
+            <button class="btn-safe-room-action" onclick="resolveCrisisAlert('SafeRoomOpened', 'Sinh viên #902')">
+              📹 Mở SafeRoom Tư Vấn Riêng Tư
+            </button>
+            <button class="btn-support-message" onclick="resolveCrisisAlert('SupportMessageSent', 'Sinh viên #902')">
+              💌 Gửi Thông Điệp Nâng Đỡ Ẩn Danh
+            </button>
+          </div>
+        </div>
+
+        <!-- Ca trực & Lịch hẹn tham vấn chiều nay -->
+        <div class="card-white">
+          <h3 style="font-size:16px; font-weight:800; color:var(--primary-950); margin-bottom:14px;">📅 Danh Sách Ca Hẹn Tham Vấn Chiều Nay</h3>
+          <div id="expertTodayAppointmentsList" style="display:flex; flex-direction:column; gap:12px;">
+            <!-- Render via app.js -->
+          </div>
+        </div>
+      </div>
+
+      <!-- 2.2. Quản lý Lịch hẹn & Ca trực Chuyên viên -->
+      <div class="view-container" id="viewExpertSchedule">
+        <div style="margin-bottom:20px;">
+          <h1 style="font-size:24px; font-weight:800; color:var(--primary-950);">Quản Lý Lịch Hẹn Tư Vấn & Điều Phối Ca Trực</h1>
+          <p style="font-size:13.5px; color:var(--slate-500);">Xem danh sách các ca tư vấn sinh viên đã đăng ký, xác nhận sự có mặt và phân bổ phòng trực P.302 hoặc SafeRoom Online.</p>
+        </div>
+
+        <div style="display:grid; grid-template-columns: 2fr 1fr; gap:22px;">
+          <!-- Chi tiết ca trực -->
+          <div class="card-white">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+              <h3 style="font-size:16px; font-weight:800; color:var(--primary-950);">Lịch Trực Chi Tiết Trong Ngày</h3>
+              <button class="btn-primary" style="padding:6px 14px; font-size:12px;" onclick="addNewSlotModal()">+ Thêm khung giờ trực</button>
+            </div>
+
+            <div id="scheduleTimelineList" style="display:flex; flex-direction:column; gap:14px;">
+              <!-- Render via app.js -->
+            </div>
+          </div>
+
+          <!-- Hàng đợi ca hẹn mới cần duyệt -->
+          <div class="card-white">
+            <h3 style="font-size:15px; font-weight:800; color:var(--primary-950); margin-bottom:12px;">Hàng Đợi Ca Hẹn Mới (Chờ Duyệt)</h3>
+            <div id="pendingBookingQueue" style="display:flex; flex-direction:column; gap:10px;">
+              <!-- Render via app.js -->
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2.3. Bảng Phân tích Tâm lý & Cảnh báo Sớm (Analytics & Triage) -->
+      <div class="view-container" id="viewExpertAnalytics">
+        <div style="margin-bottom:20px;">
+          <span class="suite-pill-tag">AI SENTIMENT TRIAGE ACTIVE</span>
+          <h1 style="font-size:24px; font-weight:800; color:var(--primary-950); margin-top:4px;">Không Gian Phân Tích Tâm Lý & Cảnh Báo Sớm</h1>
+          <p style="font-size:13.5px; color:var(--slate-500);">Hệ thống giám sát chỉ số sức khỏe tinh thần sinh viên toàn trường, phát hiện dấu hiệu kiệt sức học đường và điều phối can thiệp bảo mật.</p>
+        </div>
+
+        <div style="display:grid; grid-template-columns: 2fr 1fr; gap:22px; margin-bottom:24px;">
+          <div class="card-white">
+            <h3 style="font-size:15px; font-weight:800; color:var(--primary-950); margin-bottom:8px;">Biểu Đồ Động Thái Tâm Lý Theo Chu Kỳ Học Phần</h3>
+            <p style="font-size:12px; color:var(--slate-500); margin-bottom:14px;">So sánh biến động cảm xúc qua 6 tuần giảng dạy gần nhất.</p>
+            <div class="chart-container">
+              <svg viewBox="0 0 400 160">
+                <path d="M 20 100 Q 90 70, 160 85 T 280 60 T 380 40" fill="none" stroke="#0d9488" stroke-width="3"/>
+                <path d="M 20 120 Q 90 140, 160 110 T 280 130 T 380 140" fill="none" stroke="#3b82f6" stroke-width="2"/>
+                <path d="M 20 140 Q 90 130, 160 120 T 280 90 T 380 110" fill="none" stroke="#e11d48" stroke-width="2" stroke-dasharray="3"/>
+              </svg>
+            </div>
+            <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--slate-400); margin-top:4px;">
+              <span>Tuần 04</span><span>Tuần 05</span><span>Tuần 06 (Giữa kỳ)</span><span>Tuần 07 (Đồ án)</span><span>Hiện tại</span>
+            </div>
+          </div>
+
+          <div class="card-white">
+            <h3 style="font-size:15px; font-weight:800; color:var(--primary-950); margin-bottom:10px;">Chủ Đề Báo Động Nổi Bật (NLP)</h3>
+            <div style="display:flex; flex-direction:column; gap:8px; font-size:12.5px;">
+              <div style="background:#fee2e2; padding:8px 12px; border-radius:6px; color:#b91c1c; font-weight:700;">
+                🔴 Mất ngủ triền miên (284 lượt)
+              </div>
+              <div style="background:#fef3c7; padding:8px 12px; border-radius:6px; color:#b45309; font-weight:600;">
+                🟡 Kiệt sức đồ án tốt nghiệp (216 lượt)
+              </div>
+              <div style="background:#f1f5f9; padding:8px 12px; border-radius:6px; color:var(--slate-700);">
+                ⚪ Kỳ vọng gia đình đè nặng (189 lượt)
+              </div>
+              <div style="background:#f1f5f9; padding:8px 12px; border-radius:6px; color:var(--slate-700);">
+                ⚪ Bế tắc định hướng việc làm (145 lượt)
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bảng hàng đợi can thiệp khẩn cấp Triage -->
+        <div class="card-white">
+          <h3 style="font-size:16px; font-weight:800; color:var(--primary-950); margin-bottom:14px;">Hàng Đợi Can Thiệp Khẩn Cấp (NLP High Risk Triage)</h3>
+          <div id="triageAlertsTable" style="display:flex; flex-direction:column; gap:10px;">
+            <!-- Render via app.js -->
+          </div>
+        </div>
+      </div>
+
+      <!-- 2.4. Duyệt bài viết & Quản trị Từ khóa nhạy cảm (Dành cho Chuyên viên) -->
+      <div class="view-container" id="viewExpertModeration">
+        <div style="margin-bottom:20px;">
+          <h1 style="font-size:24px; font-weight:800; color:var(--primary-950);">Duyệt Bài Viết & Quản Lý Từ Khóa Nhạy Cảm (Chuyên Viên)</h1>
+          <p style="font-size:13.5px; color:var(--slate-500);">Chuyên viên kiểm tra các bài viết, bình luận bị hệ thống tự động ẩn đối với sinh viên và bổ sung các từ khóa nguy cơ tự hại.</p>
+        </div>
+
+        <div style="display:grid; grid-template-columns: 2fr 1fr; gap:22px;">
+          <!-- Danh sách bài viết bị ẩn cần duyệt -->
+          <div class="card-white">
+            <h3 style="font-size:16px; font-weight:800; color:var(--primary-950); margin-bottom:12px;">Hàng Đợi Bài Viết Chờ Chuyên Viên Đánh Giá</h3>
+            <div id="expertModerationQueue" style="display:flex; flex-direction:column; gap:14px;">
+              <!-- Render via app.js -->
+            </div>
+          </div>
+
+          <!-- Quản lý từ khóa nhạy cảm -->
+          <div class="card-white">
+            <h3 style="font-size:15px; font-weight:800; color:var(--primary-950); margin-bottom:10px;">Chỉ Định Từ Khóa Nhạy Cảm Mới</h3>
+            <p style="font-size:12px; color:var(--slate-500); margin-bottom:12px;">Bài viết/bình luận chứa các từ khóa này sẽ bị ẩn với sinh viên và chuyển ngay đến hàng đợi.</p>
+            
+            <div style="display:flex; flex-direction:column; gap:10px; margin-bottom:16px;">
+              <input type="text" id="txtExpertNewKeyword" placeholder="Nhập từ khóa (Ví dụ: bế tắc, rạch tay)..." style="padding:8px 12px; border:1px solid var(--slate-200); border-radius:6px; font-size:13px;">
+              <select id="selExpertKeywordCategory" style="padding:8px; border:1px solid var(--slate-200); border-radius:6px; font-size:13px;">
+                <option value="SelfHarm">Nguy cơ tự hại (SelfHarm)</option>
+                <option value="Depression">Trầm cảm nặng (Depression)</option>
+                <option value="Harassment">Bắt nạt / Công kích (Harassment)</option>
+              </select>
+              <button class="btn-primary" style="justify-content:center; font-size:13px;" onclick="addSensitiveKeyword('expert')">
+                + Thêm vào bộ lọc tự động
+              </button>
+            </div>
+
+            <h4 style="font-size:13px; font-weight:700; color:var(--slate-700); margin-bottom:8px;">Các từ khóa đang kích hoạt:</h4>
+            <div id="expertKeywordsTagCloud" style="display:flex; gap:6px; flex-wrap:wrap;">
+              <!-- Render via app.js -->
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ====================================================================
+           3. PHÂN HỆ QUẢN TRỊ ADMIN - CÁC TRANG (VIEWS)
+           ==================================================================== -->
+
+      <!-- 3.1. Trung Tâm Điều Hành Quản Trị Hệ Thống (Dashboard) -->
+      <div class="view-container" id="viewAdminDashboard">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; flex-wrap:wrap; gap:12px;">
+          <div>
+            <span class="suite-pill-tag">ROOT CONSOLE • BẢO MẬT CẤP 1</span>
+            <h1 style="font-size:26px; font-weight:800; color:var(--primary-950); margin-top:4px;">Trung Tâm Điều Hành & Quản Trị Toàn Hệ Thống</h1>
+            <p style="font-size:13.5px; color:var(--slate-500);">Giám sát trực quan mạng lưới hỗ trợ tâm lý học đường, hạ tầng mã hóa dữ liệu sinh viên chuẩn zero-knowledge proof.</p>
+          </div>
+          <button class="btn-primary" onclick="exportAdminReport()">
+            📊 Xuất Báo Cáo Tuần Cho Ban Giám Hiệu
+          </button>
+        </div>
+
+        <!-- 4 KPI Metrics -->
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:16px; margin-bottom:24px;">
+          <div class="card-white">
+            <span style="font-size:12px; color:var(--slate-500);">Tổng sinh viên hoạt động</span>
+            <div style="font-size:28px; font-weight:800; color:var(--primary-800); margin:4px 0;">14,850</div>
+            <span style="font-size:11px; color:#059669;">✔ 98.2% Ẩn danh tuyệt đối</span>
+          </div>
+          <div class="card-white">
+            <span style="font-size:12px; color:var(--slate-500);">Bài viết ẩn danh hôm nay</span>
+            <div style="font-size:28px; font-weight:800; color:#0284c7; margin:4px 0;">342</div>
+            <span style="font-size:11px; color:#0284c7;">Tự động lọc NLP 100%</span>
+          </div>
+          <div class="card-white">
+            <span style="font-size:12px; color:var(--slate-500);">Chuyên viên thường trực</span>
+            <div style="font-size:28px; font-weight:800; color:#7c3aed; margin:4px 0;">16 <small style="font-size:13px; color:var(--slate-400);">/ 18 người</small></div>
+            <span style="font-size:11px; color:#7c3aed;">6 ca đang trực tuyến</span>
+          </div>
+          <div class="card-white">
+            <span style="font-size:12px; color:var(--slate-500);">Hạ tầng & Bảo mật AES-256</span>
+            <div style="font-size:28px; font-weight:800; color:#059669; margin:4px 0;">99.9%</div>
+            <span style="font-size:11px; color:#059669;">Ổn định • 0 rò rỉ dữ liệu</span>
+          </div>
+        </div>
+
+        <!-- Hàng đợi kiểm duyệt tự động & Lưu lượng SOS -->
+        <div style="display:grid; grid-template-columns: 2fr 1fr; gap:22px;">
+          <div class="card-white">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+              <h3 style="font-size:16px; font-weight:800; color:var(--primary-950);">Hàng Đợi Kiểm Duyệt Bài Viết & Thảo Luận Forum</h3>
+              <span class="nav-pill-badge" style="background:#fee2e2; color:#b91c1c;" id="txtAdminPendingCount">14 Cần duyệt</span>
+            </div>
+            <div id="adminModerationList" style="display:flex; flex-direction:column; gap:12px;">
+              <!-- Render via app.js -->
+            </div>
+          </div>
+
+          <div class="card-white">
+            <h3 style="font-size:15px; font-weight:800; color:var(--primary-950); margin-bottom:8px;">Lưu Lượng & Tần Suất Kích Hoạt SOS</h3>
+            <p style="font-size:12px; color:var(--slate-500); margin-bottom:14px;">Theo dõi biến động cảm xúc toàn trường nhằm chủ động kích hoạt tài nguyên trợ giúp.</p>
+            <div class="chart-container" style="height:160px;">
+              <svg viewBox="0 0 300 130">
+                <path d="M 10 90 Q 70 80, 130 95 T 220 50 T 290 30" fill="none" stroke="#0d9488" stroke-width="3"/>
+                <path d="M 10 110 Q 70 115, 130 110 T 220 90 T 290 100" fill="none" stroke="#e11d48" stroke-width="2" stroke-dasharray="3"/>
+              </svg>
+            </div>
+            <div style="font-size:12px; color:var(--slate-600); margin-top:10px;">
+              ⏱️ Thời gian phản hồi SOS trung bình: <strong>1 phút 42 giây</strong>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3.2. Quản Trị Toàn Bộ Hệ Thống & Nhân Sự -->
+      <div class="view-container" id="viewAdminUsers">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; flex-wrap:wrap; gap:12px;">
+          <div>
+            <h1 style="font-size:24px; font-weight:800; color:var(--primary-950);">Quản Trị Toàn Bộ Hệ Thống & Nhân Sự Chuyên Viên</h1>
+            <p style="font-size:13.5px; color:var(--slate-500);">Theo dõi tình trạng trực, điều phối phiên tham vấn và kiểm định chất lượng phản hồi từ sinh viên.</p>
+          </div>
+          <button class="btn-primary" onclick="openAddExpertModal()">
+            + Thêm chuyên viên mới
+          </button>
+        </div>
+
+        <div class="card-white" style="margin-bottom:20px;">
+          <h3 style="font-size:16px; font-weight:800; color:var(--primary-950); margin-bottom:14px;">Đội Ngũ Chuyên Viên Tâm Lý Trường Học</h3>
+          <div id="adminExpertsTable" style="display:flex; flex-direction:column; gap:12px;">
+            <!-- Render via app.js -->
+          </div>
+        </div>
+
+        <div class="card-white">
+          <h3 style="font-size:16px; font-weight:800; color:var(--primary-950); margin-bottom:14px;">Danh Sách Người Dùng Hệ Thống</h3>
+          <div id="adminUsersTable" style="display:flex; flex-direction:column; gap:8px;">
+            <!-- Render via app.js -->
+          </div>
+        </div>
+      </div>
+
+      <!-- 3.3. Kiểm Duyệt Forum & Quản Trị Bộ Lọc AI (Admin Moderation) -->
+      <div class="view-container" id="viewAdminModeration">
+        <div style="margin-bottom:20px;">
+          <h1 style="font-size:24px; font-weight:800; color:var(--primary-950);">Kiểm Duyệt Nội Dung & Cấu Hình Bộ Lọc AI (Admin)</h1>
+          <p style="font-size:13.5px; color:var(--slate-500);">Quản lý danh sách từ khóa nhạy cảm, điều chỉnh ngưỡng nhạy của mô hình NLP và xử lý các bài viết có xu hướng quá tiêu cực.</p>
+        </div>
+
+        <div style="display:grid; grid-template-columns: 2fr 1fr; gap:22px;">
+          <!-- Danh sách bài viết gắn cờ rủi ro -->
+          <div class="card-white">
+            <h3 style="font-size:16px; font-weight:800; color:var(--primary-950); margin-bottom:14px;">Các Bài Viết Được AI Gắn Cờ Cần Xử Lý</h3>
+            <div id="adminFlaggedFeedList" style="display:flex; flex-direction:column; gap:14px;">
+              <!-- Render via app.js -->
+            </div>
+          </div>
+
+          <!-- Quản lý từ khóa nhạy cảm của Admin -->
+          <div class="card-white">
+            <h3 style="font-size:15px; font-weight:800; color:var(--primary-950); margin-bottom:8px;">Bộ Lọc Từ Khóa Cấm & Nhạy Cảm</h3>
+            <p style="font-size:12px; color:var(--slate-500); margin-bottom:12px;">Từ khóa được áp dụng thời gian thực cho toàn bộ bài viết và bình luận sinh viên.</p>
+
+            <div style="display:flex; flex-direction:column; gap:10px; margin-bottom:16px;">
+              <input type="text" id="txtAdminNewKeyword" placeholder="Nhập từ khóa cấm/nhạy cảm..." style="padding:8px 12px; border:1px solid var(--slate-200); border-radius:6px; font-size:13px;">
+              <select id="selAdminKeywordCategory" style="padding:8px; border:1px solid var(--slate-200); border-radius:6px; font-size:13px;">
+                <option value="SelfHarm">Nguy cơ tự hại / Cực đoan (SelfHarm)</option>
+                <option value="AcademicFraud">Gian lận học thuật / Mua điểm (AcademicFraud)</option>
+                <option value="Harassment">Ngôn từ thù ghét / Công kích (Harassment)</option>
+              </select>
+              <button class="btn-primary" style="justify-content:center; font-size:13px;" onclick="addSensitiveKeyword('admin')">
+                Thêm vào bộ lọc cấm
+              </button>
+            </div>
+
+            <h4 style="font-size:13px; font-weight:700; color:var(--slate-700); margin-bottom:8px;">Danh sách 10 từ khóa nhạy cảm hàng đầu:</h4>
+            <div id="adminKeywordsTagCloud" style="display:flex; gap:6px; flex-wrap:wrap;">
+              <!-- Render via app.js -->
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <!-- ========================================================================
+       MODAL: ĐĂNG NHẬP / ĐĂNG KÝ
+       ======================================================================== -->
+  <div class="modal-overlay" id="modalAuth">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <img src="logo.png" alt="Logo" style="width:32px; height:32px; border-radius:8px;">
+          <h2 class="modal-title">Đăng Nhập Tài Khoản UniMind</h2>
+        </div>
+        <button class="modal-close-btn" onclick="closeAuthModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <!-- Tab vai trò -->
+        <div style="display:flex; background:var(--slate-100); padding:4px; border-radius:10px; margin-bottom:16px;">
+          <button class="subsystem-btn active" id="btnRoleStudent" style="flex:1; justify-content:center; font-size:12.5px;" onclick="selectAuthRole('Student')">Sinh viên</button>
+          <button class="subsystem-btn" id="btnRoleExpert" style="flex:1; justify-content:center; font-size:12.5px;" onclick="selectAuthRole('Expert')">Chuyên viên</button>
+          <button class="subsystem-btn" id="btnRoleAdmin" style="flex:1; justify-content:center; font-size:12.5px;" onclick="selectAuthRole('Admin')">Quản trị viên</button>
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:12px;">
+          <div>
+            <label style="font-size:12.5px; font-weight:600; color:var(--slate-700); display:block; margin-bottom:4px;" id="lblLoginIdentifier">Email hoặc Mã số sinh viên (MSSV):</label>
+            <input type="text" id="txtLoginEmail" value="sv_an@unimind.edu.vn" style="width:100%; padding:10px 14px; border:1px solid var(--slate-200); border-radius:var(--radius-md); font-family:inherit; font-size:13.5px;">
+          </div>
+          <div>
+            <label style="font-size:12.5px; font-weight:600; color:var(--slate-700); display:block; margin-bottom:4px;">Mật khẩu bảo mật:</label>
+            <input type="password" id="txtLoginPassword" value="123456" style="width:100%; padding:10px 14px; border:1px solid var(--slate-200); border-radius:var(--radius-md); font-family:inherit; font-size:13.5px;">
+          </div>
+
+          <!-- Nút điền nhanh tiện lợi cho test -->
+          <div style="background:#f0fdfa; border:1px dashed #0d9488; padding:8px 12px; border-radius:8px; font-size:12px; color:#0f766e;">
+            <strong>⚡ Điền nhanh tài khoản mẫu:</strong>
+            <div style="display:flex; gap:6px; margin-top:4px; flex-wrap:wrap;">
+              <button class="category-chip" style="font-size:11px;" onclick="fillDemoCredentials('student')">Sinh viên An</button>
+              <button class="category-chip" style="font-size:11px;" onclick="fillDemoCredentials('expert')">ThS. Tâm</button>
+              <button class="category-chip" style="font-size:11px;" onclick="fillDemoCredentials('admin')">Admin Văn An</button>
+            </div>
+          </div>
+
+          <button class="btn-primary" style="width:100%; justify-content:center; margin-top:8px;" onclick="handleLoginSubmit()">
+            Đăng nhập vào Không gian An Yên →
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       MODAL: LUYỆN THỞ 4-7-8 TƯƠNG TÁC
+       ======================================================================== -->
+  <div class="modal-overlay" id="modalBreathing">
+    <div class="modal-dialog" style="max-width: 460px; text-align:center;">
+      <div class="modal-header">
+        <h2 class="modal-title" style="margin: 0 auto;">🌬️ Bài Tập Thở Sâu 4-7-8</h2>
+        <button class="modal-close-btn" onclick="closeBreathingModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:13.5px; color:var(--slate-500); margin-bottom:14px;">
+          Kích hoạt hệ thần kinh phó giao cảm để đưa nhịp tim và tâm trí về trạng thái bình an trong 60 giây.
+        </p>
+        
+        <div class="breath-circle" id="breathCircle">
+          <span id="breathPhaseText">HÍT VÀO</span>
+        </div>
+
+        <div style="font-size:28px; font-weight:800; color:var(--primary-800); margin-bottom:12px;" id="breathCountdown">
+          4s
+        </div>
+
+        <div style="display:flex; justify-content:center; gap:10px;">
+          <button class="btn-primary" id="btnBreathingToggle" onclick="toggleBreathingCycle()">Bắt đầu bài tập</button>
+          <button class="btn-secondary" onclick="closeBreathingModal()">Đóng</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- Main JavaScript App -->
+  <script src="src/app.js"></script>
+</body>
+</html>

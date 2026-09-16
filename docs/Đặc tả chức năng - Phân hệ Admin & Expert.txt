@@ -1,0 +1,218 @@
+﻿
+
+
+
+ĐẶC TẢ CHỨC NĂNG - PHÂN HỆ ADMIN &amp; EXPERT
+
+
+
+1. Sơ đồ Use Case (Phân hệ Admin &amp; Expert)
+
+
+
+2. Đặc tả chức năng chi tiết
+
+
+
+2.1. Phân hệ Chuyên viên tâm lý (Expert)
+
+
+STT
+
+
+Tên chức năng (Use Case)
+
+
+Tác nhân
+
+
+Mô tả
+
+
+Luồng sự kiện chính
+
+
+
+ 
+
+
+1
+
+
+Quản lý lịch làm việc
+
+
+Chuyên viên tâm lý
+
+
+Cấu hình các khung giờ rảnh theo ngày/tuần để sinh viên có thể đăng ký đặt lịch tư vấn.
+
+
+Chuyên viên đăng nhập và truy cập trang quản lý lịch.
+
+
+Chọn ngày và thiết lập các khung giờ rảnh khả dụng.
+
+
+Hệ thống lưu thông tin và cập nhật trạng thái lịch rảnh cho sinh viên nhìn thấy.
+
+
+2
+
+
+Xử lý yêu cầu đặt lịch
+
+
+Chuyên viên tâm lý
+
+
+Tiếp nhận, kiểm tra lý do tư vấn và phê duyệt hoặc từ chối yêu cầu hẹn tư vấn từ sinh viên.
+
+
+Chuyên viên nhận thông báo có yêu cầu đặt lịch mới từ sinh viên.
+
+
+Xem thông tin thời gian và lý do tư vấn do sinh viên cung cấp.
+
+
+Chọn Phê duyệt hoặc Từ chối (kèm lý do nếu từ chối).
+
+
+Hệ thống gửi thông báo kết quả xử lý đến tài khoản sinh viên.
+
+
+3
+
+
+Thực hiện tư vấn &amp; Ghi chú
+
+
+Chuyên viên tâm lý
+
+
+Thực hiện ca tư vấn trực tuyến và ghi chép các thông tin, đánh giá chuyên môn sau ca tư vấn.
+
+
+Đến thời gian hẹn, chuyên viên mở phòng tư vấn trực tuyến.
+
+
+Tiến hành trao đổi, hỗ trợ tâm lý cho sinh viên.
+
+
+Sau ca tư vấn, nhập ghi chú hồ sơ và cập nhật trạng thái &quot;Đã hoàn thành&quot;.
+
+
+
+
+
+
+2.2. Phân hệ Quản trị viên (Admin)
+
+
+STT
+
+
+Tên chức năng (Use Case)
+
+
+Tác nhân
+
+
+Mô tả
+
+
+Luồng sự kiện chính
+
+
+
+ 
+
+
+1
+
+
+Quản lý tài khoản &amp; Phân quyền
+
+
+Quản trị viên
+
+
+Thêm, sửa, khóa hoặc phân quyền người dùng (Sinh viên, Chuyên viên tâm lý, Admin).
+
+
+Admin truy cập danh sách tài khoản người dùng trên hệ thống.
+
+
+Thực hiện tạo tài khoản mới cho Chuyên viên hoặc điều chỉnh quyền truy cập/khóa tài khoản vi phạm.
+
+
+Hệ thống xác nhận và cập nhật thay đổi dữ liệu.
+
+
+2
+
+
+Quản lý ngân hàng bài kiểm tra tâm lý
+
+
+Quản trị viên
+
+
+Cập nhật, thêm mới các bộ câu hỏi và thang điểm bài trắc nghiệm tâm lý.
+
+
+Admin chọn module &quot;Quản lý bài test&quot;.
+
+
+Thêm bài trắc nghiệm mới, nhập danh sách câu hỏi, các lựa chọn và quy tắc tính điểm.
+
+
+Hệ thống lưu và xuất bản bài test cho sinh viên thực hiện.
+
+
+3
+
+
+Kiểm duyệt góc chia sẻ &amp; Giám sát
+
+
+Quản trị viên
+
+
+Giám sát các bài viết ẩn danh, ẩn hoặc xóa các nội dung độc hại/vi phạm tiêu chuẩn cộng đồng.
+
+
+Admin xem danh sách bài viết/bình luận hoặc danh sách báo cáo từ người dùng.
+
+
+Duyệt bài hoặc tiến hành xóa bỏ các bài viết vi phạm.
+
+
+Hệ thống cập nhật và loại bỏ nội dung vi phạm khỏi giao diện cộng đồng.
+
+
+4
+
+
+Thống kê &amp; Báo cáo hệ thống
+
+
+Quản trị viên
+
+
+Theo dõi tổng quan số lượng người dùng, tần suất sử dụng nhật ký, số lượt tư vấn thành công.
+
+
+Admin truy cập trang Dashboard báo cáo.
+
+
+Chọn khoảng thời gian cần tổng hợp dữ liệu.
+
+
+Hệ thống xuất biểu đồ và số liệu thống kê tổng quan hoạt động toàn hệ thống.
+
+
+
+
+
+
