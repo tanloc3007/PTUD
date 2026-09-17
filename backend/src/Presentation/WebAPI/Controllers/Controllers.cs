@@ -443,4 +443,15 @@ public class AdminController : ControllerBase
         var result = await _adminService.DeleteSensitiveKeywordAsync(keywordId);
         return Ok(result);
     }
+
+    /// <summary>
+    /// Thêm chuyên viên tư vấn tâm lý mới
+    /// </summary>
+    [HttpPost("experts")]
+    public async Task<ActionResult<Result<ExpertDto>>> CreateExpert([FromBody] CreateExpertRequest request)
+    {
+        var result = await _adminService.CreateExpertAsync(request);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
 }

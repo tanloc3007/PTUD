@@ -6,6 +6,7 @@ using UniMind.Infrastructure.Persistence.Context;
 using UniMind.WebAPI.Middlewares;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.WebHost.UseUrls("http://localhost:5080");
 
 // 1. ADD SERVICES
 builder.Services.AddControllers();
@@ -26,7 +27,8 @@ builder.Services.AddCors(options =>
 });
 
 // 4. DEPENDENCY INJECTION
-builder.Services.AddSingleton<IApplicationDbContext, ApplicationDbContext>();
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+builder.Services.AddSingleton<IApplicationDbContext>(sp => new ApplicationDbContext(connectionString));
 builder.Services.AddSingleton<IPasswordHasher, PasswordHasher>();
 builder.Services.AddSingleton<IJwtProvider, JwtProvider>();
 builder.Services.AddSingleton<IAISentimentService, AISentimentService>();

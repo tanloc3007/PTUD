@@ -8,15 +8,10 @@ const API_BASE = "http://localhost:5080/api";
 
 // STATE TOÀN CỤC
 const state = {
-  currentSubsystem: "student", // "student", "expert", "admin"
+  currentSubsystem: "gateway", // "gateway", "student", "expert", "admin"
   currentView: "home",
-  currentUser: {
-    id: "22222222-2222-2222-2222-222222222222",
-    fullName: "Sinh viên Nguyễn Hoàng An",
-    anonymousCode: "Bạn Ẩn Yên #382",
-    role: "Student",
-    faculty: "Khoa Công nghệ Thông tin"
-  },
+  isLoggedIn: false,
+  currentUser: null,
   token: null,
   experts: [],
   selectedExpert: null,
@@ -50,17 +45,46 @@ const state = {
 };
 
 // ============================================================================
-// 1. KHỞI TẠO ỨNG DỤNG
+// 1. KHỞI TẠO ỨNG DỤNG & PHỤC HỒI PHIÊN
 // ============================================================================
 document.addEventListener("DOMContentLoaded", () => {
-  loadInitialData();
   setupEventListeners();
-  switchSubsystem("student");
+  restoreUserSession();
+  loadInitialData();
 });
+
+function restoreUserSession() {
+  const savedUser = localStorage.getItem("unimind_user");
+  const savedToken = localStorage.getItem("unimind_token");
+
+  if (savedUser && savedToken) {
+    try {
+      const user = JSON.parse(savedUser);
+      state.currentUser = user;
+      state.token = savedToken;
+      state.isLoggedIn = true;
+
+      // Xác định phân hệ theo vai trò
+      const role = (user.role || "").toLowerCase();
+      if (role === "admin") {
+        switchSubsystem("admin");
+      } else if (role === "expert") {
+        switchSubsystem("expert");
+      } else {
+        switchSubsystem("student");
+      }
+      return;
+    } catch (e) {
+      console.warn("Lỗi đọc phiên đã lưu:", e);
+    }
+  }
+
+  // Nếu chưa đăng nhập, hiển thị Cổng Chọn Phân Hệ (Gateway)
+  logoutToGateway();
+}
 
 async function loadInitialData() {
   try {
-    // 1. Tải danh sách chuyên viên
     const expRes = await fetch(`${API_BASE}/appointments/experts`);
     if (expRes.ok) {
       const data = await expRes.json();
@@ -70,7 +94,6 @@ async function loadInitialData() {
     console.warn("Backend API not reached, using local state mock:", e.message);
   }
 
-  // Tải danh sách bài viết bảng tin
   await loadCommunityFeed();
   renderExperts();
   renderJournalHistory();
@@ -78,7 +101,6 @@ async function loadInitialData() {
 }
 
 function setupEventListeners() {
-  // Global search enter
   const searchInp = document.getElementById("globalSearchInput");
   if (searchInp) {
     searchInp.addEventListener("keydown", (e) => {
@@ -90,50 +112,211 @@ function setupEventListeners() {
 }
 
 // ============================================================================
-// 2. ĐIỀU HƯỚNG GIỮA 3 PHÂN HỆ (STUDENT, EXPERT, ADMIN)
+// 2. ĐIỀU HƯỚNG CỔNG PHÂN HỆ & BẢO MẬT PHÂN QUYỀN (RBAC)
 // ============================================================================
+
+/**
+ * Kiểm tra quyền hạn truy cập của người dùng đối với phân hệ đích.
+ * Quy tắc: Phân hệ thấp không được phép truy cập/xem trang phân hệ cao.
+ */
+function checkSubsystemAccess(targetSubsystem) {
+  if (targetSubsystem === "gateway") return true;
+
+  if (!state.isLoggedIn || !state.currentUser) {
+    showToast("Vui lòng đăng nhập tài khoản để vào phân hệ này!");
+    openLoginModal();
+    selectAuthRole(targetSubsystem === "admin" ? "Admin" : targetSubsystem === "expert" ? "Expert" : "Student");
+    return false;
+  }
+
+  const userRole = (state.currentUser.role || "Student").toLowerCase();
+
+  // Quy tắc 1: Sinh viên CHỈ được truy cập Phân hệ Sinh viên
+  if (userRole === "student" && targetSubsystem !== "student") {
+    showAccessDeniedView("Sinh viên", targetSubsystem === "admin" ? "Quản trị viên (Admin)" : "Chuyên viên Tâm lý");
+    return false;
+  }
+
+  // Quy tắc 2: Chuyên viên được truy cập Chuyên viên & Sinh viên, KHÔNG ĐƯỢC vào Admin
+  if (userRole === "expert" && targetSubsystem === "admin") {
+    showAccessDeniedView("Chuyên viên", "Quản trị viên (Admin)");
+    return false;
+  }
+
+  // Admin có toàn quyền
+  return true;
+}
+
+function showAccessDeniedView(currentRole, requiredRole) {
+  // Ẩn toàn bộ view container và hiển thị viewAccessDenied
+  document.querySelectorAll(".view-container").forEach(el => el.classList.remove("active"));
+  document.querySelectorAll(".nav-item-btn").forEach(el => el.classList.remove("active"));
+
+  const deniedEl = document.getElementById("viewAccessDenied");
+  if (deniedEl) deniedEl.classList.add("active");
+
+  const txtCurrent = document.getElementById("txtCurrentDeniedRole");
+  if (txtCurrent) txtCurrent.textContent = currentRole;
+
+  const txtRequired = document.getElementById("txtRequiredDeniedRole");
+  if (txtRequired) txtRequired.textContent = requiredRole;
+
+  const desc = document.getElementById("accessDeniedDesc");
+  if (desc) {
+    desc.textContent = `Tài khoản của bạn thuộc vai trò "${currentRole}". Phân hệ bạn đang cố truy cập yêu cầu quyền "${requiredRole}". Phân hệ cấp dưới không được phép xem các chức năng của phân hệ cấp trên.`;
+  }
+
+  showToast(`⛔ Quyền truy cập bị từ chối: Cần quyền ${requiredRole}!`);
+}
+
+function returnToAllowedSubsystem() {
+  if (!state.isLoggedIn || !state.currentUser) {
+    logoutToGateway();
+    return;
+  }
+  const role = (state.currentUser.role || "Student").toLowerCase();
+  switchSubsystem(role === "admin" ? "admin" : role === "expert" ? "expert" : "student");
+}
+
+/**
+ * Xử lý khi nhấn nút trên Cổng phân hệ (Gateway)
+ */
+function enterSubsystemGateway(subsystem) {
+  if (state.isLoggedIn && state.currentUser) {
+    const userRole = (state.currentUser.role || "Student").toLowerCase();
+    if (subsystem === "admin" && userRole !== "admin") {
+      showToast("Bạn cần đăng nhập tài khoản Quản trị viên (Admin) để vào phân hệ này!");
+      openLoginModal();
+      selectAuthRole("Admin");
+      return;
+    }
+    if (subsystem === "expert" && userRole === "student") {
+      showToast("Bạn cần đăng nhập tài khoản Chuyên viên để vào phân hệ này!");
+      openLoginModal();
+      selectAuthRole("Expert");
+      return;
+    }
+    switchSubsystem(subsystem);
+  } else {
+    // Chưa đăng nhập -> Mở form với vai trò tương ứng
+    openLoginModal();
+    selectAuthRole(subsystem === "admin" ? "Admin" : subsystem === "expert" ? "Expert" : "Student");
+  }
+}
+
+/**
+ * Đăng nhập mẫu nhanh trực tiếp (1-Click Demo)
+ */
+async function quickLoginAs(role) {
+  fillDemoCredentials(role);
+  await handleLoginSubmit();
+}
+
+/**
+ * Đăng xuất và quay trở về Cổng chọn phân hệ (Portal Gateway)
+ */
+function logoutToGateway() {
+  state.isLoggedIn = false;
+  state.currentUser = null;
+  state.token = null;
+  state.currentSubsystem = "gateway";
+
+  localStorage.removeItem("unimind_user");
+  localStorage.removeItem("unimind_token");
+
+  // Hiển thị Cổng phân hệ, ẩn Khung ứng dụng
+  const gatewayView = document.getElementById("portalGatewayView");
+  const appContainer = document.getElementById("appContainer");
+  if (gatewayView) gatewayView.style.display = "block";
+  if (appContainer) appContainer.style.display = "none";
+
+  // Cập nhật Header Indicator
+  const pill = document.getElementById("subsystemActivePill");
+  const pillText = document.getElementById("subsystemActiveText");
+  const userBadge = document.getElementById("txtUserBadge");
+  const btnAuth = document.getElementById("btnAuthToggle");
+
+  if (pill) {
+    pill.className = "subsystem-pill-indicator gateway";
+  }
+  if (pillText) pillText.textContent = "🚪 Cổng Điều Hướng 3 Phân Hệ";
+  if (userBadge) userBadge.textContent = "Chưa đăng nhập";
+  if (btnAuth) btnAuth.textContent = "Đăng nhập";
+
+  showToast("Đã quay về Cổng Chọn Phân Hệ UniMind");
+}
+
+/**
+ * Chuyển đổi và thiết lập phân hệ đang hoạt động
+ */
 function switchSubsystem(subsystem) {
+  if (!checkSubsystemAccess(subsystem)) return;
+
   state.currentSubsystem = subsystem;
 
-  // Cập nhật nút trên Header Suite Bar
-  document.getElementById("btnSubsystemStudent").classList.toggle("active", subsystem === "student");
-  document.getElementById("btnSubsystemExpert").classList.toggle("active", subsystem === "expert");
-  document.getElementById("btnSubsystemAdmin").classList.toggle("active", subsystem === "admin");
+  // Ẩn Cổng phân hệ, hiển thị Khung ứng dụng
+  const gatewayView = document.getElementById("portalGatewayView");
+  const appContainer = document.getElementById("appContainer");
+  if (gatewayView) gatewayView.style.display = "none";
+  if (appContainer) appContainer.style.display = "grid";
 
-  // Hiển thị Menu Sidebar tương ứng
-  document.getElementById("menuStudentGroup").style.display = subsystem === "student" ? "block" : "none";
-  document.getElementById("menuExpertGroup").style.display = subsystem === "expert" ? "block" : "none";
-  document.getElementById("menuAdminGroup").style.display = subsystem === "admin" ? "block" : "none";
+  // Hiển thị DUY NHẤT Menu Sidebar của phân hệ được phép
+  const menuStudent = document.getElementById("menuStudentGroup");
+  const menuExpert = document.getElementById("menuExpertGroup");
+  const menuAdmin = document.getElementById("menuAdminGroup");
 
-  // Cập nhật User Badge
+  if (menuStudent) menuStudent.style.display = subsystem === "student" ? "block" : "none";
+  if (menuExpert) menuExpert.style.display = subsystem === "expert" ? "block" : "none";
+  if (menuAdmin) menuAdmin.style.display = subsystem === "admin" ? "block" : "none";
+
+  // Cập nhật Header Indicator & User Pill
+  const pill = document.getElementById("subsystemActivePill");
+  const pillText = document.getElementById("subsystemActiveText");
   const userBadge = document.getElementById("txtUserBadge");
   const sidebarSub = document.getElementById("txtSidebarRoleSub");
   const sidebarName = document.getElementById("sidebarUserName");
+  const btnAuth = document.getElementById("btnAuthToggle");
+
+  if (btnAuth) btnAuth.textContent = "Đăng xuất";
+
+  const user = state.currentUser || {};
 
   if (subsystem === "student") {
-    userBadge.textContent = "Sinh viên: Bạn Ẩn Yên #382";
-    sidebarSub.textContent = "Không Gian Sinh Viên";
-    sidebarName.textContent = "Bạn Ẩn Yên #382";
+    if (pill) pill.className = "subsystem-pill-indicator student";
+    if (pillText) pillText.textContent = "🎓 Phân Hệ Sinh Viên • Không Gian An Yên";
+    if (userBadge) userBadge.textContent = `Sinh viên: ${user.fullName || user.anonymousCode || "Bạn Ẩn Yên"}`;
+    if (sidebarSub) sidebarSub.textContent = "Không Gian Sinh Viên";
+    if (sidebarName) sidebarName.textContent = user.anonymousCode || user.fullName || "Bạn Ẩn Yên #382";
     switchView("student", "home");
   } else if (subsystem === "expert") {
-    userBadge.textContent = "Chuyên viên: ThS. Lê Thanh Tâm";
-    sidebarSub.textContent = "UniMind Workspace";
-    sidebarName.textContent = "ThS. Lê Thanh Tâm";
+    if (pill) pill.className = "subsystem-pill-indicator expert";
+    if (pillText) pillText.textContent = "🩺 Phân Hệ Chuyên Viên • Trạm Tham Vấn Tâm Lý";
+    if (userBadge) userBadge.textContent = `Chuyên viên: ${user.fullName || "ThS. Thanh Hà"}`;
+    if (sidebarSub) sidebarSub.textContent = "Bàn Làm Việc Chuyên Gia";
+    if (sidebarName) sidebarName.textContent = user.fullName || "ThS. Thanh Hà";
     switchView("expert", "workspace");
     renderExpertSchedule();
     renderExpertTriage();
+    renderExpertModeration();
   } else if (subsystem === "admin") {
-    userBadge.textContent = "Quản trị viên: Nguyễn Văn An";
-    sidebarSub.textContent = "Admin Command Center";
-    sidebarName.textContent = "Quản trị viên An";
+    if (pill) pill.className = "subsystem-pill-indicator admin";
+    if (pillText) pillText.textContent = "⚙️ Phân Hệ Quản Trị • Trung Tâm Điều Hành Toàn Trường";
+    if (userBadge) userBadge.textContent = `Quản trị viên: ${user.fullName || "Admin An"}`;
+    if (sidebarSub) sidebarSub.textContent = "Trung Tâm Quản Trị Hệ Thống";
+    if (sidebarName) sidebarName.textContent = user.fullName || "Quản trị viên";
     switchView("admin", "dashboard");
     renderAdminDashboard();
+    renderAdminUsers();
+    renderAdminModeration();
   }
 
-  showToast(`Đã chuyển sang ${subsystem.toUpperCase()} PORTAL`);
+  showToast(`Đã vào ${subsystem.toUpperCase()} PORTAL`);
 }
 
 function switchView(subsystem, viewName) {
+  // Kiểm tra phân quyền trước khi cho phép xem view
+  if (!checkSubsystemAccess(subsystem)) return;
+
   state.currentView = viewName;
 
   // Ẩn toàn bộ view container
@@ -362,6 +545,12 @@ function filterFeedCategory(btn, cat) {
 }
 
 async function submitCommunityPost() {
+  if (!state.currentUser) {
+    showToast("⚠️ Vui lòng đăng nhập tài khoản Sinh viên để đăng bài!");
+    openLoginModal();
+    return;
+  }
+
   const content = document.getElementById("txtPostContent").value.trim();
   if (!content) {
     alert("Vui lòng viết nội dung tâm sự trước khi gửi.");
@@ -378,6 +567,7 @@ async function submitCommunityPost() {
       body: JSON.stringify({
         content: content,
         categoryTag: activePostCategory,
+        stressLevelTag: null,
         customPseudonym: pseudonym,
         requestExpertPrivateResponse: requestExpert
       })
@@ -385,12 +575,19 @@ async function submitCommunityPost() {
 
     if (res.ok) {
       const data = await res.json();
-      showToast(data.message || "Đã gửi bài viết ẩn danh thành công!");
+      const p = data.data;
+
+      if (p && (p.isSensitiveHiddenFromStudents || p.hasKeywordsAlert || p.isExtremeCrisis || (p.riskScore && p.riskScore >= 70))) {
+        showToast("⚠️ Bài viết chứa nội dung nhạy cảm / nguy cơ cao đã được chuyển thẳng tới Chuyên viên và Quản trị viên để can thiệp hỗ trợ!");
+        state.communityPosts.unshift(p);
+      } else {
+        showToast(data.message || "Đã gửi bài viết ẩn danh thành công!");
+        if (p) state.communityPosts.unshift(p);
+      }
     } else {
-      showToast("Đã lưu bài viết ẩn danh thành công!");
+      checkAndAddLocalPost(content, activePostCategory, pseudonym);
     }
   } catch (e) {
-    // Fallback local check
     checkAndAddLocalPost(content, activePostCategory, pseudonym);
   }
 
@@ -401,12 +598,12 @@ async function submitCommunityPost() {
 function checkAndAddLocalPost(content, cat, pseudonym) {
   // Kiểm tra từ khóa nhạy cảm
   const hasKeyword = state.sensitiveKeywords.some(k => content.toLowerCase().includes(k.keyword.toLowerCase()));
-  const isCrisis = content.includes("tự tử") || content.includes("muốn chết") || content.includes("nhảy lầu") || content.includes("bế tắc");
+  const isCrisis = content.includes("tự tử") || content.includes("muốn chết") || content.includes("nhảy lầu") || content.includes("bế tắc") || content.includes("buông bỏ");
 
   const newPost = {
     id: "p_" + Date.now(),
     anonymousPseudonym: pseudonym,
-    studentRoleTag: "Sinh viên • " + (state.currentUser.faculty || "Khoa CNTT"),
+    studentRoleTag: "Sinh viên • " + (state.currentUser?.faculty || "Khoa CNTT"),
     content: content,
     categoryTag: cat,
     stressLevelTag: isCrisis ? "Khẩn cấp (94/100)" : "Vừa",
@@ -415,13 +612,17 @@ function checkAndAddLocalPost(content, cat, pseudonym) {
     commentCount: 0,
     riskScore: isCrisis ? 94 : 35,
     isExtremeCrisis: isCrisis,
+    hasKeywordsAlert: hasKeyword || isCrisis,
+    detectedKeywords: hasKeyword || isCrisis ? "từ khóa nhạy cảm / nguy cơ cao" : null,
     isSensitiveHiddenFromStudents: hasKeyword || isCrisis,
-    comments: []
+    moderationStatus: (hasKeyword || isCrisis) ? "Flagged" : "Approved",
+    comments: [],
+    createdAt: new Date().toISOString()
   };
 
   state.communityPosts.unshift(newPost);
   if (newPost.isSensitiveHiddenFromStudents) {
-    showToast("Bài viết chứa nội dung cần thẩm định y khoa và đã được gửi thẳng tới Chuyên viên/Admin.");
+    showToast("⚠️ Bài viết chứa nội dung nhạy cảm đã được chuyển sang Chuyên viên & Admin để can thiệp bảo vệ!");
   } else {
     showToast("Đã đăng bài viết ẩn danh thành công!");
   }
@@ -435,6 +636,12 @@ function toggleComments(postId) {
 }
 
 async function submitComment(postId) {
+  if (!state.currentUser) {
+    showToast("⚠️ Vui lòng đăng nhập tài khoản để gửi bình luận!");
+    openLoginModal();
+    return;
+  }
+
   const inp = document.getElementById(`inpComment-${postId}`);
   const content = inp.value.trim();
   if (!content) return;
@@ -600,6 +807,12 @@ function randomBookingPseudonym() {
 }
 
 async function confirmBookAppointment() {
+  if (!state.currentUser) {
+    showToast("⚠️ Vui lòng đăng nhập tài khoản Sinh viên để đặt lịch hẹn!");
+    openLoginModal();
+    return;
+  }
+
   if (!state.selectedSlot) {
     alert("Vui lòng bấm chọn một khung giờ khả dụng của chuyên viên.");
     return;
@@ -666,6 +879,12 @@ function toggleTrigger(btn) {
 }
 
 async function saveMoodJournal() {
+  if (!state.currentUser) {
+    showToast("⚠️ Vui lòng đăng nhập tài khoản Sinh viên để lưu nhật ký cảm xúc!");
+    openLoginModal();
+    return;
+  }
+
   const content = document.getElementById("txtJournalContent").value.trim();
   const energy = parseInt(document.getElementById("rngEnergy").value) || 5;
 
@@ -882,39 +1101,86 @@ function renderExpertSchedule() {
   `).join('');
 }
 
-function renderExpertTriage() {
+async function renderExpertTriage() {
   const container = document.getElementById("triageAlertsTable");
   if (!container) return;
 
-  const alerts = [
-    { id: "alt1", code: "#POST-9021", time: "12 phút trước", risk: "Nghiêm trọng (98%)", author: "Sinh viên ẩn danh", text: "Mình cảm thấy không còn lý do gì để thức dậy...", action: "Chưa can thiệp" },
-    { id: "alt2", code: "#POST-8984", time: "45 phút trước", risk: "Rủi ro cao (76%)", author: "Sinh viên năm 4", text: "Áp lực điểm số khiến ngực mình đau thắt mỗi sáng...", action: "Đang chuẩn bị phiên" },
-    { id: "alt3", code: "#POST-8790", time: "2 giờ trước", risk: "Trung bình (52%)", author: "Sinh viên năm 2", text: "Năm 4 rồi nhưng em thấy lạc lối...", action: "Đã tư vấn bảo mật" }
-  ];
+  let alerts = [];
+  try {
+    const res = await fetch(`${API_BASE}/expert/triage-alerts`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success && data.data && data.data.length > 0) alerts = data.data;
+    }
+  } catch (e) {
+    console.warn("Không thể tải triage alerts từ server:", e);
+  }
+
+  if (alerts.length === 0) {
+    // Nếu chưa có trong DB, lấy từ các bài viết rủi ro trong memory
+    const crisisPosts = state.communityPosts.filter(p => p.isExtremeCrisis || p.hasKeywordsAlert || (p.riskScore && p.riskScore >= 70));
+    if (crisisPosts.length > 0) {
+      alerts = crisisPosts.map(p => ({
+        id: p.id,
+        studentAnonymousCode: p.anonymousPseudonym,
+        createdAt: p.createdAt || new Date().toISOString(),
+        riskScore: p.riskScore || 92,
+        triggeredKeywords: p.detectedKeywords || "Rủi ro quá tiêu cực",
+        snippetContent: p.content,
+        status: "PendingAction"
+      }));
+    } else {
+      alerts = [
+        { id: "alt1", studentAnonymousCode: "Bạn Ẩn Yên #902", createdAt: new Date().toISOString(), riskScore: 98, triggeredKeywords: "muốn buông bỏ, kiệt sức", snippetContent: "Mất ngủ kéo dài cả tuần nay, mình nhìn đâu cũng thấy vô định...", status: "PendingAction" }
+      ];
+    }
+  }
 
   container.innerHTML = alerts.map(a => `
-    <div style="background:#f8fafc; border:1px solid var(--slate-200); border-radius:8px; padding:12px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
-      <div>
-        <strong>${a.code}</strong> • <small style="color:var(--slate-500);">${a.time}</small>
-        <div style="color:var(--red-600); font-weight:700; font-size:12px; margin:2px 0;">Mức rủi ro: ${a.risk}</div>
-        <p style="font-size:12.5px; color:var(--slate-700); font-style:italic;">"${a.text}"</p>
+    <div style="background:#f8fafc; border:1px solid ${a.status === 'Resolved' ? '#10b981' : 'var(--red-300)'}; border-radius:8px; padding:12px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+      <div style="flex:1; min-width:280px;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <strong>${a.studentAnonymousCode || 'Bí danh sinh viên'}</strong>
+          <small style="color:var(--slate-500);">${new Date(a.createdAt).toLocaleTimeString('vi-VN')} • ${new Date(a.createdAt).toLocaleDateString('vi-VN')}</small>
+          <span class="suite-pill-tag" style="background:#fee2e2; color:#b91c1c; font-size:10px;">RỦI RO NLP: ${a.riskScore}/100</span>
+        </div>
+        <div style="color:var(--red-600); font-weight:700; font-size:12px; margin:3px 0;">
+          Từ khóa kích hoạt: <em>${a.triggeredKeywords || 'Cảnh báo lâm sàng'}</em>
+        </div>
+        <p style="font-size:12.5px; color:var(--slate-700); font-style:italic; margin:4px 0;">"${a.snippetContent}"</p>
+        ${a.status === 'Resolved' ? `<span style="font-size:11px; color:#059669; font-weight:700;">✅ ${a.interventionAction || 'Đã can thiệp an toàn'}</span>` : ''}
       </div>
-      <div style="display:flex; gap:6px;">
-        <button class="btn-urgent-action" style="font-size:11px; padding:5px 10px;" onclick="resolveCrisisAlert('SosActivated', '${a.code}')">Kích hoạt SOS</button>
-        <button class="btn-safe-room-action" style="font-size:11px; padding:5px 10px;" onclick="resolveCrisisAlert('SafeRoomOpened', '${a.code}')">Mở SafeRoom</button>
+      <div style="display:flex; gap:6px; flex-wrap:wrap;">
+        ${a.status !== 'Resolved' ? `
+          <button class="btn-urgent-action" style="font-size:11px; padding:5px 10px;" onclick="resolveCrisisAlert('SosActivated', '${a.id}', '${a.studentAnonymousCode}')">🚨 Kích hoạt SOS</button>
+          <button class="btn-safe-room-action" style="font-size:11px; padding:5px 10px;" onclick="resolveCrisisAlert('SafeRoomOpened', '${a.id}', '${a.studentAnonymousCode}')">📹 Mở SafeRoom</button>
+          <button class="btn-primary" style="font-size:11px; padding:5px 10px;" onclick="resolveCrisisAlert('SupportMessageSent', '${a.id}', '${a.studentAnonymousCode}')">💌 Nâng đỡ</button>
+        ` : `
+          <span class="suite-pill-tag" style="background:#dcfce7; color:#15803d; font-size:11px;">Đã xử lý</span>
+        `}
       </div>
     </div>
   `).join('');
 }
 
-function renderExpertModeration() {
+async function renderExpertModeration() {
   const container = document.getElementById("expertModerationQueue");
   if (!container) return;
 
-  const flagged = state.communityPosts.filter(p => p.isSensitiveHiddenFromStudents || p.isExtremeCrisis);
+  try {
+    const res = await fetch(`${API_BASE}/community/posts?isStaff=true`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success && data.data) state.communityPosts = data.data;
+    }
+  } catch (e) {
+    console.warn("Lỗi tải moderation queue:", e);
+  }
+
+  const flagged = state.communityPosts.filter(p => p.isSensitiveHiddenFromStudents || p.isExtremeCrisis || p.hasKeywordsAlert);
 
   if (flagged.length === 0) {
-    container.innerHTML = `<div style="padding:20px; text-align:center; color:var(--slate-500);">Hiện tại không có bài viết nào cần thẩm định.</div>`;
+    container.innerHTML = `<div style="padding:20px; text-align:center; color:var(--slate-500);">Hiện tại không có bài viết nào cần thẩm định y khoa.</div>`;
     return;
   }
 
@@ -925,37 +1191,90 @@ function renderExpertModeration() {
         <strong style="color:var(--red-700); font-size:12px;">Rủi ro AI: ${p.riskScore || 90}/100</strong>
       </div>
       <p style="font-size:13px; color:var(--slate-800); font-style:italic;">"${p.content}"</p>
-      <small style="color:var(--slate-500);">Tác giả: ${p.anonymousPseudonym} • Trạng thái: <strong>Đã ẩn đối với sinh viên</strong></small>
-      <div style="display:flex; gap:8px; margin-top:4px;">
-        <button class="btn-urgent-action" style="font-size:11px; padding:5px 12px;" onclick="resolveCrisisAlert('SosActivated', '${p.anonymousPseudonym}')">🚨 Can thiệp SOS ngay</button>
-        <button class="btn-safe-room-action" style="font-size:11px; padding:5px 12px;" onclick="resolveCrisisAlert('SafeRoomOpened', '${p.anonymousPseudonym}')">Mở SafeRoom</button>
-        <button class="btn-secondary" style="font-size:11px; padding:5px 10px;" onclick="approvePost('${p.id}')">Duyệt bài</button>
+      <small style="color:var(--slate-500);">Tác giả: <strong>${p.anonymousPseudonym}</strong> • Từ khóa: <span style="color:var(--red-600); font-weight:600;">${p.detectedKeywords || 'Nhạy cảm'}</span> • Trạng thái: <strong>Đã ẩn với sinh viên</strong></small>
+      <div style="display:flex; gap:8px; margin-top:4px; flex-wrap:wrap;">
+        <button class="btn-urgent-action" style="font-size:11px; padding:5px 12px;" onclick="resolveCrisisAlert('SosActivated', '${p.id}', '${p.anonymousPseudonym}')">🚨 Can thiệp SOS ngay</button>
+        <button class="btn-safe-room-action" style="font-size:11px; padding:5px 12px;" onclick="resolveCrisisAlert('SafeRoomOpened', '${p.id}', '${p.anonymousPseudonym}')">Mở SafeRoom</button>
+        <button class="btn-primary" style="font-size:11px; padding:5px 10px;" onclick="approvePost('${p.id}')">Duyệt cho hiển thị</button>
+        <button class="btn-secondary" style="font-size:11px; padding:5px 10px; background:#fee2e2; color:#b91c1c;" onclick="deletePost('${p.id}')">Khóa bài</button>
       </div>
     </div>
   `).join('');
 }
 
-function resolveCrisisAlert(action, target) {
-  let message = "";
-  if (action === "SosActivated") message = `Đã kích hoạt điều phối can thiệp SOS tức thời cho ${target}!`;
-  else if (action === "SafeRoomOpened") {
-    message = `Đã mở phòng SafeRoom riêng tư ưu tiên cho ${target}!`;
-    switchView("student", "saferoom");
-  } else if (action === "SupportMessageSent") {
-    message = `Đã gửi tin nhắn nâng đỡ tinh thần và đường dây nóng đến tài khoản ${target}!`;
+async function resolveCrisisAlert(action, alertId, target) {
+  let actionTaken = "";
+  if (action === "SosActivated") actionTaken = "Kích hoạt điều phối đội SOS can thiệp khẩn cấp";
+  else if (action === "SafeRoomOpened") actionTaken = "Mở phòng tham vấn trực tuyến riêng tư SafeRoom";
+  else if (action === "SupportMessageSent") actionTaken = "Gửi thông điệp nâng đỡ và kết nối đường dây nóng 24/7";
+
+  const expertId = state.currentUser?.id || "33333333-3333-3333-3333-333333333331";
+
+  if (alertId) {
+    try {
+      await fetch(`${API_BASE}/expert/alerts/${alertId}/resolve/${expertId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actionTaken })
+      });
+    } catch (e) {
+      console.warn("Lỗi resolve alert:", e);
+    }
   }
-  showToast(message);
+
+  if (action === "SafeRoomOpened") {
+    showToast(`Đã mở phòng SafeRoom ưu tiên cho ${target || 'sinh viên'}!`);
+    switchView("student", "saferoom");
+  } else {
+    showToast(`✅ ${actionTaken} cho ${target || 'sinh viên'}!`);
+  }
+
+  await renderExpertTriage();
 }
 
-function approvePost(postId) {
+async function approvePost(postId) {
+  const adminId = state.currentUser?.id || "11111111-1111-1111-1111-111111111111";
+  try {
+    await fetch(`${API_BASE}/admin/posts/${postId}/moderate/${adminId}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "approve" })
+    });
+    showToast("✅ Đã duyệt bài viết hiển thị công khai trên diễn đàn!");
+  } catch (e) {
+    console.warn("Lỗi duyệt bài:", e);
+  }
+
   const p = state.communityPosts.find(x => x.id === postId);
   if (p) {
     p.isSensitiveHiddenFromStudents = false;
     p.isExtremeCrisis = false;
+    p.hasKeywordsAlert = false;
+    p.moderationStatus = "Approved";
   }
-  showToast("Đã duyệt bài viết hiển thị công khai trên bảng tin.");
+
   renderExpertModeration();
   renderAdminModeration();
+  renderAdminDashboard();
+}
+
+async function deletePost(postId) {
+  const adminId = state.currentUser?.id || "11111111-1111-1111-1111-111111111111";
+  try {
+    await fetch(`${API_BASE}/admin/posts/${postId}/moderate/${adminId}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "hide" })
+    });
+    showToast("✅ Đã khóa và ẩn bài viết khỏi toàn bộ hệ thống.");
+  } catch (e) {
+    console.warn("Lỗi ẩn bài:", e);
+  }
+
+  state.communityPosts = state.communityPosts.filter(p => p.id !== postId);
+  renderExpertModeration();
+  renderAdminModeration();
+  renderAdminDashboard();
 }
 
 // ============================================================================
@@ -976,7 +1295,7 @@ function renderKeywords() {
   if (adminBox) adminBox.innerHTML = html;
 }
 
-function addSensitiveKeyword(role) {
+async function addSensitiveKeyword(role) {
   const inputId = role === "expert" ? "txtExpertNewKeyword" : "txtAdminNewKeyword";
   const catId = role === "expert" ? "selExpertKeywordCategory" : "selAdminKeywordCategory";
 
@@ -987,6 +1306,27 @@ function addSensitiveKeyword(role) {
   if (!keyword) {
     alert("Vui lòng nhập từ khóa nhạy cảm cần lọc.");
     return;
+  }
+
+  const payload = {
+    keyword: keyword.toLowerCase(),
+    category: sel ? sel.value : "SelfHarm",
+    riskWeight: 90
+  };
+
+  try {
+    const endpoint = role === "expert" ? `${API_BASE}/expert/sensitive-keywords` : `${API_BASE}/admin/sensitive-keywords`;
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    if (res.ok) {
+      const data = await res.json();
+      showToast(data.message || `Đã thêm từ khóa "${keyword}" vào bộ lọc tự động!`);
+    }
+  } catch (e) {
+    console.warn("Lỗi thêm từ khóa API:", e);
   }
 
   const newKw = {
@@ -1000,27 +1340,105 @@ function addSensitiveKeyword(role) {
   state.sensitiveKeywords.push(newKw);
   inp.value = "";
   renderKeywords();
-  showToast(`Đã thêm từ khóa "${keyword}" vào bộ lọc tự động của hệ thống!`);
 }
 
-function removeSensitiveKeyword(kwId) {
+async function removeSensitiveKeyword(kwId) {
+  try {
+    const endpoint = `${API_BASE}/admin/sensitive-keywords/${kwId}`;
+    await fetch(endpoint, { method: "DELETE" });
+  } catch (e) {
+    console.warn("Lỗi xóa từ khóa API:", e);
+  }
   state.sensitiveKeywords = state.sensitiveKeywords.filter(k => k.id !== kwId);
   renderKeywords();
   showToast("Đã xóa từ khóa khỏi danh sách lọc.");
 }
 
 // ============================================================================
-// 10. PHÂN HỆ QUẢN TRỊ ADMIN
+// 10. PHÂN HỆ QUẢN TRỊ ADMIN & MODAL THÊM CHUYÊN VIÊN
 // ============================================================================
-function renderAdminDashboard() {
+function openAddExpertModal() {
+  const modal = document.getElementById("modalAddExpert");
+  if (modal) modal.classList.add("active");
+}
+
+function closeAddExpertModal() {
+  const modal = document.getElementById("modalAddExpert");
+  if (modal) modal.classList.remove("active");
+}
+
+async function handleCreateExpertSubmit() {
+  const fullName = document.getElementById("txtNewExpertFullName").value.trim();
+  const email = document.getElementById("txtNewExpertEmail").value.trim();
+  const password = document.getElementById("txtNewExpertPassword").value.trim() || "123456";
+  const degree = document.getElementById("txtNewExpertDegree").value.trim();
+  const specialization = document.getElementById("txtNewExpertSpecialization").value.trim();
+  const experience = parseInt(document.getElementById("txtNewExpertExperience").value) || 5;
+  const room = document.getElementById("txtNewExpertRoom").value.trim();
+  const title = document.getElementById("txtNewExpertTitle").value.trim();
+  const bio = document.getElementById("txtNewExpertBio").value.trim();
+
+  if (!fullName || !email) {
+    showToast("⚠️ Vui lòng nhập đầy đủ họ tên và email chuyên viên!");
+    return;
+  }
+
+  try {
+    const res = await fetch(`${API_BASE}/admin/experts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fullName,
+        email,
+        password,
+        title: title || "Chuyên viên Tâm lý",
+        academicDegree: degree || "Thạc sĩ Tâm lý học",
+        specialization: specialization || "Tư vấn & Trị liệu Tâm lý Học đường",
+        experienceYears: experience,
+        roomLocation: room || "P.304 (Tầng 3)",
+        bio: bio || "Chuyên gia tham vấn tâm lý học đường, hỗ trợ sinh viên vượt qua căng thẳng."
+      })
+    });
+
+    const data = await res.json();
+    if (res.ok && data.success) {
+      showToast(`✅ ${data.message || "Đã thêm chuyên viên mới thành công!"}`);
+      closeAddExpertModal();
+      document.getElementById("formAddExpert").reset();
+      await loadInitialData();
+      await renderAdminUsers();
+    } else {
+      showToast(`❌ ${data.message || "Lỗi khi thêm chuyên viên"}`);
+    }
+  } catch (e) {
+    showToast(`⚠️ Không thể kết nối tới server: ${e.message}`);
+  }
+}
+
+async function renderAdminDashboard() {
   const container = document.getElementById("adminModerationList");
   if (!container) return;
 
-  const flagged = state.communityPosts.filter(p => p.isSensitiveHiddenFromStudents || p.isExtremeCrisis);
+  try {
+    const res = await fetch(`${API_BASE}/admin/moderation-queue`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success && data.data) state.communityPosts = data.data;
+    }
+  } catch (e) {
+    console.warn("Lỗi tải moderation queue:", e);
+  }
+
+  const flagged = state.communityPosts.filter(p => p.isSensitiveHiddenFromStudents || p.isExtremeCrisis || p.hasKeywordsAlert);
+
+  if (flagged.length === 0) {
+    container.innerHTML = `<div style="padding:14px; text-align:center; color:var(--slate-500); font-size:12.5px;">Hàng đợi kiểm duyệt hiện đang trống.</div>`;
+    return;
+  }
 
   container.innerHTML = flagged.map(p => `
-    <div style="background:#ffffff; border:1px solid var(--slate-200); border-radius:8px; padding:12px; display:flex; justify-content:space-between; align-items:center;">
-      <div>
+    <div style="background:#ffffff; border:1px solid var(--slate-200); border-radius:8px; padding:12px; display:flex; justify-content:space-between; align-items:center; gap:8px;">
+      <div style="flex:1;">
         <strong style="color:var(--slate-800); font-size:13px;">${p.anonymousPseudonym}</strong>
         <p style="font-size:12.5px; color:var(--slate-600); margin:2px 0;">"${p.content.substring(0, 90)}..."</p>
         <span class="suite-pill-tag" style="background:#fee2e2; color:#b91c1c; font-size:10px;">${p.detectedKeywords || 'Rủi ro cao'}</span>
@@ -1033,80 +1451,124 @@ function renderAdminDashboard() {
   `).join('');
 }
 
-function renderAdminUsers() {
+async function renderAdminUsers() {
   const expertsContainer = document.getElementById("adminExpertsTable");
   const usersContainer = document.getElementById("adminUsersTable");
 
   if (expertsContainer) {
-    expertsContainer.innerHTML = `
-      <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap:12px;">
-        <div style="background:#f8fafc; padding:12px; border-radius:8px; border:1px solid var(--slate-200);">
-          <strong>ThS. Tâm lý Nguyễn Thanh Hà</strong>
-          <div style="font-size:12px; color:var(--slate-500);">Thạc sĩ Tâm lý Lâm sàng • P.302</div>
-          <small style="color:#059669;">● Đang trong ca trực (28 ca tuần này)</small>
+    if (state.experts && state.experts.length > 0) {
+      expertsContainer.innerHTML = `
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap:12px;">
+          ${state.experts.map(exp => `
+            <div style="background:#f8fafc; padding:14px; border-radius:8px; border:1px solid var(--slate-200); box-shadow:0 1px 3px rgba(0,0,0,0.05);">
+              <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                <div>
+                  <strong style="color:var(--primary-950); font-size:14px;">${exp.fullName}</strong>
+                  <div style="font-size:12px; color:var(--primary-700); font-weight:600;">${exp.title} • ${exp.academicDegree}</div>
+                </div>
+                <span class="suite-pill-tag" style="background:#dcfce7; color:#15803d; font-size:10px;">★ ${exp.rating || 5.0}</span>
+              </div>
+              <div style="font-size:12px; color:var(--slate-600); margin:6px 0;">Chuyên môn: <strong>${exp.specialization}</strong></div>
+              <div style="font-size:11.5px; color:var(--slate-500);">📍 ${exp.roomLocation} • ${exp.experienceYears || 5} năm kinh nghiệm</div>
+              <small style="color:#059669; font-weight:600; display:block; margin-top:4px;">● Sẵn sàng tiếp nhận (${exp.totalConsultations || 0} ca tư vấn)</small>
+            </div>
+          `).join('')}
         </div>
-        <div style="background:#f8fafc; padding:12px; border-radius:8px; border:1px solid var(--slate-200);">
-          <strong>TS. Tâm lý Trần Mai Lan</strong>
-          <div style="font-size:12px; color:var(--slate-500);">Tiến sĩ Trị liệu CBT • P.302</div>
-          <small style="color:#059669;">● Đang trong ca trực (35 ca tuần này)</small>
-        </div>
-        <div style="background:#f8fafc; padding:12px; border-radius:8px; border:1px solid var(--slate-200);">
-          <strong>ThS. Lê Thanh Tâm</strong>
-          <div style="font-size:12px; color:var(--slate-500);">SafeRoom Trực tuyến & SOS • P.305</div>
-          <small style="color:#059669;">● Sẵn sàng tiếp nhận ca khẩn cấp</small>
-        </div>
-      </div>
-    `;
+      `;
+    }
   }
 
   if (usersContainer) {
-    usersContainer.innerHTML = `
-      <div style="display:flex; flex-direction:column; gap:6px; font-size:12.5px;">
-        <div style="display:flex; justify-content:space-between; padding:8px 12px; background:#f1f5f9; border-radius:6px;">
-          <span>Nguyễn Hoàng An (sv_an@unimind.edu.vn) - Sinh viên</span>
-          <strong style="color:#059669;">Hoạt động</strong>
-        </div>
-        <div style="display:flex; justify-content:space-between; padding:8px 12px; background:#f1f5f9; border-radius:6px;">
-          <span>ThS. Lê Thanh Tâm (tam.le@unimind.edu.vn) - Chuyên viên</span>
-          <strong style="color:#059669;">Hoạt động</strong>
-        </div>
-        <div style="display:flex; justify-content:space-between; padding:8px 12px; background:#f1f5f9; border-radius:6px;">
-          <span>Nguyễn Văn An (admin@unimind.edu.vn) - Quản trị viên</span>
-          <strong style="color:#059669;">Hoạt động</strong>
-        </div>
-      </div>
-    `;
+    try {
+      const res = await fetch(`${API_BASE}/admin/users`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.data && data.data.length > 0) {
+          usersContainer.innerHTML = `
+            <div style="display:flex; flex-direction:column; gap:8px;">
+              ${data.data.map(u => `
+                <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 14px; background:#ffffff; border-radius:8px; border:1px solid var(--slate-200); box-shadow:0 1px 3px rgba(0,0,0,0.05); flex-wrap:wrap; gap:8px;">
+                  <div>
+                    <div style="display:flex; align-items:center; gap:8px;">
+                      <strong style="font-size:13.5px; color:var(--slate-800);">${u.fullName}</strong>
+                      <span class="suite-pill-tag" style="font-size:10px; ${u.role === 'Admin' ? 'background:#fee2e2; color:#b91c1c;' : u.role === 'Expert' ? 'background:#e0e7ff; color:#4338ca;' : 'background:#e0f2fe; color:#0369a1;'}">${u.role}</span>
+                      ${u.mssv ? `<span style="font-size:11px; color:var(--slate-500);">MSSV: ${u.mssv}</span>` : ''}
+                    </div>
+                    <div style="font-size:12px; color:var(--slate-500); margin-top:2px;">
+                      ${u.email} • ${u.faculty || 'ĐH Lạc Hồng'} • Bí danh: <em>${u.anonymousCode}</em>
+                    </div>
+                  </div>
+                  <div style="display:flex; align-items:center; gap:8px;">
+                    <span style="font-size:12px; font-weight:700; color:#059669;">● Đang hoạt động</span>
+                    <button class="btn-secondary" style="font-size:11px; padding:4px 10px;" onclick="toggleUserStatus('${u.id}')">
+                      Khóa / Mở khóa
+                    </button>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          `;
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn("Không thể tải danh sách tài khoản từ backend:", e);
+    }
   }
 }
 
-function renderAdminModeration() {
+async function toggleUserStatus(userId) {
+  try {
+    const res = await fetch(`${API_BASE}/admin/users/${userId}/toggle-status`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      showToast(data.message || "Đã cập nhật trạng thái người dùng thành công!");
+      await renderAdminUsers();
+    }
+  } catch (e) {
+    showToast("Không thể cập nhật trạng thái người dùng.");
+  }
+}
+
+async function renderAdminModeration() {
   const container = document.getElementById("adminFlaggedFeedList");
   if (!container) return;
 
-  const flagged = state.communityPosts.filter(p => p.isSensitiveHiddenFromStudents || p.isExtremeCrisis);
+  try {
+    const res = await fetch(`${API_BASE}/admin/moderation-queue`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success && data.data) state.communityPosts = data.data;
+    }
+  } catch (e) {
+    console.warn("Lỗi tải moderation queue của Admin:", e);
+  }
+
+  const flagged = state.communityPosts.filter(p => p.isSensitiveHiddenFromStudents || p.isExtremeCrisis || p.hasKeywordsAlert);
+
+  if (flagged.length === 0) {
+    container.innerHTML = `<div style="padding:20px; text-align:center; color:var(--slate-500);">Hiện tại không có bài viết nào vi phạm hoặc bị gắn cờ rủi ro.</div>`;
+    return;
+  }
 
   container.innerHTML = flagged.map(p => `
     <div style="background:#ffffff; border:1px solid var(--red-600); border-radius:8px; padding:14px; display:flex; flex-direction:column; gap:8px;">
       <div style="display:flex; justify-content:space-between;">
-        <span class="alert-badge-red" style="font-size:10px;">[CẢNH BÁO TỪ KHÓA NHẠY CẢM]</span>
+        <span class="alert-badge-red" style="font-size:10px;">[CẢNH BÁO TỪ KHÓA NHẠY CẢM / SOS]</span>
         <span style="font-size:12px; font-weight:700; color:var(--red-600);">Rủi ro: ${p.riskScore || 90}/100</span>
       </div>
       <p style="font-size:13px; color:var(--slate-800);">"${p.content}"</p>
-      <div style="font-size:12px; color:var(--slate-500);">Từ khóa phát hiện: <strong>${p.detectedKeywords || 'Nhạy cảm'}</strong></div>
-      <div style="display:flex; gap:8px; margin-top:4px;">
-        <button class="btn-urgent-action" style="font-size:11px; padding:5px 12px;" onclick="resolveCrisisAlert('SosActivated', '${p.anonymousPseudonym}')">🚨 Điều phối SOS khẩn cấp</button>
+      <div style="font-size:12px; color:var(--slate-500);">Tác giả: <strong>${p.anonymousPseudonym}</strong> • Từ khóa phát hiện: <strong style="color:var(--red-700);">${p.detectedKeywords || 'Nhạy cảm'}</strong></div>
+      <div style="display:flex; gap:8px; margin-top:4px; flex-wrap:wrap;">
+        <button class="btn-urgent-action" style="font-size:11px; padding:5px 12px;" onclick="resolveCrisisAlert('SosActivated', '${p.id}', '${p.anonymousPseudonym}')">🚨 Điều phối SOS khẩn cấp</button>
         <button class="btn-primary" style="font-size:11px; padding:5px 12px;" onclick="approvePost('${p.id}')">Duyệt cho phép hiển thị</button>
-        <button class="btn-secondary" style="font-size:11px; padding:5px 12px;" onclick="deletePost('${p.id}')">Khóa & Xóa vĩnh viễn</button>
+        <button class="btn-secondary" style="font-size:11px; padding:5px 12px; background:#fee2e2; color:#b91c1c;" onclick="deletePost('${p.id}')">Khóa & Xóa vĩnh viễn</button>
       </div>
     </div>
   `).join('');
-}
-
-function deletePost(postId) {
-  state.communityPosts = state.communityPosts.filter(p => p.id !== postId);
-  showToast("Đã xóa bài viết khỏi toàn bộ hệ thống.");
-  renderAdminModeration();
-  renderAdminDashboard();
 }
 
 function exportAdminReport() {
@@ -1183,12 +1645,107 @@ function startBreathingCycle() {
 // ============================================================================
 let activeAuthRole = "Student";
 
-function openLoginModal() {
-  document.getElementById("modalAuth").classList.add("active");
+function openLoginModal(mode = 'login') {
+  const modal = document.getElementById("modalAuth");
+  if (modal) {
+    modal.classList.add("active");
+    switchAuthMode(mode);
+  }
 }
 
 function closeAuthModal() {
   document.getElementById("modalAuth").classList.remove("active");
+}
+
+function switchAuthMode(mode) {
+  const loginSection = document.getElementById("authLoginSection");
+  const regSection = document.getElementById("authRegisterSection");
+  const tabLogin = document.getElementById("tabAuthLogin");
+  const tabReg = document.getElementById("tabAuthRegister");
+  const title = document.getElementById("authModalTitle");
+
+  if (!loginSection || !regSection) return;
+
+  if (mode === "register") {
+    loginSection.style.display = "none";
+    regSection.style.display = "block";
+    if (tabLogin) {
+      tabLogin.classList.remove("active");
+      tabLogin.style.borderBottom = "none";
+    }
+    if (tabReg) {
+      tabReg.classList.add("active");
+      tabReg.style.borderBottom = "2px solid var(--primary-700)";
+    }
+    if (title) title.textContent = "Đăng Ký Tài Khoản Sinh Viên";
+  } else {
+    loginSection.style.display = "block";
+    regSection.style.display = "none";
+    if (tabReg) {
+      tabReg.classList.remove("active");
+      tabReg.style.borderBottom = "none";
+    }
+    if (tabLogin) {
+      tabLogin.classList.add("active");
+      tabLogin.style.borderBottom = "2px solid var(--primary-700)";
+    }
+    if (title) title.textContent = "Đăng Nhập Tài Khoản UniMind";
+  }
+}
+
+async function handleRegisterSubmit() {
+  const fullName = document.getElementById("txtRegFullName").value.trim();
+  const emailOrMSSV = document.getElementById("txtRegMSSV").value.trim();
+  const faculty = document.getElementById("selRegFaculty").value;
+  const password = document.getElementById("txtRegPassword").value.trim();
+  const passwordConfirm = document.getElementById("txtRegPasswordConfirm").value.trim();
+
+  if (!fullName || !emailOrMSSV || !password) {
+    showToast("⚠️ Vui lòng điền đầy đủ các thông tin bắt buộc!");
+    return;
+  }
+
+  if (password.length < 6) {
+    showToast("⚠️ Mật khẩu phải có độ dài ít nhất 6 ký tự!");
+    return;
+  }
+
+  if (password !== passwordConfirm) {
+    showToast("⚠️ Mật khẩu xác nhận không khớp!");
+    return;
+  }
+
+  try {
+    const res = await fetch(`${API_BASE}/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fullName,
+        emailOrMSSV,
+        password,
+        faculty,
+        autoPseudonym: true
+      })
+    });
+
+    const data = await res.json();
+    if (res.ok && data.success && data.data) {
+      state.currentUser = data.data.user;
+      state.token = data.data.token;
+      state.isLoggedIn = true;
+
+      localStorage.setItem("unimind_user", JSON.stringify(data.data.user));
+      localStorage.setItem("unimind_token", data.data.token);
+
+      closeAuthModal();
+      switchSubsystem("student");
+      showToast(`🎉 Chào mừng sinh viên ${data.data.user.fullName}! Bí danh của bạn: ${data.data.user.anonymousCode}`);
+    } else {
+      showToast(`❌ ${data.message || "Đăng ký thất bại. Vui lòng thử lại!"}`);
+    }
+  } catch (e) {
+    showToast(`⚠️ Không thể kết nối tới server: ${e.message}`);
+  }
 }
 
 function selectAuthRole(role) {
@@ -1204,12 +1761,14 @@ function fillDemoCredentials(role) {
   const emailInp = document.getElementById("txtLoginEmail");
   const passInp = document.getElementById("txtLoginPassword");
 
+  if (!emailInp || !passInp) return;
+
   if (role === "student") {
     emailInp.value = "sv_an@unimind.edu.vn";
     passInp.value = "123456";
     activeAuthRole = "Student";
   } else if (role === "expert") {
-    emailInp.value = "tam.le@unimind.edu.vn";
+    emailInp.value = "ha.nguyen@unimind.edu.vn";
     passInp.value = "123456";
     activeAuthRole = "Expert";
   } else if (role === "admin") {
@@ -1220,8 +1779,17 @@ function fillDemoCredentials(role) {
 }
 
 async function handleLoginSubmit() {
-  const email = document.getElementById("txtLoginEmail").value.trim();
-  const pass = document.getElementById("txtLoginPassword").value.trim();
+  const emailInp = document.getElementById("txtLoginEmail");
+  const passInp = document.getElementById("txtLoginPassword");
+  if (!emailInp || !passInp) return;
+
+  const email = emailInp.value.trim();
+  const pass = passInp.value.trim();
+
+  if (!email || !pass) {
+    showToast("⚠️ Vui lòng nhập đầy đủ Email/MSSV và Mật khẩu!");
+    return;
+  }
 
   try {
     const res = await fetch(`${API_BASE}/auth/login`, {
@@ -1230,26 +1798,36 @@ async function handleLoginSubmit() {
       body: JSON.stringify({ emailOrMSSV: email, password: pass })
     });
 
-    if (res.ok) {
-      const data = await res.json();
-      if (data.success && data.data) {
-        state.currentUser = data.data.user;
-        state.token = data.data.token;
+    const data = await res.json();
+
+    if (res.ok && data.success && data.data) {
+      state.currentUser = data.data.user;
+      state.token = data.data.token;
+      state.isLoggedIn = true;
+
+      // Lưu phiên vào LocalStorage
+      localStorage.setItem("unimind_user", JSON.stringify(data.data.user));
+      localStorage.setItem("unimind_token", data.data.token);
+
+      closeAuthModal();
+
+      // Phân quyền chuyển hướng phân hệ theo vai trò thực tế từ DB
+      const userRole = (data.data.user.role || "").toLowerCase();
+      if (userRole === "admin") {
+        switchSubsystem("admin");
+      } else if (userRole === "expert") {
+        switchSubsystem("expert");
+      } else {
+        switchSubsystem("student");
       }
+
+      showToast(`✅ Đăng nhập thành công: ${data.data.user.fullName} (${data.data.user.role})`);
+    } else {
+      showToast(`❌ ${data.message || "Thông tin đăng nhập không chính xác!"}`);
     }
-  } catch (e) {}
-
-  closeAuthModal();
-
-  if (activeAuthRole === "Student") {
-    switchSubsystem("student");
-  } else if (activeAuthRole === "Expert") {
-    switchSubsystem("expert");
-  } else if (activeAuthRole === "Admin") {
-    switchSubsystem("admin");
+  } catch (e) {
+    showToast(`⚠️ Không thể kết nối tới Backend API (${API_BASE}): ${e.message}`);
   }
-
-  showToast(`Đăng nhập thành công với vai trò: ${activeAuthRole.toUpperCase()}`);
 }
 
 // ============================================================================

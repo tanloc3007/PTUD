@@ -48,58 +48,204 @@
        TOP BAR: UNIMIND SUITE HEADER (Kiến trúc 3 phân hệ độc lập)
        ======================================================================== -->
   <header class="unimind-suite-bar">
-    <div class="suite-brand-area">
+    <div class="suite-brand-area" style="cursor: pointer;" onclick="logoutToGateway()" title="Về Cổng Chọn Phân Hệ">
       <div class="suite-logo-badge">
         <img src="logo.png" alt="UniMind Logo">
       </div>
       <div class="suite-title-box">
         <div class="suite-title-row">
           <span class="suite-title-text">UniMind Suite</span>
-          <span class="suite-pill-tag">Kiến Trúc 3 Phân Hệ Độc Lập</span>
+          <span class="suite-pill-tag">Bảo Mật 3 Phân Hệ Độc Lập</span>
         </div>
-        <span class="suite-subtitle">Điều hướng 100% không sót menu • Đồng bộ phong cách Serene Sanctuary</span>
+        <span class="suite-subtitle">Phân quyền RBAC nghiêm ngặt • Kết nối SQL Server Database</span>
       </div>
     </div>
 
-    <!-- 3 Subsystem Switcher Buttons -->
-    <nav class="suite-switcher-nav" aria-label="Chuyển đổi phân hệ">
-      <button class="subsystem-btn active" id="btnSubsystemStudent" onclick="switchSubsystem('student')">
-        <span>👤 1. Phân Hệ Sinh Viên</span>
-        <span class="badge-count">6 Trang</span>
-      </button>
-      <button class="subsystem-btn" id="btnSubsystemExpert" onclick="switchSubsystem('expert')">
-        <span>🩺 2. Phân Hệ Chuyên Viên</span>
-        <span class="badge-count">4 Trang</span>
-      </button>
-      <button class="subsystem-btn" id="btnSubsystemAdmin" onclick="switchSubsystem('admin')">
-        <span>⚙️ 3. Phân Hệ Quản Trị (Admin)</span>
-        <span class="badge-count">3 Trang</span>
-      </button>
-    </nav>
+    <!-- Active Subsystem Badge & Role Indicator in Top Bar -->
+    <div class="suite-active-subsystem-box">
+      <div class="subsystem-pill-indicator gateway" id="subsystemActivePill">
+        <span class="subsystem-indicator-dot"></span>
+        <span id="subsystemActiveText">🚪 Cổng Điều Hướng 3 Phân Hệ</span>
+      </div>
+    </div>
 
     <!-- Right Controls -->
     <div class="suite-right-controls">
       <div class="security-pill">
         <div class="security-dot"></div>
-        <span>Mã hóa E2EE 256-bit An toàn</span>
+        <span>Mã hóa E2EE 256-bit</span>
       </div>
-      <div class="user-session-pill" id="userBadge" onclick="openLoginModal()">
-        <span>#</span>
-        <span id="txtUserBadge">Sinh viên: Bạn Ẩn Yên #382</span>
+      <div class="user-session-pill" id="userBadge" onclick="openLoginModal()" title="Nhấn để xem thông tin hoặc đăng nhập tài khoản khác">
+        <span>👤</span>
+        <span id="txtUserBadge">Chưa đăng nhập</span>
       </div>
       <a href="http://localhost:5080/swagger" target="_blank" class="btn-swagger-link" title="Kiểm thử API trực tiếp qua Swagger UI">
         <span>⚡ Swagger API</span>
       </a>
-      <button class="btn-secondary" style="padding: 5px 12px; font-size: 12px;" onclick="openLoginModal()" id="btnAuthToggle">
+      <button class="btn-portal-switch" onclick="logoutToGateway()" id="btnPortalSwitch" title="Quay lại Cổng Chọn Phân Hệ hoặc Đổi vai trò">
+        <span>🚪 Cổng Phân Hệ</span>
+      </button>
+      <button class="btn-primary" style="padding: 5px 12px; font-size: 12px;" onclick="openLoginModal('register')" id="btnRegisterToggle">
+        Đăng ký sinh viên
+      </button>
+      <button class="btn-secondary" style="padding: 5px 12px; font-size: 12px;" onclick="openLoginModal('login')" id="btnAuthToggle">
         Đăng nhập
       </button>
     </div>
   </header>
 
   <!-- ========================================================================
+       CỔNG ĐIỀU HƯỚNG 3 PHÂN HỆ ĐỘC LẬP (PORTAL GATEWAY)
+       ======================================================================== -->
+  <div class="portal-gateway-container" id="portalGatewayView">
+    <div class="gateway-hero-banner">
+      <div class="gateway-tag">ĐẠI HỌC LẠC HỒNG • MÔN HỌC PHÁT TRIỂN ỨNG DỤNG</div>
+      <h1 class="gateway-title">HỆ THỐNG NHẬT KÝ CẢM XÚC & TƯ VẤN TÂM LÝ HỌC ĐƯỜNG</h1>
+      <p class="gateway-subtitle">
+        Nền tảng hỗ trợ sức khỏe tinh thần được thiết kế theo <strong>Kiến trúc 3 Phân Hệ Tách Biệt</strong>. 
+        Mỗi phân hệ đảm nhận vai trò nghiệp vụ riêng, tuân thủ nguyên tắc bảo mật thông tin & phân quyền đa tầng.
+      </p>
+    </div>
+
+    <div class="gateway-grid">
+      <!-- CỔNG 1: PHÂN HỆ SINH VIÊN -->
+      <div class="gateway-card student">
+        <div class="gateway-card-header">
+          <span class="gateway-tier-pill">CẤP 1 • NGƯỜI HỌC</span>
+          <h2 class="gateway-card-title"><span>🎓</span> Phân Hệ Sinh Viên</h2>
+          <p class="gateway-card-desc">Không gian an yên, giải tỏa cảm xúc và bảo vệ diện mạo 100% khi tham vấn.</p>
+        </div>
+        <div class="gateway-card-body">
+          <ul class="gateway-feature-list">
+            <li class="gateway-feature-item">
+              <span class="gateway-feature-icon">📖</span>
+              <span><strong>Nhật ký cảm xúc AI:</strong> Theo dõi tâm trạng, AI chấm điểm Sentiment & gợi ý bài tập thở.</span>
+            </li>
+            <li class="gateway-feature-item">
+              <span class="gateway-feature-icon">📊</span>
+              <span><strong>Trắc nghiệm DASS-21:</strong> Tự đánh giá 3 chỉ số Trầm cảm - Lo âu - Căng thẳng.</span>
+            </li>
+            <li class="gateway-feature-item">
+              <span class="gateway-feature-icon">💬</span>
+              <span><strong>Cộng đồng ẩn danh:</strong> Chia sẻ tâm sự dưới bí danh tự động, không rò rỉ MSSV/tên thật.</span>
+            </li>
+            <li class="gateway-feature-item">
+              <span class="gateway-feature-icon">📅</span>
+              <span><strong>Đặt lịch tư vấn 1-1:</strong> Chọn ca trực chuyên gia, tích hợp phòng SafeRoom bảo mật.</span>
+            </li>
+          </ul>
+
+          <div class="gateway-security-badge">
+            <span>🛡️</span>
+            <span>Bảo mật: Danh tính sinh viên được mã hóa hoàn toàn.</span>
+          </div>
+
+          <div class="gateway-action-group">
+            <button class="btn-gateway-enter" onclick="enterSubsystemGateway('student')">
+              <span>🔑 Vào Phân Hệ Sinh Viên →</span>
+            </button>
+            <button class="btn-gateway-quickdemo" onclick="quickLoginAs('student')">
+              <span>⚡ Đăng nhập mẫu: SV Hoàng An (120000212)</span>
+            </button>
+            <button class="btn-gateway-quickdemo" style="background:#f0fdfa; color:#0f766e; border:1px solid #99f6e4; font-weight:700;" onclick="openLoginModal('register')">
+              <span>📝 Đăng ký tài khoản sinh viên mới</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- CỔNG 2: PHÂN HỆ CHUYÊN VIÊN -->
+      <div class="gateway-card expert">
+        <div class="gateway-card-header">
+          <span class="gateway-tier-pill">CẤP 2 • CHUYÊN GIA TÂM LÝ</span>
+          <h2 class="gateway-card-title"><span>🩺</span> Phân Hệ Chuyên Viên</h2>
+          <p class="gateway-card-desc">Bàn làm việc nghiệp vụ tham vấn chuyên sâu, quản lý lịch trực và can thiệp SOS.</p>
+        </div>
+        <div class="gateway-card-body">
+          <ul class="gateway-feature-list">
+            <li class="gateway-feature-item">
+              <span class="gateway-feature-icon">🗓️</span>
+              <span><strong>Quản lý ca trực & lịch hẹn:</strong> Phê duyệt, từ chối hoặc xếp lịch tư vấn trực tiếp/online.</span>
+            </li>
+            <li class="gateway-feature-item">
+              <span class="gateway-feature-icon">📝</span>
+              <span><strong>Sổ tay lâm sàng:</strong> Ghi chép chuyên môn sau phiên và theo dõi tiến trình sinh viên.</span>
+            </li>
+            <li class="gateway-feature-item">
+              <span class="gateway-feature-icon">🚨</span>
+              <span><strong>Hàng đợi NLP Triage:</strong> Phát hiện bài viết tiêu cực báo động đỏ để can thiệp kịp thời.</span>
+            </li>
+            <li class="gateway-feature-item">
+              <span class="gateway-feature-icon">📹</span>
+              <span><strong>SafeRoom Encrypted Call:</strong> Kết nối trực tiếp phòng tham vấn mã hóa an toàn.</span>
+            </li>
+          </ul>
+
+          <div class="gateway-security-badge">
+            <span>🔒</span>
+            <span>Yêu cầu xác thực chuyên môn: Sinh viên không có quyền xem.</span>
+          </div>
+
+          <div class="gateway-action-group">
+            <button class="btn-gateway-enter" onclick="enterSubsystemGateway('expert')">
+              <span>🩺 Vào Phân Hệ Chuyên Viên →</span>
+            </button>
+            <button class="btn-gateway-quickdemo" onclick="quickLoginAs('expert')">
+              <span>⚡ Đăng nhập mẫu: ThS. Thanh Hà (EXP001)</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- CỔNG 3: PHÂN HỆ QUẢN TRỊ VIÊN -->
+      <div class="gateway-card admin">
+        <div class="gateway-card-header">
+          <span class="gateway-tier-pill">CẤP 3 • QUẢN TRỊ HỆ THỐNG</span>
+          <h2 class="gateway-card-title"><span>⚙️</span> Phân Hệ Quản Trị (Admin)</h2>
+          <p class="gateway-card-desc">Trung tâm điều hành tối cao, kiểm soát toàn diện an toàn tâm lý toàn trường.</p>
+        </div>
+        <div class="gateway-card-body">
+          <ul class="gateway-feature-list">
+            <li class="gateway-feature-item">
+              <span class="gateway-feature-icon">📊</span>
+              <span><strong>Dashboard toàn diện:</strong> Thống kê nhiệt kế tâm lý, ca tư vấn và tỷ lệ phục hồi.</span>
+            </li>
+            <li class="gateway-feature-item">
+              <span class="gateway-feature-icon">👥</span>
+              <span><strong>Quản trị nhân sự & tài khoản:</strong> Phân quyền, kích hoạt hoặc khóa tài khoản vi phạm.</span>
+            </li>
+            <li class="gateway-feature-item">
+              <span class="gateway-feature-icon">🛡️</span>
+              <span><strong>Kiểm duyệt diễn đàn:</strong> Hàng đợi xét duyệt bài viết nhạy cảm và bình luận rủi ro.</span>
+            </li>
+            <li class="gateway-feature-item">
+              <span class="gateway-feature-icon">⚠️</span>
+              <span><strong>Bộ từ khóa nhạy cảm:</strong> Thêm/xóa từ khóa tự động kích hoạt cảnh báo nguy cơ cao.</span>
+            </li>
+          </ul>
+
+          <div class="gateway-security-badge">
+            <span>⛔</span>
+            <span>Quyền hạn cao nhất: Bảo vệ tuyệt mật dữ liệu sinh viên.</span>
+          </div>
+
+          <div class="gateway-action-group">
+            <button class="btn-gateway-enter" onclick="enterSubsystemGateway('admin')">
+              <span>⚙️ Vào Phân Hệ Quản Trị →</span>
+            </button>
+            <button class="btn-gateway-quickdemo" onclick="quickLoginAs('admin')">
+              <span>⚡ Đăng nhập mẫu: Admin Văn An (AD001)</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================================
        MAIN APP CONTAINER (Sidebar + Main Content Stage)
        ======================================================================== -->
-  <div class="app-container">
+  <div class="app-container" id="appContainer" style="display: none;">
 
     <!-- LEFT SIDEBAR -->
     <aside class="sidebar-panel">
@@ -1173,6 +1319,35 @@
         </div>
       </div>
 
+      <!-- ====================================================================
+           4. MÀN HÌNH CHẶN PHÂN QUYỀN (403 ACCESS DENIED)
+           Phân hệ thấp tuyệt đối không được xem trang của phân hệ cao
+           ==================================================================== -->
+      <div class="view-container" id="viewAccessDenied">
+        <div class="access-denied-box">
+          <div class="access-denied-icon">🚫</div>
+          <div class="access-denied-tag">BẢO MẬT PHÂN TẦNG • HTTP 403 FORBIDDEN</div>
+          <h2 class="access-denied-title">Quyền Truy Cập Bị Từ Chối</h2>
+          <p class="access-denied-desc" id="accessDeniedDesc">
+            Bạn đang sử dụng tài khoản thuộc phân hệ cấp dưới và không có quyền xem hoặc sử dụng các chức năng của phân hệ cấp cao hơn theo quy định an toàn hệ thống.
+          </p>
+          <div class="access-denied-role-badge" id="accessDeniedRoleBadge">
+            Vai trò hiện tại: <strong id="txtCurrentDeniedRole">Sinh viên</strong> | Yêu cầu tối thiểu: <strong id="txtRequiredDeniedRole">Chuyên viên hoặc Admin</strong>
+          </div>
+          <div class="access-denied-actions">
+            <button class="btn-primary" onclick="returnToAllowedSubsystem()">
+              <span>⬅️ Quay lại Phân hệ của bạn</span>
+            </button>
+            <button class="btn-secondary" onclick="openLoginModal()">
+              <span>🔑 Đăng nhập tài khoản cấp cao</span>
+            </button>
+            <button class="btn-secondary" onclick="logoutToGateway()">
+              <span>🚪 Về Cổng Chọn Phân Hệ</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
     </main>
   </div>
 
@@ -1180,46 +1355,180 @@
        MODAL: ĐĂNG NHẬP / ĐĂNG KÝ
        ======================================================================== -->
   <div class="modal-overlay" id="modalAuth">
-    <div class="modal-dialog">
+    <div class="modal-dialog" style="max-width:480px;">
       <div class="modal-header">
         <div style="display:flex; align-items:center; gap:10px;">
           <img src="logo.png" alt="Logo" style="width:32px; height:32px; border-radius:8px;">
-          <h2 class="modal-title">Đăng Nhập Tài Khoản UniMind</h2>
+          <h2 class="modal-title" id="authModalTitle">Tài Khoản UniMind</h2>
         </div>
         <button class="modal-close-btn" onclick="closeAuthModal()">✕</button>
       </div>
       <div class="modal-body">
-        <!-- Tab vai trò -->
-        <div style="display:flex; background:var(--slate-100); padding:4px; border-radius:10px; margin-bottom:16px;">
-          <button class="subsystem-btn active" id="btnRoleStudent" style="flex:1; justify-content:center; font-size:12.5px;" onclick="selectAuthRole('Student')">Sinh viên</button>
-          <button class="subsystem-btn" id="btnRoleExpert" style="flex:1; justify-content:center; font-size:12.5px;" onclick="selectAuthRole('Expert')">Chuyên viên</button>
-          <button class="subsystem-btn" id="btnRoleAdmin" style="flex:1; justify-content:center; font-size:12.5px;" onclick="selectAuthRole('Admin')">Quản trị viên</button>
+        <!-- Chuyển đổi giữa Đăng Nhập và Đăng Ký -->
+        <div style="display:flex; border-bottom:2px solid var(--slate-200); margin-bottom:16px;">
+          <button id="tabAuthLogin" class="subsystem-btn active" style="flex:1; justify-content:center; border-radius:0; border-bottom:2px solid var(--primary-700); font-weight:700;" onclick="switchAuthMode('login')">
+            🔑 Đăng Nhập
+          </button>
+          <button id="tabAuthRegister" class="subsystem-btn" style="flex:1; justify-content:center; border-radius:0; font-weight:700;" onclick="switchAuthMode('register')">
+            📝 Đăng Ký Sinh Viên
+          </button>
         </div>
 
-        <div style="display:flex; flex-direction:column; gap:12px;">
-          <div>
-            <label style="font-size:12.5px; font-weight:600; color:var(--slate-700); display:block; margin-bottom:4px;" id="lblLoginIdentifier">Email hoặc Mã số sinh viên (MSSV):</label>
-            <input type="text" id="txtLoginEmail" value="sv_an@unimind.edu.vn" style="width:100%; padding:10px 14px; border:1px solid var(--slate-200); border-radius:var(--radius-md); font-family:inherit; font-size:13.5px;">
-          </div>
-          <div>
-            <label style="font-size:12.5px; font-weight:600; color:var(--slate-700); display:block; margin-bottom:4px;">Mật khẩu bảo mật:</label>
-            <input type="password" id="txtLoginPassword" value="123456" style="width:100%; padding:10px 14px; border:1px solid var(--slate-200); border-radius:var(--radius-md); font-family:inherit; font-size:13.5px;">
+        <!-- FORM ĐĂNG NHẬP -->
+        <div id="authLoginSection">
+          <!-- Tab vai trò cho đăng nhập -->
+          <div style="display:flex; background:var(--slate-100); padding:4px; border-radius:10px; margin-bottom:16px;">
+            <button class="subsystem-btn active" id="btnRoleStudent" style="flex:1; justify-content:center; font-size:12.5px;" onclick="selectAuthRole('Student')">Sinh viên</button>
+            <button class="subsystem-btn" id="btnRoleExpert" style="flex:1; justify-content:center; font-size:12.5px;" onclick="selectAuthRole('Expert')">Chuyên viên</button>
+            <button class="subsystem-btn" id="btnRoleAdmin" style="flex:1; justify-content:center; font-size:12.5px;" onclick="selectAuthRole('Admin')">Quản trị viên</button>
           </div>
 
-          <!-- Nút điền nhanh tiện lợi cho test -->
-          <div style="background:#f0fdfa; border:1px dashed #0d9488; padding:8px 12px; border-radius:8px; font-size:12px; color:#0f766e;">
-            <strong>⚡ Điền nhanh tài khoản mẫu:</strong>
-            <div style="display:flex; gap:6px; margin-top:4px; flex-wrap:wrap;">
-              <button class="category-chip" style="font-size:11px;" onclick="fillDemoCredentials('student')">Sinh viên An</button>
-              <button class="category-chip" style="font-size:11px;" onclick="fillDemoCredentials('expert')">ThS. Tâm</button>
-              <button class="category-chip" style="font-size:11px;" onclick="fillDemoCredentials('admin')">Admin Văn An</button>
+          <div style="display:flex; flex-direction:column; gap:12px;">
+            <div>
+              <label style="font-size:12.5px; font-weight:600; color:var(--slate-700); display:block; margin-bottom:4px;" id="lblLoginIdentifier">Email hoặc Mã số sinh viên (MSSV):</label>
+              <input type="text" id="txtLoginEmail" value="sv_an@unimind.edu.vn" style="width:100%; padding:10px 14px; border:1px solid var(--slate-200); border-radius:var(--radius-md); font-family:inherit; font-size:13.5px;">
+            </div>
+            <div>
+              <label style="font-size:12.5px; font-weight:600; color:var(--slate-700); display:block; margin-bottom:4px;">Mật khẩu bảo mật:</label>
+              <input type="password" id="txtLoginPassword" value="123456" style="width:100%; padding:10px 14px; border:1px solid var(--slate-200); border-radius:var(--radius-md); font-family:inherit; font-size:13.5px;">
+            </div>
+
+            <!-- Nút điền nhanh tiện lợi cho test -->
+            <div style="background:#f0fdfa; border:1px dashed #0d9488; padding:8px 12px; border-radius:8px; font-size:12px; color:#0f766e;">
+              <strong>⚡ Điền nhanh tài khoản mẫu:</strong>
+              <div style="display:flex; gap:6px; margin-top:4px; flex-wrap:wrap;">
+                <button class="category-chip" style="font-size:11px;" onclick="fillDemoCredentials('student')">Sinh viên An</button>
+                <button class="category-chip" style="font-size:11px;" onclick="fillDemoCredentials('expert')">ThS. Hà</button>
+                <button class="category-chip" style="font-size:11px;" onclick="fillDemoCredentials('admin')">Admin Văn An</button>
+              </div>
+            </div>
+
+            <button class="btn-primary" style="width:100%; justify-content:center; margin-top:8px;" onclick="handleLoginSubmit()">
+              Đăng nhập vào Không gian An Yên →
+            </button>
+          </div>
+        </div>
+
+        <!-- FORM ĐĂNG KÝ SINH VIÊN MỚI -->
+        <div id="authRegisterSection" style="display:none;">
+          <form onsubmit="event.preventDefault(); handleRegisterSubmit();" style="display:flex; flex-direction:column; gap:11px;">
+            <div>
+              <label style="font-size:12px; font-weight:700; color:var(--slate-700); display:block; margin-bottom:3px;">Họ và tên sinh viên (*):</label>
+              <input type="text" id="txtRegFullName" placeholder="VD: Nguyễn Văn Bình" required style="width:100%; padding:9px 12px; border:1px solid var(--slate-200); border-radius:var(--radius-md); font-size:13px;">
+            </div>
+
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+              <div>
+                <label style="font-size:12px; font-weight:700; color:var(--slate-700); display:block; margin-bottom:3px;">Mã số sinh viên (MSSV) (*):</label>
+                <input type="text" id="txtRegMSSV" placeholder="VD: 120000888" required style="width:100%; padding:9px 12px; border:1px solid var(--slate-200); border-radius:var(--radius-md); font-size:13px;">
+              </div>
+              <div>
+                <label style="font-size:12px; font-weight:700; color:var(--slate-700); display:block; margin-bottom:3px;">Khoa / Ngành học (*):</label>
+                <select id="selRegFaculty" style="width:100%; padding:9px 12px; border:1px solid var(--slate-200); border-radius:var(--radius-md); font-size:13px;">
+                  <option value="Khoa Công nghệ Thông tin">Khoa Công nghệ Thông tin</option>
+                  <option value="Khoa Kinh tế - Quản trị">Khoa Kinh tế - Quản trị</option>
+                  <option value="Khoa Ngoại ngữ & Du lịch">Khoa Ngoại ngữ & Du lịch</option>
+                  <option value="Khoa Dược - Điều dưỡng">Khoa Dược - Điều dưỡng</option>
+                  <option value="Khoa Kỹ thuật Công trình">Khoa Kỹ thuật Công trình</option>
+                </select>
+              </div>
+            </div>
+
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+              <div>
+                <label style="font-size:12px; font-weight:700; color:var(--slate-700); display:block; margin-bottom:3px;">Mật khẩu (*):</label>
+                <input type="password" id="txtRegPassword" placeholder="Ít nhất 6 ký tự" required style="width:100%; padding:9px 12px; border:1px solid var(--slate-200); border-radius:var(--radius-md); font-size:13px;">
+              </div>
+              <div>
+                <label style="font-size:12px; font-weight:700; color:var(--slate-700); display:block; margin-bottom:3px;">Xác nhận mật khẩu (*):</label>
+                <input type="password" id="txtRegPasswordConfirm" placeholder="Nhập lại mật khẩu" required style="width:100%; padding:9px 12px; border:1px solid var(--slate-200); border-radius:var(--radius-md); font-size:13px;">
+              </div>
+            </div>
+
+            <div style="background:#f0fdfa; padding:8px 12px; border-radius:8px; font-size:11.5px; color:#0f766e; border:1px solid #ccfbf1;">
+              🔒 <strong>Bảo vệ danh tính tuyệt đối:</strong> Hệ thống tự động mã hóa danh tính thật và sinh bí danh ẩn danh ngẫu nhiên khi tham gia cộng đồng.
+            </div>
+
+            <button type="submit" class="btn-primary" style="width:100%; justify-content:center; margin-top:4px;">
+              Tạo Tài Khoản & Vào Không Gian An Yên →
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       MODAL: THÊM CHUYÊN VIÊN TƯ VẤN MỚI (Admin Portal)
+       ======================================================================== -->
+  <div class="modal-overlay" id="modalAddExpert">
+    <div class="modal-dialog" style="max-width:540px;">
+      <div class="modal-header">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span style="font-size:24px;">👨‍⚕️</span>
+          <h2 class="modal-title">Thêm Chuyên Viên Tư Vấn Mới</h2>
+        </div>
+        <button class="modal-close-btn" onclick="closeAddExpertModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:13px; color:var(--slate-500); margin-bottom:14px;">
+          Nhập thông tin chuyên viên tâm lý học đường để cấp tài khoản đăng nhập và tự động kích hoạt ca trực tham vấn.
+        </p>
+        <form id="formAddExpert" onsubmit="event.preventDefault(); handleCreateExpertSubmit();" style="display:flex; flex-direction:column; gap:12px;">
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
+            <div>
+              <label style="font-size:12px; font-weight:700; color:var(--slate-700); display:block; margin-bottom:4px;">Họ và tên chuyên viên (*):</label>
+              <input type="text" id="txtNewExpertFullName" placeholder="VD: ThS. Hoàng Minh Đức" required style="width:100%; padding:9px 12px; border:1px solid var(--slate-200); border-radius:var(--radius-md); font-size:13px;">
+            </div>
+            <div>
+              <label style="font-size:12px; font-weight:700; color:var(--slate-700); display:block; margin-bottom:4px;">Email làm việc (*):</label>
+              <input type="email" id="txtNewExpertEmail" placeholder="duc.hoang@unimind.edu.vn" required style="width:100%; padding:9px 12px; border:1px solid var(--slate-200); border-radius:var(--radius-md); font-size:13px;">
             </div>
           </div>
 
-          <button class="btn-primary" style="width:100%; justify-content:center; margin-top:8px;" onclick="handleLoginSubmit()">
-            Đăng nhập vào Không gian An Yên →
-          </button>
-        </div>
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
+            <div>
+              <label style="font-size:12px; font-weight:700; color:var(--slate-700); display:block; margin-bottom:4px;">Mật khẩu ban đầu:</label>
+              <input type="password" id="txtNewExpertPassword" value="123456" style="width:100%; padding:9px 12px; border:1px solid var(--slate-200); border-radius:var(--radius-md); font-size:13px;">
+            </div>
+            <div>
+              <label style="font-size:12px; font-weight:700; color:var(--slate-700); display:block; margin-bottom:4px;">Học vị / Bằng cấp:</label>
+              <input type="text" id="txtNewExpertDegree" value="Thạc sĩ Tâm lý học" style="width:100%; padding:9px 12px; border:1px solid var(--slate-200); border-radius:var(--radius-md); font-size:13px;">
+            </div>
+          </div>
+
+          <div style="display:grid; grid-template-columns: 2fr 1fr; gap:12px;">
+            <div>
+              <label style="font-size:12px; font-weight:700; color:var(--slate-700); display:block; margin-bottom:4px;">Lĩnh vực chuyên môn (*):</label>
+              <input type="text" id="txtNewExpertSpecialization" value="Áp lực học tập & Đồ án tốt nghiệp" required style="width:100%; padding:9px 12px; border:1px solid var(--slate-200); border-radius:var(--radius-md); font-size:13px;">
+            </div>
+            <div>
+              <label style="font-size:12px; font-weight:700; color:var(--slate-700); display:block; margin-bottom:4px;">Kinh nghiệm (năm):</label>
+              <input type="number" id="txtNewExpertExperience" value="6" min="1" max="40" style="width:100%; padding:9px 12px; border:1px solid var(--slate-200); border-radius:var(--radius-md); font-size:13px;">
+            </div>
+          </div>
+
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
+            <div>
+              <label style="font-size:12px; font-weight:700; color:var(--slate-700); display:block; margin-bottom:4px;">Phòng làm việc:</label>
+              <input type="text" id="txtNewExpertRoom" value="P.304 (Tầng 3 - Nhà H)" style="width:100%; padding:9px 12px; border:1px solid var(--slate-200); border-radius:var(--radius-md); font-size:13px;">
+            </div>
+            <div>
+              <label style="font-size:12px; font-weight:700; color:var(--slate-700); display:block; margin-bottom:4px;">Chức danh hiển thị:</label>
+              <input type="text" id="txtNewExpertTitle" value="ThS. Tâm lý" style="width:100%; padding:9px 12px; border:1px solid var(--slate-200); border-radius:var(--radius-md); font-size:13px;">
+            </div>
+          </div>
+
+          <div>
+            <label style="font-size:12px; font-weight:700; color:var(--slate-700); display:block; margin-bottom:4px;">Giới thiệu tóm tắt (Bio):</label>
+            <textarea id="txtNewExpertBio" rows="2" style="width:100%; padding:8px 12px; border:1px solid var(--slate-200); border-radius:var(--radius-md); font-size:13px; font-family:inherit;">Chuyên gia tham vấn tâm lý học đường, hỗ trợ sinh viên gỡ rối áp lực và cân bằng cuộc sống.</textarea>
+          </div>
+
+          <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:8px;">
+            <button type="button" class="btn-secondary" onclick="closeAddExpertModal()">Hủy bỏ</button>
+            <button type="submit" class="btn-primary">💾 Lưu & Kích Hoạt Chuyên Viên</button>
+          </div>
+        </form>
       </div>
     </div>
   </div>

@@ -131,6 +131,18 @@ public record ExpertDto(
     List<TimeSlotDto> AvailableSlots
 );
 
+public record CreateExpertRequest(
+    string FullName,
+    string Email,
+    string? Password,
+    string Title,
+    string AcademicDegree,
+    string Specialization,
+    int ExperienceYears,
+    string RoomLocation,
+    string? Bio
+);
+
 public record TimeSlotDto(
     Guid Id,
     Guid ExpertId,

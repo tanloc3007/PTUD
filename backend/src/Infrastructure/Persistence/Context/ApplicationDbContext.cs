@@ -1,3 +1,4 @@
+using Microsoft.Data.SqlClient;
 using UniMind.Application.Common.Interfaces;
 using UniMind.Domain.Entities;
 using UniMind.Domain.Enums;
@@ -6,6 +7,8 @@ namespace UniMind.Infrastructure.Persistence.Context;
 
 public class ApplicationDbContext : IApplicationDbContext
 {
+    private readonly string? _connectionString;
+
     public List<User> Users { get; set; } = new();
     public List<Expert> Experts { get; set; } = new();
     public List<TimeSlot> TimeSlots { get; set; } = new();
@@ -21,19 +24,659 @@ public class ApplicationDbContext : IApplicationDbContext
     public List<NlpRiskAlert> NlpRiskAlerts { get; set; } = new();
     public List<AuditLog> AuditLogs { get; set; } = new();
 
-    public ApplicationDbContext()
+    public ApplicationDbContext(string? connectionString = null)
     {
-        SeedInitialData();
+        _connectionString = connectionString;
+        bool loaded = false;
+
+        if (!string.IsNullOrWhiteSpace(_connectionString))
+        {
+            try
+            {
+                loaded = TryLoadFromSqlServer(_connectionString);
+            }
+            catch (Exception ex)
+            {
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine($"[UniMind DB Warning] Không thể tải dữ liệu từ SQL Server: {ex.Message}. Chuyển sang nạp dữ liệu mẫu ban đầu.");
+                Console.ResetColor();
+            }
+        }
+
+        if (!loaded || Users.Count == 0)
+        {
+            SeedInitialData();
+        }
     }
 
-    public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    private bool TryLoadFromSqlServer(string connStr)
     {
-        return Task.FromResult(1);
+        using var conn = new SqlConnection(connStr);
+        conn.Open();
+
+        // 1. Users
+        using (var cmd = new SqlCommand("SELECT Id, MSSV, FullName, Email, PasswordHash, Role, Faculty, AvatarUrl, AnonymousCode, IsActive, CreatedAt, UpdatedAt FROM dbo.Users", conn))
+        using (var reader = cmd.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                var roleStr = reader["Role"].ToString() ?? "Student";
+                Enum.TryParse<UserRole>(roleStr, true, out var role);
+
+                Users.Add(new User
+                {
+                    Id = reader.GetGuid(0),
+                    MSSV = reader.IsDBNull(1) ? null : reader.GetString(1),
+                    FullName = reader.GetString(2),
+                    Email = reader.GetString(3),
+                    PasswordHash = reader.GetString(4),
+                    Role = role,
+                    Faculty = reader.IsDBNull(6) ? null : reader.GetString(6),
+                    AvatarUrl = reader.IsDBNull(7) ? null : reader.GetString(7),
+                    AnonymousCode = reader.GetString(8),
+                    IsActive = reader.GetBoolean(9),
+                    CreatedAt = reader.GetDateTime(10),
+                    UpdatedAt = reader.IsDBNull(11) ? null : reader.GetDateTime(11)
+                });
+            }
+        }
+
+        // 2. Experts
+        using (var cmd = new SqlCommand("SELECT Id, UserId, Title, AcademicDegree, Specialization, ExperienceYears, RoomLocation, Bio, Rating, TotalConsultations, IsAvailable, CreatedAt FROM dbo.Experts", conn))
+        using (var reader = cmd.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                Experts.Add(new Expert
+                {
+                    Id = reader.GetGuid(0),
+                    UserId = reader.GetGuid(1),
+                    Title = reader.GetString(2),
+                    AcademicDegree = reader.GetString(3),
+                    Specialization = reader.GetString(4),
+                    ExperienceYears = reader.GetInt32(5),
+                    RoomLocation = reader.GetString(6),
+                    Bio = reader.IsDBNull(7) ? null : reader.GetString(7),
+                    Rating = Convert.ToDouble(reader.GetValue(8)),
+                    TotalConsultations = reader.GetInt32(9),
+                    IsAvailable = reader.GetBoolean(10),
+                    CreatedAt = reader.GetDateTime(11)
+                });
+            }
+        }
+
+        // 3. TimeSlots
+        using (var cmd = new SqlCommand("SELECT Id, ExpertId, SlotDate, StartTime, EndTime, LocationType, RoomName, IsBooked, CreatedAt FROM dbo.TimeSlots", conn))
+        using (var reader = cmd.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                var locStr = reader["LocationType"].ToString() ?? "Physical";
+                Enum.TryParse<LocationType>(locStr, true, out var locType);
+
+                var slotDate = DateOnly.FromDateTime(reader.GetDateTime(2));
+                var startSpan = (TimeSpan)reader.GetValue(3);
+                var endSpan = (TimeSpan)reader.GetValue(4);
+
+                TimeSlots.Add(new TimeSlot
+                {
+                    Id = reader.GetGuid(0),
+                    ExpertId = reader.GetGuid(1),
+                    SlotDate = slotDate,
+                    StartTime = TimeOnly.FromTimeSpan(startSpan),
+                    EndTime = TimeOnly.FromTimeSpan(endSpan),
+                    LocationType = locType,
+                    RoomName = reader.GetString(6),
+                    IsBooked = reader.GetBoolean(7),
+                    CreatedAt = reader.GetDateTime(8)
+                });
+            }
+        }
+
+        // 4. Appointments
+        using (var cmd = new SqlCommand("SELECT Id, StudentId, ExpertId, TimeSlotId, BookingCode, AnonymousPseudonym, ConsultationType, Status, ReasonNotes, RejectionReason, ClinicalNotes, Dass21Summary, RiskScore, CreatedAt, UpdatedAt FROM dbo.Appointments", conn))
+        using (var reader = cmd.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                var locStr = reader["ConsultationType"].ToString() ?? "Physical";
+                Enum.TryParse<LocationType>(locStr, true, out var locType);
+
+                var statusStr = reader["Status"].ToString() ?? "Pending";
+                Enum.TryParse<AppointmentStatus>(statusStr, true, out var appStatus);
+
+                Appointments.Add(new Appointment
+                {
+                    Id = reader.GetGuid(0),
+                    StudentId = reader.GetGuid(1),
+                    ExpertId = reader.GetGuid(2),
+                    TimeSlotId = reader.GetGuid(3),
+                    BookingCode = reader.GetString(4),
+                    AnonymousPseudonym = reader.GetString(5),
+                    ConsultationType = locType,
+                    Status = appStatus,
+                    ReasonNotes = reader.IsDBNull(8) ? null : reader.GetString(8),
+                    RejectionReason = reader.IsDBNull(9) ? null : reader.GetString(9),
+                    ClinicalNotes = reader.IsDBNull(10) ? null : reader.GetString(10),
+                    Dass21Summary = reader.IsDBNull(11) ? null : reader.GetString(11),
+                    RiskScore = reader.GetInt32(12),
+                    CreatedAt = reader.GetDateTime(13),
+                    UpdatedAt = reader.IsDBNull(14) ? null : reader.GetDateTime(14)
+                });
+            }
+        }
+
+        // 5. SensitiveKeywords
+        using (var cmd = new SqlCommand("SELECT Id, Keyword, Category, RiskWeight, AddedByRole, IsActive, CreatedAt FROM dbo.SensitiveKeywords", conn))
+        using (var reader = cmd.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                SensitiveKeywords.Add(new SensitiveKeyword
+                {
+                    Id = reader.GetGuid(0),
+                    Keyword = reader.GetString(1),
+                    Category = reader.GetString(2),
+                    RiskWeight = reader.GetInt32(3),
+                    AddedByRole = reader.GetString(4),
+                    IsActive = reader.GetBoolean(5),
+                    CreatedAt = reader.GetDateTime(6)
+                });
+            }
+        }
+
+        // 6. CommunityPosts
+        using (var cmd = new SqlCommand("SELECT Id, StudentId, AnonymousPseudonym, StudentRoleTag, Content, CategoryTag, StressLevelTag, HasKeywordsAlert, DetectedKeywords, SentimentLabel, SentimentScore, RiskScore, IsExtremeCrisis, IsSensitiveHiddenFromStudents, ModerationStatus, ModeratedBy, HugCount, EmpathyCount, CommentCount, CreatedAt FROM dbo.CommunityPosts ORDER BY CreatedAt DESC", conn))
+        using (var reader = cmd.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                var modStr = reader["ModerationStatus"].ToString() ?? "Approved";
+                Enum.TryParse<PostStatus>(modStr, true, out var modStatus);
+
+                CommunityPosts.Add(new CommunityPost
+                {
+                    Id = reader.GetGuid(0),
+                    StudentId = reader.GetGuid(1),
+                    AnonymousPseudonym = reader.GetString(2),
+                    StudentRoleTag = reader.GetString(3),
+                    Content = reader.GetString(4),
+                    CategoryTag = reader.GetString(5),
+                    StressLevelTag = reader.IsDBNull(6) ? null : reader.GetString(6),
+                    HasKeywordsAlert = reader.GetBoolean(7),
+                    DetectedKeywords = reader.IsDBNull(8) ? null : reader.GetString(8),
+                    SentimentLabel = reader.GetString(9),
+                    SentimentScore = Convert.ToDouble(reader.GetValue(10)),
+                    RiskScore = reader.GetInt32(11),
+                    IsExtremeCrisis = reader.GetBoolean(12),
+                    IsSensitiveHiddenFromStudents = reader.GetBoolean(13),
+                    ModerationStatus = modStatus,
+                    ModeratedBy = reader.IsDBNull(15) ? null : reader.GetGuid(15),
+                    HugCount = reader.GetInt32(16),
+                    EmpathyCount = reader.GetInt32(17),
+                    CommentCount = reader.GetInt32(18),
+                    CreatedAt = reader.GetDateTime(19)
+                });
+            }
+        }
+
+        // 7. CommunityComments
+        using (var cmd = new SqlCommand("SELECT Id, PostId, UserId, AuthorPseudonym, Content, IsExpertComment, ExpertTitle, IsSensitiveHiddenFromStudents, DetectedKeywords, ModerationStatus, CreatedAt FROM dbo.CommunityComments", conn))
+        using (var reader = cmd.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                var modStr = reader["ModerationStatus"].ToString() ?? "Approved";
+                Enum.TryParse<PostStatus>(modStr, true, out var modStatus);
+
+                CommunityComments.Add(new CommunityComment
+                {
+                    Id = reader.GetGuid(0),
+                    PostId = reader.GetGuid(1),
+                    UserId = reader.GetGuid(2),
+                    AuthorPseudonym = reader.GetString(3),
+                    Content = reader.GetString(4),
+                    IsExpertComment = reader.GetBoolean(5),
+                    ExpertTitle = reader.IsDBNull(6) ? null : reader.GetString(6),
+                    IsSensitiveHiddenFromStudents = reader.GetBoolean(7),
+                    DetectedKeywords = reader.IsDBNull(8) ? null : reader.GetString(8),
+                    ModerationStatus = modStatus,
+                    CreatedAt = reader.GetDateTime(10)
+                });
+            }
+        }
+
+        // 8. MoodJournals
+        using (var cmd = new SqlCommand("SELECT Id, StudentId, MoodState, EnergyLevel, Triggers, JournalContent, SentimentScore, SentimentLabel, AiAdvice, IsSharedToCommunity, CreatedAt FROM dbo.MoodJournals ORDER BY CreatedAt DESC", conn))
+        using (var reader = cmd.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                var moodStr = reader["MoodState"].ToString() ?? "Peaceful";
+                Enum.TryParse<MoodType>(moodStr, true, out var moodType);
+
+                MoodJournals.Add(new MoodJournal
+                {
+                    Id = reader.GetGuid(0),
+                    StudentId = reader.GetGuid(1),
+                    MoodState = moodType,
+                    EnergyLevel = reader.GetInt32(3),
+                    Triggers = reader.IsDBNull(4) ? null : reader.GetString(4),
+                    JournalContent = reader.GetString(5),
+                    SentimentScore = Convert.ToDouble(reader.GetValue(6)),
+                    SentimentLabel = reader.GetString(7),
+                    AiAdvice = reader.IsDBNull(8) ? null : reader.GetString(8),
+                    IsSharedToCommunity = reader.GetBoolean(9),
+                    CreatedAt = reader.GetDateTime(10)
+                });
+            }
+        }
+
+        // 9. NlpRiskAlerts
+        using (var cmd = new SqlCommand("SELECT Id, PostId, CommentId, StudentAnonymousCode, Faculty, SnippetContent, TriggeredKeywords, RiskScore, TriageLevel, Status, InterventionAction, ResolvedBy, CreatedAt FROM dbo.NlpRiskAlerts ORDER BY CreatedAt DESC", conn))
+        using (var reader = cmd.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                var triageStr = reader["TriageLevel"].ToString() ?? "Urgent";
+                Enum.TryParse<TriageLevel>(triageStr, true, out var triageLevel);
+
+                NlpRiskAlerts.Add(new NlpRiskAlert
+                {
+                    Id = reader.GetGuid(0),
+                    PostId = reader.IsDBNull(1) ? null : reader.GetGuid(1),
+                    CommentId = reader.IsDBNull(2) ? null : reader.GetGuid(2),
+                    StudentAnonymousCode = reader.GetString(3),
+                    Faculty = reader.IsDBNull(4) ? null : reader.GetString(4),
+                    SnippetContent = reader.GetString(5),
+                    TriggeredKeywords = reader.GetString(6),
+                    RiskScore = reader.GetInt32(7),
+                    TriageLevel = triageLevel,
+                    Status = reader.GetString(9),
+                    InterventionAction = reader.IsDBNull(10) ? null : reader.GetString(10),
+                    ResolvedBy = reader.IsDBNull(11) ? null : reader.GetGuid(11),
+                    CreatedAt = reader.GetDateTime(12)
+                });
+            }
+        }
+
+        // 10. PsychologicalTests
+        using (var cmd = new SqlCommand("SELECT Id, Code, Title, Description, EstimatedMinutes, QuestionCount, IsPublished, CreatedAt FROM dbo.PsychologicalTests", conn))
+        using (var reader = cmd.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                PsychologicalTests.Add(new PsychologicalTest
+                {
+                    Id = reader.GetGuid(0),
+                    Code = reader.GetString(1),
+                    Title = reader.GetString(2),
+                    Description = reader.GetString(3),
+                    EstimatedMinutes = reader.GetInt32(4),
+                    QuestionCount = reader.GetInt32(5),
+                    IsPublished = reader.GetBoolean(6),
+                    CreatedAt = reader.GetDateTime(7)
+                });
+            }
+        }
+
+        // 11. TestQuestions
+        using (var cmd = new SqlCommand("SELECT Id, TestId, QuestionNumber, Content, SubscaleCategory, CreatedAt FROM dbo.TestQuestions ORDER BY QuestionNumber", conn))
+        using (var reader = cmd.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                TestQuestions.Add(new TestQuestion
+                {
+                    Id = reader.GetGuid(0),
+                    TestId = reader.GetGuid(1),
+                    QuestionNumber = reader.GetInt32(2),
+                    Content = reader.GetString(3),
+                    SubscaleCategory = reader.GetString(4),
+                    CreatedAt = reader.GetDateTime(5)
+                });
+            }
+        }
+
+        // 12. TestOptions
+        using (var cmd = new SqlCommand("SELECT Id, QuestionId, OptionOrder, OptionText, ScoreValue FROM dbo.TestOptions ORDER BY OptionOrder", conn))
+        using (var reader = cmd.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                TestOptions.Add(new TestOption
+                {
+                    Id = reader.GetGuid(0),
+                    QuestionId = reader.GetGuid(1),
+                    OptionOrder = reader.GetInt32(2),
+                    OptionText = reader.GetString(3),
+                    ScoreValue = reader.GetInt32(4)
+                });
+            }
+        }
+
+        // Wire relation between Questions and Tests
+        foreach (var test in PsychologicalTests)
+        {
+            test.Questions = TestQuestions.Where(q => q.TestId == test.Id).ToList();
+            foreach (var q in test.Questions)
+            {
+                q.Options = TestOptions.Where(o => o.QuestionId == q.Id).ToList();
+            }
+        }
+
+        // Wire comments to posts
+        foreach (var post in CommunityPosts)
+        {
+            post.Comments = CommunityComments.Where(c => c.PostId == post.Id).ToList();
+        }
+
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.WriteLine($"[UniMind DB Success] Đã kết nối và nạp thành công từ SQL Server: {Users.Count} người dùng, {Experts.Count} chuyên gia, {TimeSlots.Count} ca trực, {CommunityPosts.Count} bài viết, {Appointments.Count} ca hẹn!");
+        Console.ResetColor();
+
+        return true;
+    }
+
+    public async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(_connectionString)) return 1;
+
+        try
+        {
+            using var conn = new SqlConnection(_connectionString);
+            await conn.OpenAsync(cancellationToken);
+
+            // 1. Sync CommunityPosts
+            foreach (var post in CommunityPosts)
+            {
+                using var cmd = new SqlCommand(@"
+                    IF NOT EXISTS (SELECT 1 FROM dbo.CommunityPosts WHERE Id = @Id)
+                    BEGIN
+                        INSERT INTO dbo.CommunityPosts 
+                        (Id, StudentId, AnonymousPseudonym, StudentRoleTag, Content, CategoryTag, StressLevelTag, HasKeywordsAlert, DetectedKeywords, SentimentLabel, SentimentScore, RiskScore, IsExtremeCrisis, IsSensitiveHiddenFromStudents, ModerationStatus, ModeratedBy, HugCount, EmpathyCount, CommentCount, CreatedAt)
+                        VALUES (@Id, @StudentId, @AnonymousPseudonym, @StudentRoleTag, @Content, @CategoryTag, @StressLevelTag, @HasKeywordsAlert, @DetectedKeywords, @SentimentLabel, @SentimentScore, @RiskScore, @IsExtremeCrisis, @IsSensitiveHiddenFromStudents, @ModerationStatus, @ModeratedBy, @HugCount, @EmpathyCount, @CommentCount, @CreatedAt)
+                    END
+                    ELSE
+                    BEGIN
+                        UPDATE dbo.CommunityPosts SET 
+                            HugCount = @HugCount, 
+                            EmpathyCount = @EmpathyCount, 
+                            CommentCount = @CommentCount,
+                            ModerationStatus = @ModerationStatus,
+                            ModeratedBy = @ModeratedBy,
+                            IsSensitiveHiddenFromStudents = @IsSensitiveHiddenFromStudents
+                        WHERE Id = @Id
+                    END", conn);
+
+                cmd.Parameters.AddWithValue("@Id", post.Id);
+                cmd.Parameters.AddWithValue("@StudentId", post.StudentId);
+                cmd.Parameters.AddWithValue("@AnonymousPseudonym", post.AnonymousPseudonym);
+                cmd.Parameters.AddWithValue("@StudentRoleTag", post.StudentRoleTag);
+                cmd.Parameters.AddWithValue("@Content", post.Content);
+                cmd.Parameters.AddWithValue("@CategoryTag", post.CategoryTag);
+                cmd.Parameters.AddWithValue("@StressLevelTag", (object?)post.StressLevelTag ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@HasKeywordsAlert", post.HasKeywordsAlert);
+                cmd.Parameters.AddWithValue("@DetectedKeywords", (object?)post.DetectedKeywords ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@SentimentLabel", post.SentimentLabel);
+                cmd.Parameters.AddWithValue("@SentimentScore", post.SentimentScore);
+                cmd.Parameters.AddWithValue("@RiskScore", post.RiskScore);
+                cmd.Parameters.AddWithValue("@IsExtremeCrisis", post.IsExtremeCrisis);
+                cmd.Parameters.AddWithValue("@IsSensitiveHiddenFromStudents", post.IsSensitiveHiddenFromStudents);
+                cmd.Parameters.AddWithValue("@ModerationStatus", post.ModerationStatus.ToString());
+                cmd.Parameters.AddWithValue("@ModeratedBy", (object?)post.ModeratedBy ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@HugCount", post.HugCount);
+                cmd.Parameters.AddWithValue("@EmpathyCount", post.EmpathyCount);
+                cmd.Parameters.AddWithValue("@CommentCount", post.CommentCount);
+                cmd.Parameters.AddWithValue("@CreatedAt", post.CreatedAt);
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            // 2. Sync CommunityComments
+            foreach (var comment in CommunityComments)
+            {
+                using var cmd = new SqlCommand(@"
+                    IF NOT EXISTS (SELECT 1 FROM dbo.CommunityComments WHERE Id = @Id)
+                    BEGIN
+                        INSERT INTO dbo.CommunityComments
+                        (Id, PostId, UserId, AuthorPseudonym, Content, IsExpertComment, ExpertTitle, IsSensitiveHiddenFromStudents, DetectedKeywords, ModerationStatus, CreatedAt)
+                        VALUES (@Id, @PostId, @UserId, @AuthorPseudonym, @Content, @IsExpertComment, @ExpertTitle, @IsSensitiveHiddenFromStudents, @DetectedKeywords, @ModerationStatus, @CreatedAt)
+                    END", conn);
+
+                cmd.Parameters.AddWithValue("@Id", comment.Id);
+                cmd.Parameters.AddWithValue("@PostId", comment.PostId);
+                cmd.Parameters.AddWithValue("@UserId", comment.UserId);
+                cmd.Parameters.AddWithValue("@AuthorPseudonym", comment.AuthorPseudonym);
+                cmd.Parameters.AddWithValue("@Content", comment.Content);
+                cmd.Parameters.AddWithValue("@IsExpertComment", comment.IsExpertComment);
+                cmd.Parameters.AddWithValue("@ExpertTitle", (object?)comment.ExpertTitle ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@IsSensitiveHiddenFromStudents", comment.IsSensitiveHiddenFromStudents);
+                cmd.Parameters.AddWithValue("@DetectedKeywords", (object?)comment.DetectedKeywords ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@ModerationStatus", comment.ModerationStatus.ToString());
+                cmd.Parameters.AddWithValue("@CreatedAt", comment.CreatedAt);
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            // 3. Sync Appointments
+            foreach (var app in Appointments)
+            {
+                using var cmd = new SqlCommand(@"
+                    IF NOT EXISTS (SELECT 1 FROM dbo.Appointments WHERE Id = @Id)
+                    BEGIN
+                        INSERT INTO dbo.Appointments
+                        (Id, StudentId, ExpertId, TimeSlotId, BookingCode, AnonymousPseudonym, ConsultationType, Status, ReasonNotes, RejectionReason, ClinicalNotes, Dass21Summary, RiskScore, CreatedAt, UpdatedAt)
+                        VALUES (@Id, @StudentId, @ExpertId, @TimeSlotId, @BookingCode, @AnonymousPseudonym, @ConsultationType, @Status, @ReasonNotes, @RejectionReason, @ClinicalNotes, @Dass21Summary, @RiskScore, @CreatedAt, @UpdatedAt)
+                    END
+                    ELSE
+                    BEGIN
+                        UPDATE dbo.Appointments SET 
+                            Status = @Status,
+                            RejectionReason = @RejectionReason,
+                            ClinicalNotes = @ClinicalNotes,
+                            UpdatedAt = @UpdatedAt
+                        WHERE Id = @Id
+                    END", conn);
+
+                cmd.Parameters.AddWithValue("@Id", app.Id);
+                cmd.Parameters.AddWithValue("@StudentId", app.StudentId);
+                cmd.Parameters.AddWithValue("@ExpertId", app.ExpertId);
+                cmd.Parameters.AddWithValue("@TimeSlotId", app.TimeSlotId);
+                cmd.Parameters.AddWithValue("@BookingCode", app.BookingCode);
+                cmd.Parameters.AddWithValue("@AnonymousPseudonym", app.AnonymousPseudonym);
+                cmd.Parameters.AddWithValue("@ConsultationType", app.ConsultationType.ToString());
+                cmd.Parameters.AddWithValue("@Status", app.Status.ToString());
+                cmd.Parameters.AddWithValue("@ReasonNotes", (object?)app.ReasonNotes ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@RejectionReason", (object?)app.RejectionReason ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@ClinicalNotes", (object?)app.ClinicalNotes ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@Dass21Summary", (object?)app.Dass21Summary ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@RiskScore", app.RiskScore);
+                cmd.Parameters.AddWithValue("@CreatedAt", app.CreatedAt);
+                cmd.Parameters.AddWithValue("@UpdatedAt", (object?)app.UpdatedAt ?? DBNull.Value);
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            // 4. Sync TimeSlots (IsBooked)
+            foreach (var slot in TimeSlots)
+            {
+                using var cmd = new SqlCommand("UPDATE dbo.TimeSlots SET IsBooked = @IsBooked WHERE Id = @Id", conn);
+                cmd.Parameters.AddWithValue("@Id", slot.Id);
+                cmd.Parameters.AddWithValue("@IsBooked", slot.IsBooked);
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            // 5. Sync MoodJournals
+            foreach (var journal in MoodJournals)
+            {
+                using var cmd = new SqlCommand(@"
+                    IF NOT EXISTS (SELECT 1 FROM dbo.MoodJournals WHERE Id = @Id)
+                    BEGIN
+                        INSERT INTO dbo.MoodJournals
+                        (Id, StudentId, MoodState, EnergyLevel, Triggers, JournalContent, SentimentScore, SentimentLabel, AiAdvice, IsSharedToCommunity, CreatedAt)
+                        VALUES (@Id, @StudentId, @MoodState, @EnergyLevel, @Triggers, @JournalContent, @SentimentScore, @SentimentLabel, @AiAdvice, @IsSharedToCommunity, @CreatedAt)
+                    END", conn);
+
+                cmd.Parameters.AddWithValue("@Id", journal.Id);
+                cmd.Parameters.AddWithValue("@StudentId", journal.StudentId);
+                cmd.Parameters.AddWithValue("@MoodState", journal.MoodState.ToString());
+                cmd.Parameters.AddWithValue("@EnergyLevel", journal.EnergyLevel);
+                cmd.Parameters.AddWithValue("@Triggers", (object?)journal.Triggers ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@JournalContent", journal.JournalContent);
+                cmd.Parameters.AddWithValue("@SentimentScore", journal.SentimentScore);
+                cmd.Parameters.AddWithValue("@SentimentLabel", journal.SentimentLabel);
+                cmd.Parameters.AddWithValue("@AiAdvice", (object?)journal.AiAdvice ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@IsSharedToCommunity", journal.IsSharedToCommunity);
+                cmd.Parameters.AddWithValue("@CreatedAt", journal.CreatedAt);
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            // 6. Sync Users
+            foreach (var user in Users)
+            {
+                using var cmd = new SqlCommand(@"
+                    IF NOT EXISTS (SELECT 1 FROM dbo.Users WHERE Id = @Id)
+                    BEGIN
+                        INSERT INTO dbo.Users
+                        (Id, MSSV, FullName, Email, PasswordHash, Role, Faculty, AvatarUrl, AnonymousCode, IsActive, CreatedAt, UpdatedAt)
+                        VALUES (@Id, @MSSV, @FullName, @Email, @PasswordHash, @Role, @Faculty, @AvatarUrl, @AnonymousCode, @IsActive, @CreatedAt, @UpdatedAt)
+                    END
+                    ELSE
+                    BEGIN
+                        UPDATE dbo.Users SET IsActive = @IsActive, UpdatedAt = @UpdatedAt WHERE Id = @Id
+                    END", conn);
+
+                cmd.Parameters.AddWithValue("@Id", user.Id);
+                cmd.Parameters.AddWithValue("@MSSV", (object?)user.MSSV ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@FullName", user.FullName);
+                cmd.Parameters.AddWithValue("@Email", user.Email);
+                cmd.Parameters.AddWithValue("@PasswordHash", user.PasswordHash);
+                cmd.Parameters.AddWithValue("@Role", user.Role.ToString());
+                cmd.Parameters.AddWithValue("@Faculty", (object?)user.Faculty ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@AvatarUrl", (object?)user.AvatarUrl ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@AnonymousCode", user.AnonymousCode);
+                cmd.Parameters.AddWithValue("@IsActive", user.IsActive);
+                cmd.Parameters.AddWithValue("@CreatedAt", user.CreatedAt);
+                cmd.Parameters.AddWithValue("@UpdatedAt", (object?)user.UpdatedAt ?? DBNull.Value);
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            // 7. Sync SensitiveKeywords
+            foreach (var kw in SensitiveKeywords)
+            {
+                using var cmd = new SqlCommand(@"
+                    IF NOT EXISTS (SELECT 1 FROM dbo.SensitiveKeywords WHERE Id = @Id)
+                    BEGIN
+                        INSERT INTO dbo.SensitiveKeywords (Id, Keyword, Category, RiskWeight, AddedByRole, IsActive, CreatedAt)
+                        VALUES (@Id, @Keyword, @Category, @RiskWeight, @AddedByRole, @IsActive, @CreatedAt)
+                    END", conn);
+
+                cmd.Parameters.AddWithValue("@Id", kw.Id);
+                cmd.Parameters.AddWithValue("@Keyword", kw.Keyword);
+                cmd.Parameters.AddWithValue("@Category", kw.Category);
+                cmd.Parameters.AddWithValue("@RiskWeight", kw.RiskWeight);
+                cmd.Parameters.AddWithValue("@AddedByRole", kw.AddedByRole);
+                cmd.Parameters.AddWithValue("@IsActive", kw.IsActive);
+                cmd.Parameters.AddWithValue("@CreatedAt", kw.CreatedAt);
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            // 8. Sync NlpRiskAlerts
+            foreach (var alert in NlpRiskAlerts)
+            {
+                using var cmd = new SqlCommand(@"
+                    IF NOT EXISTS (SELECT 1 FROM dbo.NlpRiskAlerts WHERE Id = @Id)
+                    BEGIN
+                        INSERT INTO dbo.NlpRiskAlerts 
+                        (Id, PostId, CommentId, StudentAnonymousCode, Faculty, SnippetContent, TriggeredKeywords, RiskScore, TriageLevel, Status, InterventionAction, ResolvedBy, CreatedAt)
+                        VALUES (@Id, @PostId, @CommentId, @StudentAnonymousCode, @Faculty, @SnippetContent, @TriggeredKeywords, @RiskScore, @TriageLevel, @Status, @InterventionAction, @ResolvedBy, @CreatedAt)
+                    END
+                    ELSE
+                    BEGIN
+                        UPDATE dbo.NlpRiskAlerts SET 
+                            Status = @Status, 
+                            InterventionAction = @InterventionAction, 
+                            ResolvedBy = @ResolvedBy
+                        WHERE Id = @Id
+                    END", conn);
+
+                cmd.Parameters.AddWithValue("@Id", alert.Id);
+                cmd.Parameters.AddWithValue("@PostId", (object?)alert.PostId ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@CommentId", (object?)alert.CommentId ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@StudentAnonymousCode", alert.StudentAnonymousCode);
+                cmd.Parameters.AddWithValue("@Faculty", (object?)alert.Faculty ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@SnippetContent", alert.SnippetContent);
+                cmd.Parameters.AddWithValue("@TriggeredKeywords", alert.TriggeredKeywords);
+                cmd.Parameters.AddWithValue("@RiskScore", alert.RiskScore);
+                cmd.Parameters.AddWithValue("@TriageLevel", alert.TriageLevel.ToString());
+                cmd.Parameters.AddWithValue("@Status", alert.Status);
+                cmd.Parameters.AddWithValue("@InterventionAction", (object?)alert.InterventionAction ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@ResolvedBy", (object?)alert.ResolvedBy ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@CreatedAt", alert.CreatedAt);
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            // 9. Sync Experts
+            foreach (var exp in Experts)
+            {
+                using var cmd = new SqlCommand(@"
+                    IF NOT EXISTS (SELECT 1 FROM dbo.Experts WHERE Id = @Id)
+                    BEGIN
+                        INSERT INTO dbo.Experts (Id, UserId, Title, AcademicDegree, Specialization, ExperienceYears, RoomLocation, Bio, Rating, TotalConsultations, IsAvailable, CreatedAt)
+                        VALUES (@Id, @UserId, @Title, @AcademicDegree, @Specialization, @ExperienceYears, @RoomLocation, @Bio, @Rating, @TotalConsultations, @IsAvailable, @CreatedAt)
+                    END", conn);
+
+                cmd.Parameters.AddWithValue("@Id", exp.Id);
+                cmd.Parameters.AddWithValue("@UserId", exp.UserId);
+                cmd.Parameters.AddWithValue("@Title", exp.Title);
+                cmd.Parameters.AddWithValue("@AcademicDegree", exp.AcademicDegree);
+                cmd.Parameters.AddWithValue("@Specialization", exp.Specialization);
+                cmd.Parameters.AddWithValue("@ExperienceYears", exp.ExperienceYears);
+                cmd.Parameters.AddWithValue("@RoomLocation", exp.RoomLocation);
+                cmd.Parameters.AddWithValue("@Bio", (object?)exp.Bio ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@Rating", exp.Rating);
+                cmd.Parameters.AddWithValue("@TotalConsultations", exp.TotalConsultations);
+                cmd.Parameters.AddWithValue("@IsAvailable", exp.IsAvailable);
+                cmd.Parameters.AddWithValue("@CreatedAt", exp.CreatedAt);
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            // 10. Sync TimeSlots (INSERT new slots if not exists)
+            foreach (var slot in TimeSlots)
+            {
+                using var cmd = new SqlCommand(@"
+                    IF NOT EXISTS (SELECT 1 FROM dbo.TimeSlots WHERE Id = @Id)
+                    BEGIN
+                        INSERT INTO dbo.TimeSlots (Id, ExpertId, SlotDate, StartTime, EndTime, LocationType, RoomName, IsBooked, CreatedAt)
+                        VALUES (@Id, @ExpertId, @SlotDate, @StartTime, @EndTime, @LocationType, @RoomName, @IsBooked, @CreatedAt)
+                    END
+                    ELSE
+                    BEGIN
+                        UPDATE dbo.TimeSlots SET IsBooked = @IsBooked WHERE Id = @Id
+                    END", conn);
+
+                cmd.Parameters.AddWithValue("@Id", slot.Id);
+                cmd.Parameters.AddWithValue("@ExpertId", slot.ExpertId);
+                cmd.Parameters.AddWithValue("@SlotDate", slot.SlotDate.ToDateTime(TimeOnly.MinValue));
+                cmd.Parameters.AddWithValue("@StartTime", slot.StartTime.ToTimeSpan());
+                cmd.Parameters.AddWithValue("@EndTime", slot.EndTime.ToTimeSpan());
+                cmd.Parameters.AddWithValue("@LocationType", slot.LocationType.ToString());
+                cmd.Parameters.AddWithValue("@RoomName", slot.RoomName);
+                cmd.Parameters.AddWithValue("@IsBooked", slot.IsBooked);
+                cmd.Parameters.AddWithValue("@CreatedAt", slot.CreatedAt);
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine($"[UniMind DB Save Warning] Lỗi lưu thay đổi vào SQL Server: {ex.Message}");
+            Console.ResetColor();
+        }
+
+        return 1;
     }
 
     private void SeedInitialData()
     {
-        // 1. NGƯỜI DÙNG DEMO
         var adminId = Guid.Parse("11111111-1111-1111-1111-111111111111");
         var studentId = Guid.Parse("22222222-2222-2222-2222-222222222222");
         var expHaId = Guid.Parse("33333333-3333-3333-3333-333333333331");
@@ -51,7 +694,6 @@ public class ApplicationDbContext : IApplicationDbContext
             new User { Id = expTamId, MSSV = "EXP004", FullName = "ThS. Lê Thanh Tâm", Email = "tam.le@unimind.edu.vn", Role = UserRole.Expert, Faculty = "Cấp cứu Khủng hoảng SafeRoom", AnonymousCode = "Chuyên viên Thanh Tâm", PasswordHash = "123456" }
         });
 
-        // 2. CHUYÊN VIÊN
         var expHaTableId = Guid.Parse("44444444-4444-4444-4444-444444444441");
         var expLanTableId = Guid.Parse("44444444-4444-4444-4444-444444444442");
         var expBaoTableId = Guid.Parse("44444444-4444-4444-4444-444444444443");
@@ -65,40 +707,37 @@ public class ApplicationDbContext : IApplicationDbContext
             new Expert { Id = expTamTableId, UserId = expTamId, Title = "ThS.", AcademicDegree = "Thạc sĩ Tâm lý Lâm sàng • Cố vấn SafeRoom SOS", Specialization = "Khủng hoảng tâm lý cấp tính, Rối loạn âu lo", ExperienceYears = 9, RoomLocation = "P.305 (Khu B)", Rating = 4.97, TotalConsultations = 1850 }
         });
 
-        // 3. KHUNG GIỜ LỊCH TRỐNG
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var slot1 = Guid.NewGuid();
         var slot2 = Guid.NewGuid();
         var slot3 = Guid.NewGuid();
         var slot4 = Guid.NewGuid();
-        var slot5 = Guid.NewGuid();
 
         TimeSlots.AddRange(new[]
         {
-            new TimeSlot { Id = slot1, ExpertId = expHaTableId, SlotDate = today, StartTime = new TimeOnly(9, 0), EndTime = new TimeOnly(9, 50), LocationType = LocationType.Physical, RoomName = "P.302 (Tầng 3)", IsBooked = false },
-            new TimeSlot { Id = slot2, ExpertId = expHaTableId, SlotDate = today, StartTime = new TimeOnly(14, 0), EndTime = new TimeOnly(14, 50), LocationType = LocationType.Online, RoomName = "SafeRoom E2EE #01", IsBooked = false },
-            new TimeSlot { Id = slot3, ExpertId = expLanTableId, SlotDate = today, StartTime = new TimeOnly(14, 0), EndTime = new TimeOnly(14, 50), LocationType = LocationType.Physical, RoomName = "P.302 (Tầng 3)", IsBooked = false },
-            new TimeSlot { Id = slot4, ExpertId = expLanTableId, SlotDate = today, StartTime = new TimeOnly(15, 30), EndTime = new TimeOnly(16, 20), LocationType = LocationType.Online, RoomName = "SafeRoom E2EE #02", IsBooked = false },
-            new TimeSlot { Id = slot5, ExpertId = expTamTableId, SlotDate = today, StartTime = new TimeOnly(14, 0), EndTime = new TimeOnly(14, 50), LocationType = LocationType.Online, RoomName = "SafeRoom E2EE #04", IsBooked = true }
+            new TimeSlot { Id = slot1, ExpertId = expHaTableId, SlotDate = today.AddDays(1), StartTime = new TimeOnly(9, 0), EndTime = new TimeOnly(10, 0), LocationType = LocationType.Physical, RoomName = "P.302", IsBooked = true },
+            new TimeSlot { Id = slot2, ExpertId = expHaTableId, SlotDate = today.AddDays(1), StartTime = new TimeOnly(14, 0), EndTime = new TimeOnly(15, 0), LocationType = LocationType.Online, RoomName = "SafeRoom 101", IsBooked = false },
+            new TimeSlot { Id = slot3, ExpertId = expLanTableId, SlotDate = today.AddDays(2), StartTime = new TimeOnly(10, 30), EndTime = new TimeOnly(11, 30), LocationType = LocationType.Physical, RoomName = "P.302", IsBooked = false },
+            new TimeSlot { Id = slot4, ExpertId = expTamTableId, SlotDate = today.AddDays(1), StartTime = new TimeOnly(15, 30), EndTime = new TimeOnly(16, 30), LocationType = LocationType.Online, RoomName = "SafeRoom SOS", IsBooked = false }
         });
 
-        // 4. LỊCH HẸN
         Appointments.Add(new Appointment
         {
             Id = Guid.NewGuid(),
             StudentId = studentId,
-            ExpertId = expTamTableId,
-            TimeSlotId = slot5,
-            BookingCode = "ST-9012",
-            AnonymousPseudonym = "Bạn Ẩn Yên #382",
-            ConsultationType = LocationType.Online,
+            ExpertId = expHaTableId,
+            TimeSlotId = slot1,
+            BookingCode = "ST-8890",
+            AnonymousPseudonym = "Mây Trắng #841",
+            ConsultationType = LocationType.Physical,
             Status = AppointmentStatus.Confirmed,
-            ReasonNotes = "Mất ngủ kéo dài 4 đêm, tim đập nhanh mỗi lần mở laptop làm đồ án tốt nghiệp.",
-            Dass21Summary = "DASS-21: Trầm cảm (Vừa 16/42) • Lo âu (Nặng 19/42) • Căng thẳng (Ổn 12/42)",
-            RiskScore = 88
+            ReasonNotes = "Em đang gặp khủng hoảng nặng về đề tài tốt nghiệp và mất ngủ kéo dài 2 tuần nay.",
+            ClinicalNotes = "Sinh viên biểu hiện lo âu học đường mức độ vừa, đã hướng dẫn kỹ thuật thở bụng 4-7-8.",
+            Dass21Summary = "Stress: 22 (Nặng), Lo âu: 14 (Vừa), Trầm cảm: 8 (Bình thường)",
+            RiskScore = 65,
+            CreatedAt = DateTime.UtcNow.AddDays(-1)
         });
 
-        // 5. TỪ KHÓA NHẠY CẢM
         SensitiveKeywords.AddRange(new[]
         {
             new SensitiveKeyword { Id = Guid.NewGuid(), Keyword = "tự tử", Category = "SelfHarm", RiskWeight = 99, AddedByRole = "Admin" },
@@ -106,281 +745,97 @@ public class ApplicationDbContext : IApplicationDbContext
             new SensitiveKeyword { Id = Guid.NewGuid(), Keyword = "rạch tay", Category = "SelfHarm", RiskWeight = 95, AddedByRole = "Expert" },
             new SensitiveKeyword { Id = Guid.NewGuid(), Keyword = "không muốn sống", Category = "SelfHarm", RiskWeight = 90, AddedByRole = "Expert" },
             new SensitiveKeyword { Id = Guid.NewGuid(), Keyword = "uống thuốc ngủ", Category = "SelfHarm", RiskWeight = 92, AddedByRole = "Expert" },
-            new SensitiveKeyword { Id = Guid.NewGuid(), Keyword = "mua bán điểm", Category = "AcademicFraud", RiskWeight = 80, AddedByRole = "Admin" },
-            new SensitiveKeyword { Id = Guid.NewGuid(), Keyword = "lừa đảo", Category = "Harassment", RiskWeight = 75, AddedByRole = "Admin" },
-            new SensitiveKeyword { Id = Guid.NewGuid(), Keyword = "bế tắc cùng cực", Category = "SelfHarm", RiskWeight = 85, AddedByRole = "Expert" }
+            new SensitiveKeyword { Id = Guid.NewGuid(), Keyword = "mua bán điểm", Category = "AcademicFraud", RiskWeight = 80, AddedByRole = "Admin" }
         });
 
-        // 6. BÀI TEST DASS-21
-        var dass21Id = Guid.Parse("55555555-5555-5555-5555-555555555551");
-        PsychologicalTests.Add(new PsychologicalTest
-        {
-            Id = dass21Id,
-            Code = "DASS21",
-            Title = "Thang Đo DASS-21 Toàn Diện",
-            Description = "Đo lường đa tầng 3 chỉ số then chốt: Trầm cảm, Lo âu và Căng thẳng học đường trong cùng 1 phiên.",
-            EstimatedMinutes = 5,
-            QuestionCount = 21,
-            IsPublished = true
-        });
-
-        PsychologicalTests.Add(new PsychologicalTest
-        {
-            Id = Guid.NewGuid(),
-            Code = "PHQ9",
-            Title = "Thang Đo Trầm Cảm PHQ-9",
-            Description = "Tầm soát mức độ buồn bã, mất hứng thú và giấc ngủ theo tiêu chuẩn y khoa.",
-            EstimatedMinutes = 3,
-            QuestionCount = 9,
-            IsPublished = true
-        });
-
-        PsychologicalTests.Add(new PsychologicalTest
-        {
-            Id = Guid.NewGuid(),
-            Code = "GAD7",
-            Title = "Thang Đo Lo Âu GAD-7",
-            Description = "Nhận diện bất an, áp lực trước kỳ thi hoặc định hướng việc làm.",
-            EstimatedMinutes = 3,
-            QuestionCount = 7,
-            IsPublished = true
-        });
-
-        PsychologicalTests.Add(new PsychologicalTest
-        {
-            Id = Guid.NewGuid(),
-            Code = "MBISS",
-            Title = "Kiệt Sức Đồ Án MBI-SS",
-            Description = "Đo lường suy kiệt cảm xúc và mất động lực trong đồ án tốt nghiệp.",
-            EstimatedMinutes = 4,
-            QuestionCount = 15,
-            IsPublished = true
-        });
-
-        // CÂU HỎI MẪU DASS-21
-        var q1 = new TestQuestion { Id = Guid.NewGuid(), TestId = dass21Id, QuestionNumber = 1, Content = "Tôi thấy khó mà dứt ra khỏi tình trạng căng thẳng", SubscaleCategory = "Stress" };
-        var q2 = new TestQuestion { Id = Guid.NewGuid(), TestId = dass21Id, QuestionNumber = 2, Content = "Tôi thấy khô môi hoặc khô miệng khi hồi hộp", SubscaleCategory = "Anxiety" };
-        var q3 = new TestQuestion { Id = Guid.NewGuid(), TestId = dass21Id, QuestionNumber = 3, Content = "Tôi không thấy có bất kỳ cảm xúc tích cực nào", SubscaleCategory = "Depression" };
-        var q7 = new TestQuestion { Id = Guid.NewGuid(), TestId = dass21Id, QuestionNumber = 7, Content = "Trong suốt 1 tuần qua, bạn cảm thấy khó thư giãn hoặc bồn chồn đứng ngồi không yên đến mức nào?", SubscaleCategory = "Stress" };
-
-        TestQuestions.AddRange(new[] { q1, q2, q3, q7 });
-
-        foreach (var q in new[] { q1, q2, q3, q7 })
-        {
-            TestOptions.AddRange(new[]
-            {
-                new TestOption { Id = Guid.NewGuid(), QuestionId = q.Id, OptionOrder = 1, OptionText = "Không đúng với tôi chút nào (Không có triệu chứng)", ScoreValue = 0 },
-                new TestOption { Id = Guid.NewGuid(), QuestionId = q.Id, OptionOrder = 2, OptionText = "Đúng với tôi một phần, hoặc thỉnh thoảng (1-2 ngày)", ScoreValue = 1 },
-                new TestOption { Id = Guid.NewGuid(), QuestionId = q.Id, OptionOrder = 3, OptionText = "Đúng với tôi phần nhiều, khá thường xuyên (3-5 ngày)", ScoreValue = 2 },
-                new TestOption { Id = Guid.NewGuid(), QuestionId = q.Id, OptionOrder = 4, OptionText = "Rất đúng với tôi, hoặc hầu như luôn luôn (Hầu hết thời gian)", ScoreValue = 3 }
-            });
-        }
-
-        // KẾT QUẢ GẦN NHẤT
-        TestResults.Add(new TestResult
-        {
-            Id = Guid.NewGuid(),
-            StudentId = studentId,
-            TestId = dass21Id,
-            TotalScore = 26,
-            DepressionScore = 4,
-            AnxietyScore = 8,
-            StressScore = 14,
-            ResilienceRate = 62,
-            SeverityLevel = "Moderate",
-            AiInterpretation = "Mức độ căng thẳng của bạn đang ở ngưỡng trung bình, chủ yếu xuất phát từ áp lực đồ án cuối kỳ. Hệ thần kinh giao cảm của bạn đang cần được nghỉ ngơi hợp lý."
-        });
-
-        // 7. BÀI VIẾT CỘNG ĐỒNG
-        var post1Id = Guid.Parse("66666666-6666-6666-6666-666666666661");
-        var post2Id = Guid.Parse("66666666-6666-6666-6666-666666666662");
-        var post3Id = Guid.Parse("66666666-6666-6666-6666-666666666663");
-        var postCrisisId = Guid.Parse("66666666-6666-6666-6666-666666666664");
+        var postCrisisId = Guid.NewGuid();
+        var post2Id = Guid.NewGuid();
 
         CommunityPosts.AddRange(new[]
         {
             new CommunityPost
             {
-                Id = post1Id,
+                Id = postCrisisId,
                 StudentId = studentId,
-                AnonymousPseudonym = "Cún Mưa Rào #512",
-                StudentRoleTag = "Sinh viên năm 4 • Khoa Khoa học Máy tính",
-                Content = "Còn đúng 3 tuần nữa là đến hạn bảo vệ đồ án tốt nghiệp, nhưng code vẫn lỗi và thầy hướng dẫn liên tục yêu cầu viết lại phần kiến trúc hệ thống. Cùng lúc đó mình rớt 2 vòng phỏng vấn thực tập liên tiếp. Cảm giác cả người tê dại, 4 đêm nay gần như thức trắng, tim đập nhanh và không muốn tiếp xúc với bất kỳ ai... Có ai từng vượt qua đoạn đường này cho mình xin một tia hy vọng được không? #DoAnTotNghiep #KietsuMuathi #XinLoiKhuyen",
+                AnonymousPseudonym = "Cú Mèo Say Ngủ #402",
+                StudentRoleTag = "Sinh viên năm cuối • Khoa CNTT",
+                Content = "Cả tuần nay mình không ngủ được quá 2 tiếng một đêm vì deadline đồ án và điểm rèn luyện. Có những lúc ngồi trên sân thượng giảng đường nhìn xuống thấy mọi thứ vô nghĩa quá... Có ai cũng từng cảm giác như mình không?",
                 CategoryTag = "Áp lực học tập",
-                StressLevelTag = "Áp lực cao (Stress Level 4/5)",
-                HugCount = 94,
-                EmpathyCount = 128,
-                SentimentLabel = "Negative",
-                SentimentScore = -0.65,
-                RiskScore = 55,
-                IsExtremeCrisis = false,
+                StressLevelTag = "Áp lực rất cao (Stress Level 5/5)",
+                HasKeywordsAlert = true,
+                DetectedKeywords = "sân thượng, vô nghĩa, không ngủ được",
+                SentimentLabel = "ExtremeNegative",
+                SentimentScore = -0.85,
+                RiskScore = 88,
+                IsExtremeCrisis = true,
                 IsSensitiveHiddenFromStudents = false,
-                ModerationStatus = PostStatus.Approved
+                ModerationStatus = PostStatus.Approved,
+                HugCount = 42,
+                EmpathyCount = 28,
+                CommentCount = 6
             },
             new CommunityPost
             {
                 Id = post2Id,
                 StudentId = studentId,
-                AnonymousPseudonym = "Bồ Công Anh #119",
-                StudentRoleTag = "Tân sinh viên K24 • KTX Khu B",
-                Content = "Lần đầu tiên sống cách nhà hơn 800 cây số. Phòng trọ 12m2 giữa thành phố đông đúc mà thấy trống trải vô cùng. Chiều nay mẹ gọi hỏi ăn cơm chưa, vừa cúp máy là nước mắt trào ra. Nhìn bạn bè trong lớp ai cũng năng động, bắt nhóm nhanh thoăn thoắt, mình thấy mình lạc lõng như người vô hình vậy...",
-                CategoryTag = "Mối quan hệ & Gia đình",
-                StressLevelTag = "Mức độ cô đơn (Level 3/5)",
-                HugCount = 206,
-                EmpathyCount = 87,
-                SentimentLabel = "Negative",
-                SentimentScore = -0.45,
-                RiskScore = 40,
+                AnonymousPseudonym = "Cún Mưa Rào #512",
+                StudentRoleTag = "Tân sinh viên • Khoa Ngoại ngữ",
+                Content = "Chào mọi người, mình là K28 mới nhập học xa nhà lên thành phố. Thấy phòng trọ vắng vẻ và bạn bè mới chưa thân quen nên hay bị tủi thân mỗi buổi tối. Mọi người có mẹo gì để làm quen môi trường mới không ạ?",
+                CategoryTag = "Mối quan hệ",
+                StressLevelTag = "Áp lực vừa (Stress Level 2/5)",
+                HasKeywordsAlert = false,
+                SentimentLabel = "Neutral",
+                SentimentScore = -0.15,
+                RiskScore = 20,
                 IsExtremeCrisis = false,
                 IsSensitiveHiddenFromStudents = false,
-                ModerationStatus = PostStatus.Approved
-            },
-            new CommunityPost
-            {
-                Id = post3Id,
-                StudentId = studentId,
-                AnonymousPseudonym = "Ánh Nắng Sau Mưa #09",
-                StudentRoleTag = "Cựu sinh viên đồng hành • Khoa Kinh tế Quốc tế",
-                Content = "Từng có kỳ học GPA của mình tụt xuống 1.4 vì trầm cảm kéo dài, chỉ nằm trong phòng kéo rèm tối đen. Hôm nay mình nhận tin đỗ học bổng Thạc sĩ du học. Mình muốn nhắn với các bạn đang vật lộn: Việc bạn vẫn thức dậy sáng nay đã là một dũng khí to lớn rồi. Hãy xin giúp đỡ từ phòng tâm lý trường, đừng gồng gánh một mình. Bầu trời rồi sẽ lại quang đãng! #VuotQuaTramCam #HyVong",
-                CategoryTag = "Chia sẻ tích cực",
-                StressLevelTag = "Truyền cảm hứng & Chữa lành",
-                HugCount = 342,
-                EmpathyCount = 198,
-                SentimentLabel = "Positive",
-                SentimentScore = 0.85,
-                RiskScore = 10,
-                IsExtremeCrisis = false,
-                IsSensitiveHiddenFromStudents = false,
-                ModerationStatus = PostStatus.Approved
-            },
-            // BÀI MANG XU HƯỚNG QUÁ TIÊU CỰC -> THẺ BÁO ĐỘNG ĐỎ CHO ADMIN & EXPERT
-            new CommunityPost
-            {
-                Id = postCrisisId,
-                StudentId = studentId,
-                AnonymousPseudonym = "Sinh viên Ẩn danh #902",
-                StudentRoleTag = "K26 • Khoa Công nghệ Thông tin",
-                Content = "Mất ngủ kéo dài cả tuần nay, mình nhìn đâu cũng thấy vô định. Cảm giác mệt mỏi từ do không có điểm dừng, mình chỉ muốn buông bỏ tất cả bài thi và cuộc sống này, không còn lối thoát nào nữa...",
-                CategoryTag = "Áp lực học tập",
-                StressLevelTag = "Khẩn cấp (94/100)",
-                HasKeywordsAlert = true,
-                DetectedKeywords = "mất ngủ kéo dài, vô định, buông bỏ, không còn lối thoát",
-                SentimentLabel = "ExtremeNegative",
-                SentimentScore = -0.95,
-                RiskScore = 94,
-                IsExtremeCrisis = true,
-                IsSensitiveHiddenFromStudents = true, // ẨN KHỎI SINH VIÊN THƯỜNG
-                ModerationStatus = PostStatus.Flagged
+                ModerationStatus = PostStatus.Approved,
+                HugCount = 18,
+                EmpathyCount = 35,
+                CommentCount = 4
             }
         });
 
-        // BÌNH LUẬN
         CommunityComments.AddRange(new[]
         {
             new CommunityComment
             {
                 Id = Guid.NewGuid(),
-                PostId = post1Id,
-                UserId = expHaId,
-                AuthorPseudonym = "Chuyên viên Tâm An",
-                Content = "Em ơi, bộ não đang báo động đỏ vì thiếu ngủ. Hãy tạm dừng 2 tiếng, hít thở sâu và uống một ly nước ấm. Phòng tâm lý luôn sẵn sàng hỗ trợ em gỡ rối từng phần đồ án!",
-                IsExpertComment = true,
-                ExpertTitle = "Chuyên viên Tâm lý • Đội ngũ UniMind",
-                IsSensitiveHiddenFromStudents = false,
-                ModerationStatus = PostStatus.Approved
-            },
-            new CommunityComment
-            {
-                Id = Guid.NewGuid(),
-                PostId = post2Id,
-                UserId = studentId,
-                AuthorPseudonym = "Keo Bông Gòn #84",
-                Content = "K21 nè em ơi, năm đầu ai cũng khóc hết á! Tối mai phòng anh có trà sữa ở nhà ăn, qua giao lưu nhen!",
-                IsExpertComment = false,
-                IsSensitiveHiddenFromStudents = false,
-                ModerationStatus = PostStatus.Approved
-            },
-            new CommunityComment
-            {
-                Id = Guid.NewGuid(),
-                PostId = post2Id,
-                UserId = studentId,
-                AuthorPseudonym = "Mây Trôi #88",
-                Content = "Cố lên bạn ơi, qua tuần thứ 3 quen nhịp là sẽ thấy giảng đường rất ấm áp!",
-                IsExpertComment = false,
-                IsSensitiveHiddenFromStudents = false,
-                ModerationStatus = PostStatus.Approved
-            }
-        });
-
-        // CẢNH BÁO NLP CHO CHUYÊN VIÊN & ADMIN
-        NlpRiskAlerts.AddRange(new[]
-        {
-            new NlpRiskAlert
-            {
-                Id = Guid.NewGuid(),
                 PostId = postCrisisId,
-                StudentAnonymousCode = "Sinh viên Ẩn danh #902",
-                Faculty = "Khoa CNTT (K26)",
-                SnippetContent = "Mất ngủ kéo dài cả tuần nay, mình nhìn đâu cũng thấy vô định... chỉ muốn buông bỏ tất cả bài thi và cuộc sống này...",
-                TriggeredKeywords = "mất ngủ kéo dài, vô định, buông bỏ",
-                RiskScore = 94,
-                TriageLevel = TriageLevel.Urgent,
-                Status = "PendingAction"
-            },
-            new NlpRiskAlert
-            {
-                Id = Guid.NewGuid(),
-                StudentAnonymousCode = "Sinh viên Ẩn danh #441",
-                Faculty = "Khoa Kinh tế Đối ngoại (K27)",
-                SnippetContent = "Áp lực đồ án tốt nghiệp cùng kỳ vọng quá lớn từ bố mẹ làm ngực mình đau thắt mỗi khi thức dậy. Không biết phải nói cùng ai...",
-                TriggeredKeywords = "đau thắt ngực, kỳ vọng gia đình, áp lực đồ án",
-                RiskScore = 78,
-                TriageLevel = TriageLevel.High,
-                Status = "InIntervention",
-                InterventionAction = "Đã gửi tin nhắn nâng đỡ & Giữ slot ưu tiên SafeRoom"
+                UserId = expHaId,
+                AuthorPseudonym = "ThS. Nguyễn Thanh Hà",
+                Content = "Chào bạn! Thầy hiểu bạn đang phải gánh vác rất nhiều áp lực trong giai đoạn làm đồ án. Xin bạn nhớ rằng kết quả học tập không định nghĩa toàn bộ giá trị của bạn. Phòng tư vấn P.302 luôn có trà ấm và không gian yên tĩnh chờ bạn ghé qua bất kỳ lúc nào nhé!",
+                IsExpertComment = true,
+                ExpertTitle = "Chuyên viên Tâm lý UniMind (Đã xác thực)",
+                IsSensitiveHiddenFromStudents = false,
+                ModerationStatus = PostStatus.Approved
             }
         });
 
-        // NHẬT KÝ CẢM XÚC
-        MoodJournals.AddRange(new[]
+        NlpRiskAlerts.Add(new NlpRiskAlert
         {
-            new MoodJournal
-            {
-                Id = Guid.NewGuid(),
-                StudentId = studentId,
-                MoodState = MoodType.Peaceful,
-                EnergyLevel = 7,
-                Triggers = "Đồ án tốt nghiệp, Bạn bè",
-                JournalContent = "Hôm nay mình đã nộp xong bản phác thảo chương 2 đồ án. Thầy hướng dẫn góp ý khá tích cực nên cảm giác tảng đá trong lòng được nhấc bớt.",
-                SentimentScore = 0.70,
-                SentimentLabel = "Positive",
-                AiAdvice = "Rất vui vì bạn đã có một ngày giải tỏa áp lực. Hãy duy trì thói quen ngủ sớm trước 23h đêm nay nhé!"
-            },
-            new MoodJournal
-            {
-                Id = Guid.NewGuid(),
-                StudentId = studentId,
-                MoodState = MoodType.Stressed,
-                EnergyLevel = 4,
-                Triggers = "Mất ngủ, Áp lực tương lai",
-                JournalContent = "Không ngủ được. Nhìn bạn bè ai cũng có giải thưởng hoặc chuẩn bị đi thực tập doanh nghiệp lớn làm mình thấy bản thân chậm chạp.",
-                SentimentScore = -0.60,
-                SentimentLabel = "Negative",
-                AiAdvice = "Có vẻ như bạn đang so sánh bản thân với hành trình của người khác. Mỗi người đều có múi giờ phát triển riêng. Hãy cùng UniMind thực hiện bài tập thở 4-7-8 để đưa nhịp tim về trạng thái thư thái."
-            },
-            new MoodJournal
-            {
-                Id = Guid.NewGuid(),
-                StudentId = studentId,
-                MoodState = MoodType.Exhausted,
-                EnergyLevel = 3,
-                Triggers = "Sức khỏe, Deadline dồn",
-                JournalContent = "Cả ngày ngồi máy tính 10 tiếng liên tục. Đau mỏi lưng và nhức mắt. Mình đã tự cho phép bản thân đi ngủ sớm lúc 21h30 để lấy lại sức.",
-                SentimentScore = -0.40,
-                SentimentLabel = "Negative",
-                AiAdvice = "Bạn đã có quyết định rất dũng cảm khi chọn nghỉ ngơi thay vì cố gượng. Nghỉ ngơi cũng là một phần quan trọng của hiệu suất làm việc."
-            }
+            Id = Guid.NewGuid(),
+            PostId = postCrisisId,
+            StudentAnonymousCode = "Sinh viên Ẩn danh #902",
+            Faculty = "Khoa CNTT (K26)",
+            SnippetContent = "Mất ngủ kéo dài cả tuần nay, mình nhìn đâu cũng thấy vô định... chỉ muốn buông bỏ tất cả bài thi và cuộc sống này...",
+            TriggeredKeywords = "mất ngủ kéo dài, vô định, buông bỏ",
+            RiskScore = 94,
+            TriageLevel = TriageLevel.Urgent,
+            Status = "PendingAction"
+        });
+
+        MoodJournals.Add(new MoodJournal
+        {
+            Id = Guid.NewGuid(),
+            StudentId = studentId,
+            MoodState = MoodType.Peaceful,
+            EnergyLevel = 7,
+            Triggers = "Đồ án tốt nghiệp, Bạn bè",
+            JournalContent = "Hôm nay mình đã nộp xong bản phác thảo chương 2 đồ án. Thầy hướng dẫn góp ý khá tích cực nên cảm giác tảng đá trong lòng được nhấc bớt.",
+            SentimentScore = 0.70,
+            SentimentLabel = "Positive",
+            AiAdvice = "Rất vui vì bạn đã có một ngày giải tỏa áp lực. Hãy duy trì thói quen ngủ sớm trước 23h đêm nay nhé!"
         });
     }
 }

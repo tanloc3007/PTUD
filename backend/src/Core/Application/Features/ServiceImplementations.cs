@@ -990,10 +990,12 @@ public class ExpertWorkspaceService : IExpertWorkspaceService
 public class AdminService : IAdminService
 {
     private readonly IApplicationDbContext _context;
+    private readonly IPasswordHasher _passwordHasher;
 
-    public AdminService(IApplicationDbContext context)
+    public AdminService(IApplicationDbContext context, IPasswordHasher passwordHasher)
     {
         _context = context;
+        _passwordHasher = passwordHasher;
     }
 
     public Task<Result<DashboardStatsDto>> GetSystemDashboardAsync()
@@ -1159,5 +1161,105 @@ public class AdminService : IAdminService
         _context.SensitiveKeywords.Remove(item);
         await _context.SaveChangesAsync();
         return Result.Ok("Đã xóa từ khóa khỏi danh sách");
+    }
+
+    public async Task<Result<ExpertDto>> CreateExpertAsync(CreateExpertRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.FullName))
+            return Result<ExpertDto>.Fail("Họ và tên chuyên viên không được để trống", "VALIDATION_ERROR");
+
+        if (string.IsNullOrWhiteSpace(request.Email))
+            return Result<ExpertDto>.Fail("Email chuyên viên không được để trống", "VALIDATION_ERROR");
+
+        var normalizedEmail = request.Email.Trim().ToLowerInvariant();
+        if (_context.Users.Any(u => u.Email.ToLower() == normalizedEmail))
+        {
+            return Result<ExpertDto>.Fail("Email này đã được sử dụng trong hệ thống", "EMAIL_EXISTS");
+        }
+
+        var user = new User
+        {
+            Id = Guid.NewGuid(),
+            FullName = request.FullName.Trim(),
+            Email = normalizedEmail,
+            PasswordHash = _passwordHasher.Hash(!string.IsNullOrWhiteSpace(request.Password) ? request.Password : "123456"),
+            Role = UserRole.Expert,
+            Faculty = "Tổ Tư vấn Tâm lý",
+            AvatarUrl = $"https://ui-avatars.com/api/?name={Uri.EscapeDataString(request.FullName.Trim())}&background=0284c7&color=fff",
+            AnonymousCode = $"Chuyên viên {request.FullName.Trim()}",
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        var expert = new Expert
+        {
+            Id = Guid.NewGuid(),
+            UserId = user.Id,
+            Title = string.IsNullOrWhiteSpace(request.Title) ? "Chuyên viên Tâm lý" : request.Title.Trim(),
+            AcademicDegree = string.IsNullOrWhiteSpace(request.AcademicDegree) ? "Thạc sĩ Tâm lý" : request.AcademicDegree.Trim(),
+            Specialization = string.IsNullOrWhiteSpace(request.Specialization) ? "Tư vấn & Trị liệu Tâm lý Học đường" : request.Specialization.Trim(),
+            ExperienceYears = request.ExperienceYears > 0 ? request.ExperienceYears : 5,
+            RoomLocation = string.IsNullOrWhiteSpace(request.RoomLocation) ? "P.302 (Tầng 3)" : request.RoomLocation.Trim(),
+            Bio = !string.IsNullOrWhiteSpace(request.Bio) ? request.Bio.Trim() : "Chuyên gia tham vấn tâm lý học đường, hỗ trợ sinh viên vượt qua căng thẳng, lo âu và cân bằng cảm xúc.",
+            Rating = 5.0,
+            TotalConsultations = 0,
+            IsAvailable = true,
+            CreatedAt = DateTime.UtcNow,
+            User = user
+        };
+
+        var tomorrow = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(1));
+        var slot1 = new TimeSlot
+        {
+            Id = Guid.NewGuid(),
+            ExpertId = expert.Id,
+            SlotDate = tomorrow,
+            StartTime = new TimeOnly(8, 30),
+            EndTime = new TimeOnly(9, 30),
+            LocationType = LocationType.Physical,
+            RoomName = expert.RoomLocation,
+            IsBooked = false,
+            CreatedAt = DateTime.UtcNow
+        };
+        var slot2 = new TimeSlot
+        {
+            Id = Guid.NewGuid(),
+            ExpertId = expert.Id,
+            SlotDate = tomorrow,
+            StartTime = new TimeOnly(14, 0),
+            EndTime = new TimeOnly(15, 0),
+            LocationType = LocationType.Online,
+            RoomName = "Phòng Trực tuyến UniMind SafeRoom",
+            IsBooked = false,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        _context.Users.Add(user);
+        _context.Experts.Add(expert);
+        _context.TimeSlots.Add(slot1);
+        _context.TimeSlots.Add(slot2);
+
+        await _context.SaveChangesAsync();
+
+        var dto = new ExpertDto(
+            expert.Id,
+            user.FullName,
+            expert.Title,
+            expert.AcademicDegree,
+            expert.Specialization,
+            expert.ExperienceYears,
+            expert.RoomLocation,
+            expert.Bio,
+            expert.Rating,
+            expert.TotalConsultations,
+            user.AvatarUrl,
+            new List<TimeSlotDto>
+            {
+                new(slot1.Id, slot1.ExpertId, slot1.SlotDate.ToString("yyyy-MM-dd"), slot1.StartTime.ToString("HH:mm"), slot1.EndTime.ToString("HH:mm"), "Trực tiếp", slot1.RoomName, false),
+                new(slot2.Id, slot2.ExpertId, slot2.SlotDate.ToString("yyyy-MM-dd"), slot2.StartTime.ToString("HH:mm"), slot2.EndTime.ToString("HH:mm"), "Trực tuyến", slot2.RoomName, false)
+            }
+        );
+
+        return Result<ExpertDto>.Ok(dto, "Thêm chuyên viên mới thành công!");
     }
 }

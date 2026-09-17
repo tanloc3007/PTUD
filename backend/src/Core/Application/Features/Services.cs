@@ -62,6 +62,7 @@ public interface IAdminService
     Task<Result> ModeratePostAsync(Guid postId, ModeratePostRequest request, Guid adminUserId);
     Task<Result<List<UserDto>>> GetAllUsersAsync();
     Task<Result> ToggleUserStatusAsync(Guid userId);
+    Task<Result<ExpertDto>> CreateExpertAsync(CreateExpertRequest request);
     Task<Result<List<SensitiveKeywordDto>>> GetSensitiveKeywordsAsync();
     Task<Result<SensitiveKeywordDto>> AddSensitiveKeywordAsync(AddSensitiveKeywordRequest request);
     Task<Result> DeleteSensitiveKeywordAsync(Guid keywordId);
