@@ -4,6 +4,40 @@ using UniMind.Application.Features;
 
 namespace UniMind.WebAPI.Controllers;
 
+public static class ControllerAuthExtensions
+{
+    public static Guid? GetUserIdFromRequest(this HttpRequest request)
+    {
+        if (request.Headers.TryGetValue("Authorization", out var authHeader))
+        {
+            var token = authHeader.ToString().Replace("Bearer ", "").Trim();
+            var parts = token.Split('.');
+            if (parts.Length >= 2)
+            {
+                try
+                {
+                    string payload = parts[1];
+                    payload = payload.Replace('-', '+').Replace('_', '/');
+                    switch (payload.Length % 4)
+                    {
+                        case 2: payload += "=="; break;
+                        case 3: payload += "="; break;
+                    }
+                    var bytes = Convert.FromBase64String(payload);
+                    var json = System.Text.Encoding.UTF8.GetString(bytes);
+                    using var doc = System.Text.Json.JsonDocument.Parse(json);
+                    if (doc.RootElement.TryGetProperty("sub", out var sub) && Guid.TryParse(sub.GetString(), out var id))
+                    {
+                        return id;
+                    }
+                }
+                catch { }
+            }
+        }
+        return null;
+    }
+}
+
 [ApiController]
 [Route("api/[controller]")]
 [Produces("application/json")]
@@ -48,6 +82,15 @@ public class AuthController : ControllerBase
         if (!result.Success) return NotFound(result);
         return Ok(result);
     }
+
+    [HttpGet("me")]
+    public async Task<ActionResult<Result<UserDto>>> GetMeCurrent([FromQuery] Guid? userId = null)
+    {
+        var uid = userId ?? Request.GetUserIdFromRequest() ?? Guid.Parse("22222222-2222-2222-2222-222222222221");
+        var result = await _authService.GetCurrentUserAsync(uid);
+        if (!result.Success) return NotFound(result);
+        return Ok(result);
+    }
 }
 
 [ApiController]
@@ -72,6 +115,15 @@ public class MoodJournalsController : ControllerBase
         return Ok(result);
     }
 
+    [HttpPost]
+    [HttpPost("my")]
+    public async Task<ActionResult<Result<MoodJournalDto>>> CreateJournalDefault([FromBody] CreateMoodJournalRequest request, [FromQuery] Guid? studentId = null)
+    {
+        var targetStudentId = studentId ?? request.StudentId ?? Guid.Parse("22222222-2222-2222-2222-222222222221");
+        var result = await _journalService.CreateJournalAsync(targetStudentId, request);
+        return Ok(result);
+    }
+
     /// <summary>
     /// Lấy danh sách lịch sử nhật ký của sinh viên
     /// </summary>
@@ -79,6 +131,15 @@ public class MoodJournalsController : ControllerBase
     public async Task<ActionResult<Result<List<MoodJournalDto>>>> GetStudentJournals(Guid studentId)
     {
         var result = await _journalService.GetStudentJournalsAsync(studentId);
+        return Ok(result);
+    }
+
+    [HttpGet]
+    [HttpGet("my")]
+    public async Task<ActionResult<Result<List<MoodJournalDto>>>> GetStudentJournalsDefault([FromQuery] Guid? studentId = null)
+    {
+        var targetStudentId = studentId ?? Guid.Parse("22222222-2222-2222-2222-222222222221");
+        var result = await _journalService.GetStudentJournalsAsync(targetStudentId);
         return Ok(result);
     }
 
@@ -136,6 +197,14 @@ public class PsychologicalTestsController : ControllerBase
         return Ok(result);
     }
 
+    [HttpPost("submit")]
+    public async Task<ActionResult<Result<TestResultDto>>> SubmitTestDefault([FromBody] SubmitTestRequest request, [FromQuery] Guid? studentId = null)
+    {
+        var targetStudentId = studentId ?? request.StudentId ?? Guid.Parse("22222222-2222-2222-2222-222222222221");
+        var result = await _testService.SubmitTestAsync(targetStudentId, request);
+        return Ok(result);
+    }
+
     /// <summary>
     /// Lấy hồ sơ tâm lý và kết quả test gần nhất của sinh viên
     /// </summary>
@@ -143,6 +212,14 @@ public class PsychologicalTestsController : ControllerBase
     public async Task<ActionResult<Result<TestResultDto?>>> GetLatestResult(Guid studentId)
     {
         var result = await _testService.GetLatestResultAsync(studentId);
+        return Ok(result);
+    }
+
+    [HttpGet("latest")]
+    public async Task<ActionResult<Result<TestResultDto?>>> GetLatestResultDefault([FromQuery] Guid? studentId = null)
+    {
+        var targetStudentId = studentId ?? Guid.Parse("22222222-2222-2222-2222-222222222221");
+        var result = await _testService.GetLatestResultAsync(targetStudentId);
         return Ok(result);
     }
 }
@@ -179,6 +256,14 @@ public class CommunityController : ControllerBase
         return Ok(result);
     }
 
+    [HttpPost("posts")]
+    public async Task<ActionResult<Result<PostDto>>> CreatePostDefault([FromBody] CreatePostRequest request, [FromQuery] Guid? studentId = null)
+    {
+        var targetStudentId = studentId ?? request.StudentId ?? Guid.Parse("22222222-2222-2222-2222-222222222221");
+        var result = await _communityService.CreatePostAsync(targetStudentId, request);
+        return Ok(result);
+    }
+
     /// <summary>
     /// Gửi bình luận thấu cảm (Bình luận có từ khóa nhạy cảm sẽ bị ẩn với SV nhưng gửi tới Chuyên viên/Admin)
     /// </summary>
@@ -189,6 +274,14 @@ public class CommunityController : ControllerBase
         return Ok(result);
     }
 
+    [HttpPost("posts/{postId:guid}/comments")]
+    public async Task<ActionResult<Result<CommentDto>>> AddCommentDefault(Guid postId, [FromBody] CreateCommentRequest request, [FromQuery] Guid? userId = null, [FromQuery] bool isExpert = false)
+    {
+        var targetUserId = userId ?? request.UserId ?? Guid.Parse("22222222-2222-2222-2222-222222222221");
+        var result = await _communityService.AddCommentAsync(targetUserId, postId, request, isExpert);
+        return Ok(result);
+    }
+
     /// <summary>
     /// Thả cảm xúc: "Ôm một cái" (hug) hoặc "Đồng cảm" (empathy)
     /// </summary>
@@ -196,6 +289,13 @@ public class CommunityController : ControllerBase
     public async Task<ActionResult<Result<PostDto>>> React(Guid postId, [FromBody] ReactRequest request)
     {
         var result = await _communityService.ReactAsync(postId, request.ReactionType);
+        return Ok(result);
+    }
+
+    [HttpGet("triage-alerts")]
+    public async Task<ActionResult<Result<List<NlpRiskAlertDto>>>> GetTriageAlerts([FromServices] IExpertWorkspaceService expertService)
+    {
+        var result = await expertService.GetTriageAlertsAsync();
         return Ok(result);
     }
 }
@@ -238,6 +338,20 @@ public class AppointmentsController : ControllerBase
         return Ok(result);
     }
 
+    [HttpPost("book")]
+    public async Task<ActionResult<Result<AppointmentDto>>> BookAppointmentDefault([FromBody] BookAppointmentRequest request, [FromQuery] Guid? studentId = null)
+    {
+        var targetStudentId = studentId ?? Request.GetUserIdFromRequest() ?? Guid.Parse("22222222-2222-2222-2222-222222222221");
+        var result = await _appointmentService.BookAppointmentAsync(targetStudentId, request);
+        if (!result.Success)
+        {
+            if (result.ErrorCode == "DOUBLE_BOOKING_DETECTED")
+                return Conflict(result);
+            return BadRequest(result);
+        }
+        return Ok(result);
+    }
+
     /// <summary>
     /// Lấy danh sách lịch hẹn của sinh viên
     /// </summary>
@@ -246,6 +360,34 @@ public class AppointmentsController : ControllerBase
     {
         var result = await _appointmentService.GetStudentAppointmentsAsync(studentId);
         return Ok(result);
+    }
+
+    [HttpGet]
+    [HttpGet("my")]
+    public async Task<ActionResult<Result<List<AppointmentDto>>>> GetStudentAppointmentsDefault([FromQuery] Guid? studentId = null)
+    {
+        var targetStudentId = studentId ?? Request.GetUserIdFromRequest() ?? Guid.Parse("22222222-2222-2222-2222-222222222221");
+        var result = await _appointmentService.GetStudentAppointmentsAsync(targetStudentId);
+        return Ok(result);
+    }
+
+    [HttpGet("expert/today")]
+    public async Task<ActionResult<Result<List<AppointmentDto>>>> GetExpertToday([FromQuery] Guid? expertId = null)
+    {
+        var targetExpertId = expertId ?? Request.GetUserIdFromRequest() ?? Guid.Parse("33333333-3333-3333-3333-333333333331");
+        var result = await _appointmentService.GetExpertAppointmentsAsync(targetExpertId);
+        var today = DateTime.UtcNow.ToString("yyyy-MM-dd");
+        var filtered = result.Data?.Where(a => a.Date == today || a.Status == "Confirmed").ToList() ?? new();
+        return Ok(Result<List<AppointmentDto>>.Ok(filtered));
+    }
+
+    [HttpGet("expert/pending")]
+    public async Task<ActionResult<Result<List<AppointmentDto>>>> GetExpertPending([FromQuery] Guid? expertId = null)
+    {
+        var targetExpertId = expertId ?? Request.GetUserIdFromRequest() ?? Guid.Parse("33333333-3333-3333-3333-333333333331");
+        var result = await _appointmentService.GetExpertAppointmentsAsync(targetExpertId);
+        var filtered = result.Data?.Where(a => a.Status == "Pending").ToList() ?? new();
+        return Ok(Result<List<AppointmentDto>>.Ok(filtered));
     }
 
     /// <summary>
@@ -350,6 +492,56 @@ public class ExpertController : ControllerBase
         var result = await _expertService.RemoveSensitiveKeywordAsync(keywordId);
         return Ok(result);
     }
+    /// <summary>
+    /// Báo cáo phân tích chuyên sâu Triage cảnh báo lâm sàng cho Chuyên viên
+    /// </summary>
+    [HttpGet("analytics")]
+    public async Task<ActionResult<Result<ExpertAnalyticsDto>>> GetAnalytics([FromQuery] Guid? expertId = null)
+    {
+        var targetExpertId = expertId ?? Request.GetUserIdFromRequest();
+        var result = await _expertService.GetAnalyticsAsync(targetExpertId);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Lấy hồ sơ chuyên viên hiện tại
+    /// </summary>
+    [HttpGet("profile/{userId:guid}")]
+    public async Task<ActionResult<Result<ExpertProfileDto>>> GetExpertProfile(Guid userId)
+    {
+        var result = await _expertService.GetExpertProfileAsync(userId);
+        if (!result.Success) return NotFound(result);
+        return Ok(result);
+    }
+
+    [HttpGet("profile")]
+    public async Task<ActionResult<Result<ExpertProfileDto>>> GetExpertProfileCurrent([FromQuery] Guid? userId = null)
+    {
+        var uid = userId ?? Request.GetUserIdFromRequest() ?? Guid.Parse("22222222-2222-2222-2222-222222222221");
+        var result = await _expertService.GetExpertProfileAsync(uid);
+        if (!result.Success) return NotFound(result);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Cập nhật hồ sơ chuyên viên (tên, bio, chuyên môn,...)
+    /// </summary>
+    [HttpPut("profile/{userId:guid}")]
+    public async Task<ActionResult<Result<ExpertProfileDto>>> UpdateExpertProfile(Guid userId, [FromBody] UpdateExpertProfileRequest request)
+    {
+        var result = await _expertService.UpdateExpertProfileAsync(userId, request);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    [HttpPut("profile")]
+    public async Task<ActionResult<Result<ExpertProfileDto>>> UpdateExpertProfileCurrent([FromBody] UpdateExpertProfileRequest request, [FromQuery] Guid? userId = null)
+    {
+        var uid = userId ?? Request.GetUserIdFromRequest() ?? Guid.Parse("22222222-2222-2222-2222-222222222221");
+        var result = await _expertService.UpdateExpertProfileAsync(uid, request);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
 }
 
 [ApiController]
@@ -365,9 +557,31 @@ public class AdminController : ControllerBase
     }
 
     /// <summary>
+    /// Báo cáo và thống kê toàn hệ thống từ CSDL
+    /// </summary>
+    [HttpGet("reports")]
+    [HttpGet("reports/analytics")]
+    public async Task<ActionResult<Result<AdminReportsDto>>> GetReports()
+    {
+        var result = await _adminService.GetReportsAsync();
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Nhật ký hoạt động hệ thống từ CSDL
+    /// </summary>
+    [HttpGet("audit-logs")]
+    public async Task<ActionResult<Result<List<AuditLogDto>>>> GetAuditLogs()
+    {
+        var result = await _adminService.GetAuditLogsAsync();
+        return Ok(result);
+    }
+
+    /// <summary>
     /// Bảng điều khiển quản trị toàn diện hệ thống (Admin Portal)
     /// </summary>
     [HttpGet("dashboard")]
+    [HttpGet("dashboard/stats")]
     public async Task<ActionResult<Result<DashboardStatsDto>>> GetDashboard()
     {
         var result = await _adminService.GetSystemDashboardAsync();
@@ -394,6 +608,14 @@ public class AdminController : ControllerBase
         return Ok(result);
     }
 
+    [HttpPost("posts/{postId:guid}/moderate")]
+    public async Task<ActionResult<Result>> ModeratePostDefault(Guid postId, [FromBody] ModeratePostRequest request, [FromQuery] Guid? adminId = null)
+    {
+        var targetAdminId = adminId ?? Request.GetUserIdFromRequest() ?? Guid.Parse("11111111-1111-1111-1111-111111111111");
+        var result = await _adminService.ModeratePostAsync(postId, request, targetAdminId);
+        return Ok(result);
+    }
+
     /// <summary>
     /// Quản lý danh sách toàn bộ người dùng hệ thống
     /// </summary>
@@ -411,6 +633,43 @@ public class AdminController : ControllerBase
     public async Task<ActionResult<Result>> ToggleUserStatus(Guid userId)
     {
         var result = await _adminService.ToggleUserStatusAsync(userId);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Cập nhật vai trò người dùng
+    /// </summary>
+    [HttpPatch("users/{userId:guid}/role")]
+    public async Task<ActionResult<Result<UserDto>>> UpdateUserRole(Guid userId, [FromBody] UpdateUserRoleRequest request)
+    {
+        var result = await _adminService.UpdateUserRoleAsync(userId, request.Role);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Nhật ký hoạt động hệ thống (có phân trang, lọc theo ngày/tháng)
+    /// </summary>
+    [HttpGet("audit-logs/history")]
+    public async Task<ActionResult<Result<AuditLogHistoryResponseDto>>> GetAuditLogHistory(
+        [FromQuery] Guid? userId = null,
+        [FromQuery] string? date = null,
+        [FromQuery] int? month = null,
+        [FromQuery] int? year = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20)
+    {
+        var result = await _adminService.GetAuditLogHistoryAsync(userId, date, month, year, page, pageSize);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Tùy chọn lọc cho Nhật ký - danh sách nhân sự
+    /// </summary>
+    [HttpGet("audit-logs/filter-options")]
+    public async Task<ActionResult<Result<List<AuditLogEmployeeOptionDto>>>> GetAuditLogFilterOptions()
+    {
+        var result = await _adminService.GetAuditLogFilterOptionsAsync();
         return Ok(result);
     }
 

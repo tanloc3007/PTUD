@@ -1,0 +1,1599 @@
+--============================================== TẠO DATABASE ============================================
+use master
+if exists(select * from sys.databases where name = 'HotelManagementDB')
+    drop database [HotelManagementDB]
+go
+create database [HotelManagementDB]
+
+--============================================ TẠO BẢNG =================================
+go 
+USE [HotelManagementDB]
+GO
+
+-- ============================================================
+-- CLUSTER 1: SYSTEM, AUTH & HR
+-- ============================================================
+
+CREATE TABLE [dbo].[Roles](
+    [id]          [int]           IDENTITY(1,1) NOT NULL,
+    [name]        [nvarchar](100) NOT NULL,
+    [description] [nvarchar](max) NULL,
+PRIMARY KEY CLUSTERED ([id] ASC)
+) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
+GO
+
+CREATE TABLE [dbo].[Permissions](
+    [id]              [int]         IDENTITY(1,1) NOT NULL,
+    [name]            [nvarchar](100) NOT NULL,
+    [permission_code] [varchar](50)   NOT NULL,         -- BOOKING_CREATE, ROOM_EDIT, REPORT_VIEW
+PRIMARY KEY CLUSTERED ([id] ASC)
+) ON [PRIMARY]
+GO
+
+CREATE TABLE [dbo].[Role_Permissions](
+    [role_id]       [int] NOT NULL,
+    [permission_id] [int] NOT NULL,
+PRIMARY KEY CLUSTERED ([role_id] ASC, [permission_id] ASC)
+) ON [PRIMARY]
+GO
+
+CREATE TABLE [dbo].[Memberships](
+    [id]               [int]           IDENTITY(1,1) NOT NULL,
+    [tier_name]        [nvarchar](100) NOT NULL,
+    [min_points]       [int]           NULL,
+    [max_points]       [int]           NULL,            -- giới hạn trên của dải điểm, NULL = không giới hạn
+    [discount_percent] [decimal](5, 2) NULL,
+    [color_hex]        [varchar](7)    NULL,            -- màu badge FE: #CD7F32 Bronze, #C0C0C0 Silver, #FFD700 Gold
+    [is_active]        [bit]           NOT NULL DEFAULT 1,
+PRIMARY KEY CLUSTERED ([id] ASC)
+) ON [PRIMARY]
+GO
+
+CREATE TABLE [dbo].[Users](
+    -- Identity & Auth
+    [id]                   [int]            IDENTITY(1,1) NOT NULL,
+    [role_id]              [int]            NULL,
+    [membership_id]        [int]            NULL,
+    -- Thông tin cơ bản
+    [full_name]            [nvarchar](255)  NOT NULL,
+    [email]                [nvarchar](255)  NOT NULL,
+    [phone]                [nvarchar](50)   NULL,
+    [date_of_birth]        [date]           NULL,        -- ưu đãi sinh nhật, CRM
+    [gender]               [nvarchar](10)   NULL,        -- phân tích khách hàng
+    [address]              [nvarchar](500)  NULL,        -- xuất hóa đơn VAT
+    [national_id]          [nvarchar](20)   NULL,        -- số CCCD/Hộ chiếu
+    -- Auth
+    [password_hash]        [nvarchar](max)  NOT NULL,
+    [avatar_url]           [nvarchar](max)  NULL,        -- Cloudinary URL
+    [auth_version]         [int]            NOT NULL DEFAULT 1, -- tăng mỗi lần ép logout toàn session
+    -- Loyalty
+    [loyalty_points]       [int]            NOT NULL DEFAULT 0,  -- tổng điểm tích lũy
+    [loyalty_points_usable][int]            NOT NULL DEFAULT 0,  -- điểm có thể quy đổi thành tiền
+    -- Status & Timestamps
+    [status]               [bit]            NULL,        -- 1: Active, 0: Locked dùng để mở/khóa tài khoản và cả disable tài khoản nhân viên nghỉ việc
+    [last_login_at]        [datetime]       NULL,        -- bảo mật, phân tích hành vi
+    [created_at]           [datetime]       NOT NULL DEFAULT GETDATE(),
+    [updated_at]           [datetime]       NULL,
+PRIMARY KEY CLUSTERED ([id] ASC)
+) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
+GO
+
+CREATE TABLE [dbo].[Audit_Logs](
+    [id]          [int]            IDENTITY(1,1) NOT NULL,
+    [user_id]     [int]            NULL,
+    [role_name]   [nvarchar](100)  NOT NULL,
+    [log_date]    [date]           NOT NULL,
+    [log_data]    [nvarchar](max)  NOT NULL,
+PRIMARY KEY CLUSTERED ([id] ASC)
+) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
+GO
+
+-- ============================================================
+-- Thêm refresh_token + refresh_token_expiry vào Users
+-- ============================================================
+ 
+ALTER TABLE [dbo].[Users]
+    ADD [refresh_token]        [nvarchar](500) NULL,
+        [refresh_token_expiry] [datetime]      NULL;
+GO
+
+-- ============================================================
+-- CLUSTER 2: ROOM MANAGEMENT
+-- ============================================================
+
+CREATE TABLE [dbo].[Amenities](
+    [id]        [int]            IDENTITY(1,1) NOT NULL,
+    [name]      [nvarchar](255)  NOT NULL,
+    [icon_url]  [nvarchar](max)  NULL,
+    [is_active] [bit]            NOT NULL DEFAULT 1,    -- Soft Delete
+PRIMARY KEY CLUSTERED ([id] ASC)
+) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
+GO
+
+CREATE TABLE [dbo].[Room_Types](
+    [id]                [int]            IDENTITY(1,1) NOT NULL,
+    [name]              [nvarchar](255)  NOT NULL,
+    [slug]              [nvarchar](100)  NULL,           -- URL thân thiện, UNIQUE
+    [base_price]        [decimal](18, 2) NOT NULL,
+    [capacity_adults]   [int]            NOT NULL,
+    [capacity_children] [int]            NOT NULL,
+    [area_sqm]          [decimal](8, 2)  NULL,           -- diện tích phòng m²
+    [bed_type]          [nvarchar](50)   NULL,           -- King / Queen / Twin
+    [description]       [nvarchar](max)  NULL,
+    [is_active]         [bit]            NOT NULL DEFAULT 1,  -- Soft Delete
+PRIMARY KEY CLUSTERED ([id] ASC)
+) ON [PRIMARY]
+GO
+
+CREATE TABLE [dbo].[Rooms](
+    [id]                           [int]            IDENTITY(1,1) NOT NULL,
+    [room_type_id]                 [int]            NULL,
+    [room_number]                  [nvarchar](50)   NOT NULL,
+    [floor]                        [int]            NULL,
+    [view_type]                    [nvarchar](50)   NULL,            -- hướng phòng vật lý cụ thể
+    -- Tách 2 trục trạng thái (Buoi4 slide 30)
+    [status]                       [nvarchar](50)   NULL,            -- Available / Occupied / Maintenance (trạng thái kinh doanh cũ — giữ cho tương thích)
+    [business_status]              [nvarchar](20)   NOT NULL DEFAULT 'Available', -- Available / Occupied / Disabled
+    [cleaning_status]              [nvarchar](20)   NOT NULL DEFAULT 'Clean',     -- Clean / Dirty / PendingLoss
+    [notes]                        [nvarchar](500)  NULL,            -- ghi chú bảo trì, đặc điểm phòng
+    [inventory_sync_snapshot_json] [nvarchar](max)  NULL,            -- snapshot vật tư đã sync gần nhất của phòng
+    [inventory_last_synced_at]     [datetime2](0)   NULL,            -- thời điểm sync gần nhất
+    [inventory_version]            [int]            NOT NULL DEFAULT 0, -- version để chống preview cũ
+PRIMARY KEY CLUSTERED ([id] ASC)
+) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
+GO
+
+CREATE TABLE [dbo].[RoomType_Amenities](
+    [room_type_id] [int] NOT NULL,
+    [amenity_id]   [int] NOT NULL,
+PRIMARY KEY CLUSTERED ([room_type_id] ASC, [amenity_id] ASC)
+) ON [PRIMARY]
+GO
+
+CREATE TABLE [dbo].[Room_Images](
+    [id]                    [int]            IDENTITY(1,1) NOT NULL,
+    [room_type_id]          [int]            NULL,
+    [image_url]             [nvarchar](max)  NOT NULL,
+    [cloudinary_public_id]  [nvarchar](255)  NULL,       -- để gọi DestroyAsync khi xóa
+    [is_primary]            [bit]            NULL,
+    [sort_order]            [int]            NOT NULL DEFAULT 0,  -- thứ tự gallery
+    [is_active]             [bit]            NOT NULL DEFAULT 1,  -- Soft Delete
+PRIMARY KEY CLUSTERED ([id] ASC)
+) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
+GO
+
+CREATE TABLE [dbo].[Equipments](
+    [id]                 [int]            IDENTITY(1,1) NOT NULL,
+    [item_code]           [varchar](50)    NOT NULL,
+    [name]               [nvarchar](255)  NOT NULL,
+    [category]           [nvarchar](100)  NOT NULL,
+    [unit]               [nvarchar](50)   NOT NULL,
+    [total_quantity]      [int]            NOT NULL,
+    [in_use_quantity]      [int]            NOT NULL,
+    [damaged_quantity]    [int]            NOT NULL,
+    [liquidated_quantity] [int]            NOT NULL,
+    [in_stock_quantity]  AS ((([total_quantity]-[in_use_quantity])-[damaged_quantity])-[liquidated_quantity]),
+    [base_price]          [decimal](18, 2) NOT NULL,
+    [default_price_if_lost] [decimal](18, 2) NOT NULL,
+    [supplier]           [nvarchar](255)  NULL,
+    [is_active]           [bit]            NOT NULL,
+    [created_at]          [datetime]       NULL,
+    [updated_at]          [datetime]       NULL,
+    [image_url]           [nvarchar](max)  NULL,
+PRIMARY KEY CLUSTERED ([id] ASC)
+) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
+GO
+
+
+CREATE TABLE [dbo].[Room_Inventory](
+    [id]            [int]           IDENTITY(1,1) NOT NULL,
+    [room_id]       [int]           NULL,
+    [quantity]      [int]           NULL,
+    [price_if_lost] [decimal](18,2) NULL,
+    [note]          [nvarchar](255) NULL,
+    [is_active]     [bit]           NULL,
+    [item_type]     [varchar](50)   NULL,
+    [equipment_id]   [int]           NOT NULL,
+PRIMARY KEY CLUSTERED ([id] ASC)
+) ON [PRIMARY]
+GO
+
+-- ============================================================
+-- CLUSTER 3: BOOKING & PROMOTIONS
+-- ============================================================
+
+CREATE TABLE [dbo].[Vouchers](
+    [id]                        [int]            IDENTITY(1,1) NOT NULL,
+    [code]                      [nvarchar](50)   NOT NULL,
+    [discount_type]             [nvarchar](50)   NOT NULL,      -- PERCENT / FIXED_AMOUNT
+    [discount_value]            [decimal](18, 2) NOT NULL,
+    [max_discount_amount]       [decimal](18, 2) NULL,          -- trần giảm tối đa (dùng cho PERCENT)
+    [min_booking_value]         [decimal](18, 2) NULL,
+    [applicable_room_type_id]   [int]            NULL,          -- FK Room_Types, NULL = áp dụng tất cả
+    [valid_from]                [datetime]       NULL,
+    [valid_to]                  [datetime]       NULL,
+    [usage_limit]               [int]            NULL,          -- tổng lượt dùng toàn hệ thống
+    [used_count]                [int]            NOT NULL DEFAULT 0,  -- đếm lượt đã dùng
+    [max_uses_per_user]         [int]            NOT NULL DEFAULT 1,  -- giới hạn mỗi user
+    [audience_type]             [nvarchar](50)   NOT NULL DEFAULT 'PUBLIC',
+    [target_membership_id]      [int]            NULL,
+    [occasion_name]             [nvarchar](255)  NULL,
+    [is_active]                 [bit]            NOT NULL DEFAULT 1,
+    [created_at]                [datetime]       NOT NULL DEFAULT GETDATE(),
+PRIMARY KEY CLUSTERED ([id] ASC)
+) ON [PRIMARY]
+GO
+
+CREATE TABLE [dbo].[Voucher_Target_Users](
+    [voucher_id] [int] NOT NULL,
+    [user_id]    [int] NOT NULL,
+    [created_at] [datetime] NOT NULL DEFAULT GETDATE(),
+PRIMARY KEY CLUSTERED ([voucher_id] ASC, [user_id] ASC)
+) ON [PRIMARY]
+GO
+
+CREATE TABLE [dbo].[Bookings](
+    [id]                     [int]            IDENTITY(1,1) NOT NULL,
+    [user_id]                [int]            NULL,           -- NULL = khách vãng lai
+    -- Thông tin khách
+    [guest_name]             [nvarchar](255)  NULL,
+    [guest_phone]            [nvarchar](50)   NULL,
+    [guest_email]            [nvarchar](255)  NULL,
+    [num_adults]             [int]            NOT NULL DEFAULT 1,
+    [num_children]           [int]            NOT NULL DEFAULT 0,
+    -- Mã & voucher
+    [booking_code]           [nvarchar](50)   NOT NULL,
+    [voucher_id]             [int]            NULL,
+    -- Tiền
+    [total_estimated_amount] [decimal](18, 2) NOT NULL DEFAULT 0,  -- tổng tiền dự kiến
+    [loyalty_points_redeemed] [int]           NOT NULL DEFAULT 0,
+    [loyalty_discount_amount] [decimal](18, 2) NOT NULL DEFAULT 0,
+    [deposit_amount]         [decimal](18, 2) NULL    DEFAULT 0,   -- tổng tiền đã thu trước check-out
+    [required_booking_deposit_amount] [decimal](18, 2) NOT NULL DEFAULT 0,
+    [required_check_in_amount] [decimal](18, 2) NOT NULL DEFAULT 0,
+    -- Check-in/out thực tế
+    [check_in_time]          [datetime]       NULL,          -- thời điểm check-in thực tế
+    [check_out_time]         [datetime]       NULL,          -- thời điểm check-out thực tế
+    -- Trạng thái & nguồn
+    [status]                 [nvarchar](50)   NULL,          -- Pending / Confirmed / Checked_in / Checked_out_pending_settlement / Completed / Cancelled
+    [source]                 [nvarchar](20)   NOT NULL DEFAULT 'online',  -- online / walk_in / phone
+    -- Ghi chú & hủy & chính sách
+    [note]                   [nvarchar](500)  NULL,
+    [cancellation_reason]    [nvarchar](500)  NULL,
+    [cancelled_at]           [datetime]       NULL,
+    [expires_at]             [datetime]       NULL,          -- thời điểm hết hạn giữ chỗ cho booking online
+    [refund_policy]          [nvarchar](20)   NULL DEFAULT 'refundable', -- refundable / non_refundable / partial
+    [refundable_until]       [datetime]       NULL,          -- hạn hoàn cọc
+    [refund_amount]          [decimal](18, 2) NULL,          -- số tiền hoàn cọc thực tế
+PRIMARY KEY CLUSTERED ([id] ASC)
+) ON [PRIMARY]
+GO
+
+CREATE TABLE [dbo].[Booking_Details](
+    [id]              [int]            IDENTITY(1,1) NOT NULL,
+    [booking_id]      [int]            NULL,
+    [room_id]         [int]            NULL,           -- NULL cho đến khi Lễ tân gán phòng
+    [room_type_id]    [int]            NULL,
+    [check_in_date]   [datetime]       NOT NULL,
+    [check_out_date]  [datetime]       NOT NULL,
+    [price_per_night] [decimal](18, 2) NOT NULL,       -- khóa giá tại thời điểm đặt
+    [note]            [nvarchar](500)  NULL,            -- ghi chú nội bộ (yêu cầu đặc biệt)
+PRIMARY KEY CLUSTERED ([id] ASC)
+) ON [PRIMARY]
+GO
+
+-- ============================================================
+-- CLUSTER 4: SERVICES & OPERATIONS
+-- ============================================================
+
+CREATE TABLE [dbo].[Service_Categories](
+    [id]   [int]           IDENTITY(1,1) NOT NULL,
+    [name] [nvarchar](255) NOT NULL,
+    [is_active] [bit]      NOT NULL DEFAULT 1,
+PRIMARY KEY CLUSTERED ([id] ASC)
+) ON [PRIMARY]
+GO
+
+CREATE TABLE [dbo].[Services](
+    [id]          [int]            IDENTITY(1,1) NOT NULL,
+    [category_id] [int]            NULL,
+    [name]        [nvarchar](255)  NOT NULL,
+    [description] [nvarchar](500)  NULL,                -- mô tả hiển thị FE
+    [price]       [decimal](18, 2) NOT NULL,
+    [unit]        [nvarchar](50)   NULL,
+    [image_url]   [nvarchar](max)  NULL,                -- ảnh dịch vụ hiển thị FE
+    [is_active]   [bit]            NOT NULL DEFAULT 1,  -- kích hoạt/vô hiệu hóa theo mùa
+PRIMARY KEY CLUSTERED ([id] ASC)
+) ON [PRIMARY]
+GO
+
+CREATE TABLE [dbo].[Order_Services](
+    [id]                [int]            IDENTITY(1,1) NOT NULL,
+    [booking_detail_id] [int]            NULL,
+    [order_date]        [datetime]       NULL,
+    [total_amount]      [decimal](18, 2) NULL,
+    [status]            [nvarchar](50)   NULL,          -- Pending / Delivered / Cancelled
+    [note]              [nvarchar](500)  NULL,           -- ghi chú đặc biệt: "Dị ứng hải sản"
+    [completed_at]      [datetime]       NULL,           -- thời gian hoàn thành
+    [is_active]         [bit]            NOT NULL DEFAULT 1,
+PRIMARY KEY CLUSTERED ([id] ASC)
+) ON [PRIMARY]
+GO
+
+CREATE TABLE [dbo].[Order_Service_Details](
+    [id]               [int]            IDENTITY(1,1) NOT NULL,
+    [order_service_id] [int]            NULL,
+    [service_id]       [int]            NULL,
+    [quantity]         [int]            NOT NULL,
+    [unit_price]       [decimal](18, 2) NOT NULL,
+PRIMARY KEY CLUSTERED ([id] ASC)
+) ON [PRIMARY]
+GO
+
+CREATE TABLE [dbo].[Loss_And_Damages](
+    [id]                [int]            IDENTITY(1,1) NOT NULL,
+    [booking_detail_id] [int]            NULL,
+    [room_inventory_id] [int]            NULL,
+    [reported_by]       [int]            NULL,          -- FK Users.id — Housekeeping lập biên bản
+    [quantity]          [int]            NOT NULL,
+    [penalty_amount]    [decimal](18, 2) NOT NULL,
+    [description]       [nvarchar](max)  NULL,
+    [img_url]           [nvarchar](max)  NULL,          -- ảnh minh chứng thiệt hại lưu Cloudinary
+    [status]            [nvarchar](20)   NOT NULL DEFAULT 'Pending',  -- Pending / Confirmed / Waived
+    [is_stock_synced]   [bit]            NOT NULL DEFAULT 0,
+    [replenished_quantity] [int]         NOT NULL DEFAULT 0,          -- số lượng đã được bổ sung/thay mới vào lại phòng
+    [replenished_at]    [datetime]       NULL,                        -- thời điểm bổ sung đủ
+    [replenishment_note] [nvarchar](500) NULL,                        -- ghi chú bổ sung/thay mới
+    [created_at]        [datetime]       NULL,
+PRIMARY KEY CLUSTERED ([id] ASC)
+) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
+GO
+
+-- ============================================================
+-- CLUSTER 5: BILLING, REVIEWS & CMS
+-- ============================================================
+
+CREATE TABLE [dbo].[Invoices](
+    [id]                   [int]            IDENTITY(1,1) NOT NULL,
+    [booking_id]           [int]            NULL,
+    [total_room_amount]    [decimal](18, 2) NULL,
+    [total_service_amount] [decimal](18, 2) NULL,
+    [total_damage_amount]  [decimal](18, 2) NULL,       -- cộng dồn từ Loss_And_Damages
+    [discount_amount]      [decimal](18, 2) NULL,
+    [tax_amount]           [decimal](18, 2) NULL,
+    [final_total]          [decimal](18, 2) NULL,
+    [status]               [nvarchar](50)   NULL,       -- Draft / Unpaid / Partially_Paid / Paid / Refunded
+    [created_at]           [datetime]       NOT NULL DEFAULT GETDATE(),
+PRIMARY KEY CLUSTERED ([id] ASC)
+) ON [PRIMARY]
+GO
+
+CREATE TABLE [dbo].[Invoice_Adjustments](
+    [id]                [int]            IDENTITY(1,1) NOT NULL,
+    [invoice_id]        [int]            NOT NULL,
+    [adjustment_type]   [nvarchar](30)   NOT NULL DEFAULT 'Surcharge', -- Surcharge / Discount
+    [amount]            [decimal](18, 2) NOT NULL,
+    [reason]            [nvarchar](255)  NOT NULL,
+    [note]              [nvarchar](500)  NULL,
+    [created_at]        [datetime]       NOT NULL DEFAULT GETDATE(),
+PRIMARY KEY CLUSTERED ([id] ASC)
+) ON [PRIMARY]
+GO
+
+CREATE TABLE [dbo].[Payments](
+    [id]               [int]            IDENTITY(1,1) NOT NULL,
+    [booking_id]       [int]            NULL,
+    [invoice_id]       [int]            NULL,
+    [payment_type]     [nvarchar](30)   NULL,           -- Booking_Deposit / CheckIn_Collection / Final_Settlement / Refund
+    [payment_method]   [nvarchar](50)   NULL,           -- Cash / VNPay / Credit Card / Bank Transfer
+    [amount_paid]      [decimal](18, 2) NOT NULL,
+    [transaction_code] [nvarchar](100)  NULL,
+    [status]           [nvarchar](20)   NOT NULL DEFAULT 'Success',  -- Success / Failed / Pending
+    [payment_date]     [datetime]       NULL,
+    [note]             [nvarchar](500)  NULL,
+PRIMARY KEY CLUSTERED ([id] ASC)
+) ON [PRIMARY]
+GO
+
+CREATE TABLE [dbo].[Reviews](
+    [id]               [int]           IDENTITY(1,1) NOT NULL,
+    [user_id]          [int]           NULL,
+    [room_type_id]     [int]           NULL,
+    [booking_id]       [int]           NULL,            -- bắt buộc để xác thực lưu trú
+    -- Rating chi tiết
+    [rating]           [int]           NULL,            -- điểm tổng thể (1-5)
+    -- Nội dung
+    [comment]          [nvarchar](max) NULL,
+    [image_url]        [nvarchar](max) NULL,            -- ảnh minh chứng đánh giá
+    -- Kiểm duyệt
+    [is_approved]      [bit]           NULL DEFAULT 0,
+    [rejection_reason] [nvarchar](500) NULL,            -- lý do từ chối để gửi email thông báo
+    [created_at]       [datetime]      NULL,
+PRIMARY KEY CLUSTERED ([id] ASC)
+) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
+GO
+
+CREATE TABLE [dbo].[Article_Categories](
+    [id]        [int]           IDENTITY(1,1) NOT NULL,
+    [name]      [nvarchar](255) NOT NULL,
+    [slug]      [nvarchar](100) NULL,                   -- URL /blog/category/cam-nang-du-lich
+    [is_active] [bit]           NOT NULL DEFAULT 1,     -- Soft Delete
+PRIMARY KEY CLUSTERED ([id] ASC)
+) ON [PRIMARY]
+GO
+
+CREATE TABLE [dbo].[Articles](
+    [id]                    [int]            IDENTITY(1,1) NOT NULL,
+    [category_id]           [int]            NULL,
+    [author_id]             [int]            NULL,
+    [attraction_id]         [int]            NULL,
+    -- Nội dung
+    [title]                 [nvarchar](max)  NOT NULL,
+    [slug]                  [nvarchar](255)  NULL,
+    [content]               [nvarchar](max)  NULL,
+    -- Media
+    [thumbnail_url]         [nvarchar](max)  NULL,
+    [cloudinary_public_id]  [nvarchar](255)  NULL,      -- xóa ảnh bìa cũ khi cập nhật
+    -- SEO
+    [meta_title]            [nvarchar](200)  NULL,
+    [meta_description]      [nvarchar](500)  NULL,
+    -- Trạng thái & Phân loại
+    [status]                [nvarchar](20)   NOT NULL DEFAULT 'Draft',  -- Draft / Pending_Review / Published
+    [is_active]             [bit]            NOT NULL DEFAULT 1,        -- Soft Delete
+    [published_at]          [datetime]       NULL,
+PRIMARY KEY CLUSTERED ([id] ASC)
+) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
+GO
+--
+CREATE TABLE [dbo].[Attractions](
+    [id]            [int]            IDENTITY(1,1) NOT NULL,
+    [name]          [nvarchar](255)  NOT NULL,
+    [category]      [nvarchar](50)   NULL,              -- Di tích / Ẩm thực / Giải trí / Thiên nhiên
+    [address]       [nvarchar](500)  NULL,              -- địa chỉ đầy đủ hiển thị popup bản đồ
+    [latitude]      [decimal](9, 6)  NULL,              -- tọa độ GPS cho Google Maps
+    [longitude]     [decimal](9, 6)  NULL,
+    [distance_km]   [decimal](5, 2)  NULL,
+    [description]   [nvarchar](max)  NULL,
+    [image_url]     [nvarchar](max)  NULL,              -- ảnh hiển thị card grid
+    [cloudinary_public_id] [nvarchar](255) NULL,        -- để xóa / thay ảnh trên Cloudinary
+    [map_embed_link][nvarchar](max)  NULL,
+    [is_active]     [bit]            NOT NULL DEFAULT 1,  -- Soft Delete
+PRIMARY KEY CLUSTERED ([id] ASC)
+) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
+GO
+
+-- ============================================================
+-- CLUSTER 6: HR — SHIFTS (Module 6 FR 6.2)
+-- ============================================================
+
+CREATE TABLE [dbo].[Shifts](
+    [id]              [int]            IDENTITY(1,1) NOT NULL,
+    [user_id]         [int]            NOT NULL,        -- FK Users.id
+    [confirmed_by]    [int]            NULL,            -- Manager xác nhận ca
+    -- Loại & bộ phận
+    [shift_type]      [nvarchar](20)   NOT NULL,        -- Morning / Afternoon / Night
+    [department]      [nvarchar](50)   NOT NULL,        -- Lễ tân / Housekeeping / Bảo vệ / F&B
+    -- Kế hoạch vs thực tế
+    [planned_start]   [datetime]       NOT NULL,
+    [planned_end]     [datetime]       NOT NULL,
+    [actual_start]    [datetime]       NULL,
+    [actual_end]      [datetime]       NULL,
+    [late_minutes]    [int]            NOT NULL DEFAULT 0,
+    -- Trạng thái
+    [status]          [nvarchar](20)   NOT NULL DEFAULT 'Scheduled',  -- Scheduled / Active / Completed / Absent
+    -- Bàn giao ca
+    [handover_note]   [nvarchar](max)  NULL,
+    [cash_at_handover][decimal](18, 2) NULL,
+    [created_at]      [datetime]       NOT NULL DEFAULT GETDATE(),
+PRIMARY KEY CLUSTERED ([id] ASC)
+) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
+GO
+
+CREATE TABLE [dbo].[Maintenance_Tickets](
+    [id]                  [int]            IDENTITY(1,1) NOT NULL,
+    [room_id]             [int]            NOT NULL,
+    [reported_by_user_id] [int]            NULL,
+    [assigned_to_user_id] [int]            NULL,
+    [title]               [nvarchar](255)  NOT NULL,
+    [reason]              [nvarchar](max)  NOT NULL,
+    [category]            [nvarchar](100)  NULL,
+    [priority]            [nvarchar](50)   NOT NULL DEFAULT 'Medium',
+    [blocks_room]         [bit]            NOT NULL DEFAULT 0,
+    [status]              [nvarchar](50)   NOT NULL DEFAULT 'Open',
+    [opened_at]           [datetime]       NOT NULL DEFAULT GETDATE(),
+    [started_at]          [datetime]       NULL,
+    [expected_done_at]    [datetime]       NULL,
+    [resolved_at]         [datetime]       NULL,
+    [closed_at]           [datetime]       NULL,
+    [resolution_note]     [nvarchar](max)  NULL,
+PRIMARY KEY CLUSTERED ([id] ASC)
+) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
+GO
+
+-- ============================================================
+-- CLUSTER 7: LOYALTY & PROMOTIONS TRACKING
+-- ============================================================
+
+CREATE TABLE [dbo].[Loyalty_Transactions](
+    [id]               [int]            IDENTITY(1,1) NOT NULL,
+    [user_id]          [int]            NOT NULL,       -- FK Users.id
+    [booking_id]       [int]            NULL,           -- FK Bookings.id
+    [transaction_type] [nvarchar](20)   NOT NULL,       -- earned / redeemed / expired
+    [points]           [int]            NOT NULL,       -- dương: cộng, âm: trừ
+    [balance_after]    [int]            NOT NULL,       -- số dư sau giao dịch
+    [note]             [nvarchar](255)  NULL,
+    [created_at]       [datetime]       NOT NULL DEFAULT GETDATE(),
+PRIMARY KEY CLUSTERED ([id] ASC)
+) ON [PRIMARY]
+GO
+
+CREATE TABLE [dbo].[Voucher_Usage](
+    [id]         [int]      IDENTITY(1,1) NOT NULL,
+    [voucher_id] [int]      NOT NULL,                   -- FK Vouchers.id
+    [user_id]    [int]      NOT NULL,                   -- FK Users.id
+    [booking_id] [int]      NOT NULL,                   -- FK Bookings.id
+    [used_at]    [datetime] NOT NULL DEFAULT GETDATE(),
+PRIMARY KEY CLUSTERED ([id] ASC)
+) ON [PRIMARY]
+GO
+
+-- ============================================================
+-- UNIQUE INDEXES
+-- ============================================================
+SET ANSI_PADDING ON
+GO
+CREATE UNIQUE NONCLUSTERED INDEX [UQ_Article_Categories_Slug] ON [dbo].[Article_Categories] ([slug] ASC) WHERE [slug] IS NOT NULL
+GO
+ALTER TABLE [dbo].[Articles]           ADD UNIQUE NONCLUSTERED ([slug] ASC)
+GO
+CREATE NONCLUSTERED INDEX [IX_Articles_AttractionId] ON [dbo].[Articles] ([attraction_id] ASC)
+GO
+ALTER TABLE [dbo].[Bookings]           ADD UNIQUE NONCLUSTERED ([booking_code] ASC)
+CREATE NONCLUSTERED INDEX [ix_payments_booking_id] ON [dbo].[Payments]([booking_id] ASC)
+GO
+CREATE NONCLUSTERED INDEX [IX_Bookings_Status_ExpiresAt]
+    ON [dbo].[Bookings] ([status] ASC, [expires_at] ASC)
+    WHERE [expires_at] IS NOT NULL
+GO
+CREATE NONCLUSTERED INDEX [IX_Bookings_UserId_Status]
+    ON [dbo].[Bookings] ([user_id] ASC, [status] ASC)
+GO
+ALTER TABLE [dbo].[Equipments]         ADD UNIQUE NONCLUSTERED ([item_code] ASC)
+GO
+CREATE UNIQUE NONCLUSTERED INDEX [UQ_Room_Types_Slug] ON [dbo].[Room_Types] ([slug] ASC) WHERE [slug] IS NOT NULL
+GO
+ALTER TABLE [dbo].[Users]              ADD UNIQUE NONCLUSTERED ([email] ASC)
+GO
+ALTER TABLE [dbo].[Vouchers]           ADD UNIQUE NONCLUSTERED ([code] ASC)
+GO
+CREATE NONCLUSTERED INDEX [ix_audit_logs_log_date] ON [dbo].[Audit_Logs]([log_date] ASC)
+GO
+CREATE NONCLUSTERED INDEX [ix_audit_logs_user_id_log_date] ON [dbo].[Audit_Logs]([user_id] ASC, [log_date] ASC)
+GO
+CREATE NONCLUSTERED INDEX [ix_audit_logs_role_name] ON [dbo].[Audit_Logs]([role_name] ASC)
+GO
+
+-- ============================================================
+-- DEFAULT CONSTRAINTS
+-- ============================================================
+ALTER TABLE [dbo].[Articles]           ADD DEFAULT (getdate())    FOR [published_at]
+ALTER TABLE [dbo].[Bookings]           ADD DEFAULT ('Pending')    FOR [status]
+ALTER TABLE [dbo].[Equipments]         ADD DEFAULT ((0))          FOR [total_quantity]
+ALTER TABLE [dbo].[Equipments]         ADD DEFAULT ((0))          FOR [in_use_quantity]
+ALTER TABLE [dbo].[Equipments]         ADD DEFAULT ((0))          FOR [damaged_quantity]
+ALTER TABLE [dbo].[Equipments]         ADD DEFAULT ((0))          FOR [liquidated_quantity]
+ALTER TABLE [dbo].[Equipments]         ADD DEFAULT ((0))          FOR [base_price]
+ALTER TABLE [dbo].[Equipments]         ADD DEFAULT ((0))          FOR [default_price_if_lost]
+ALTER TABLE [dbo].[Equipments]         ADD DEFAULT ((1))          FOR [is_active]
+ALTER TABLE [dbo].[Equipments]         ADD DEFAULT (getutcdate()) FOR [created_at]
+ALTER TABLE [dbo].[Invoices]           ADD DEFAULT ((0))          FOR [total_room_amount]
+ALTER TABLE [dbo].[Invoices]           ADD DEFAULT ((0))          FOR [total_service_amount]
+ALTER TABLE [dbo].[Invoices]           ADD DEFAULT ((0))          FOR [total_damage_amount]
+ALTER TABLE [dbo].[Invoices]           ADD DEFAULT ((0))          FOR [discount_amount]
+ALTER TABLE [dbo].[Invoices]           ADD DEFAULT ((0))          FOR [tax_amount]
+ALTER TABLE [dbo].[Invoices]           ADD DEFAULT ((0))          FOR [final_total]
+ALTER TABLE [dbo].[Invoices]           ADD DEFAULT ('Draft')      FOR [status]
+ALTER TABLE [dbo].[Loss_And_Damages]   ADD DEFAULT (getdate())    FOR [created_at]
+ALTER TABLE [dbo].[Memberships]        ADD DEFAULT ((0))          FOR [min_points]
+ALTER TABLE [dbo].[Memberships]        ADD DEFAULT ((0.00))       FOR [discount_percent]
+ALTER TABLE [dbo].[Order_Services]     ADD DEFAULT (getdate())    FOR [order_date]
+ALTER TABLE [dbo].[Order_Services]     ADD DEFAULT ((0))          FOR [total_amount]
+ALTER TABLE [dbo].[Order_Services]     ADD DEFAULT ('Pending')    FOR [status]
+ALTER TABLE [dbo].[Payments]           ADD DEFAULT (getdate())    FOR [payment_date]
+ALTER TABLE [dbo].[Payments]           ADD CONSTRAINT [ck_payments_booking_or_invoice] CHECK (((CASE WHEN [booking_id] IS NOT NULL THEN 1 ELSE 0 END) + (CASE WHEN [invoice_id] IS NOT NULL THEN 1 ELSE 0 END)) = 1)
+ALTER TABLE [dbo].[Reviews]            ADD DEFAULT (getdate())    FOR [created_at]
+ALTER TABLE [dbo].[Room_Images]        ADD DEFAULT ((0))          FOR [is_primary]
+ALTER TABLE [dbo].[Room_Inventory]     ADD DEFAULT ((1))          FOR [quantity]
+ALTER TABLE [dbo].[Room_Inventory]     ADD DEFAULT ((0))          FOR [price_if_lost]
+ALTER TABLE [dbo].[Room_Inventory]     ADD DEFAULT ((1))          FOR [is_active]
+ALTER TABLE [dbo].[Room_Inventory]     ADD DEFAULT ('Asset')      FOR [item_type]
+ALTER TABLE [dbo].[Rooms]              ADD DEFAULT ('Available')  FOR [status]
+ALTER TABLE [dbo].[Users]              ADD DEFAULT ((1))          FOR [status]
+ALTER TABLE [dbo].[Vouchers]           ADD DEFAULT ((0))          FOR [min_booking_value]
+GO
+
+-- ============================================================
+-- FOREIGN KEY CONSTRAINTS
+-- ============================================================
+-- Cluster 1
+ALTER TABLE [dbo].[Audit_Logs]          WITH CHECK ADD FOREIGN KEY([user_id])              REFERENCES [dbo].[Users]             ([id])
+ALTER TABLE [dbo].[Role_Permissions]    WITH CHECK ADD FOREIGN KEY([permission_id])         REFERENCES [dbo].[Permissions]       ([id])
+ALTER TABLE [dbo].[Role_Permissions]    WITH CHECK ADD FOREIGN KEY([role_id])               REFERENCES [dbo].[Roles]             ([id])
+ALTER TABLE [dbo].[Users]               WITH CHECK ADD FOREIGN KEY([membership_id])         REFERENCES [dbo].[Memberships]       ([id])
+ALTER TABLE [dbo].[Users]               WITH CHECK ADD FOREIGN KEY([role_id])               REFERENCES [dbo].[Roles]             ([id])
+-- Cluster 2
+ALTER TABLE [dbo].[Room_Images]         WITH CHECK ADD FOREIGN KEY([room_type_id])          REFERENCES [dbo].[Room_Types]        ([id])
+ALTER TABLE [dbo].[Room_Inventory]      WITH CHECK ADD FOREIGN KEY([room_id])               REFERENCES [dbo].[Rooms]             ([id])
+ALTER TABLE [dbo].[Room_Inventory]      WITH CHECK ADD CONSTRAINT [FK_RoomInventory_Equipments] FOREIGN KEY([equipment_id]) REFERENCES [dbo].[Equipments] ([id])
+ALTER TABLE [dbo].[Room_Inventory]      CHECK CONSTRAINT [FK_RoomInventory_Equipments]
+ALTER TABLE [dbo].[Rooms]               WITH CHECK ADD FOREIGN KEY([room_type_id])          REFERENCES [dbo].[Room_Types]        ([id])
+ALTER TABLE [dbo].[RoomType_Amenities]  WITH CHECK ADD FOREIGN KEY([amenity_id])            REFERENCES [dbo].[Amenities]         ([id])
+ALTER TABLE [dbo].[RoomType_Amenities]  WITH CHECK ADD FOREIGN KEY([room_type_id])          REFERENCES [dbo].[Room_Types]        ([id])
+-- Cluster 3
+ALTER TABLE [dbo].[Booking_Details]     WITH CHECK ADD FOREIGN KEY([booking_id])            REFERENCES [dbo].[Bookings]          ([id])
+ALTER TABLE [dbo].[Booking_Details]     WITH CHECK ADD FOREIGN KEY([room_id])               REFERENCES [dbo].[Rooms]             ([id])
+ALTER TABLE [dbo].[Booking_Details]     WITH CHECK ADD FOREIGN KEY([room_type_id])          REFERENCES [dbo].[Room_Types]        ([id])
+ALTER TABLE [dbo].[Bookings]            WITH CHECK ADD FOREIGN KEY([user_id])               REFERENCES [dbo].[Users]             ([id])
+ALTER TABLE [dbo].[Bookings]            WITH CHECK ADD FOREIGN KEY([voucher_id])            REFERENCES [dbo].[Vouchers]          ([id])
+ALTER TABLE [dbo].[Vouchers]            WITH CHECK ADD FOREIGN KEY([applicable_room_type_id]) REFERENCES [dbo].[Room_Types]      ([id])
+ALTER TABLE [dbo].[Vouchers]            WITH CHECK ADD FOREIGN KEY([target_membership_id])  REFERENCES [dbo].[Memberships]       ([id])
+-- Cluster 4
+ALTER TABLE [dbo].[Invoices]            WITH CHECK ADD FOREIGN KEY([booking_id])            REFERENCES [dbo].[Bookings]          ([id])
+ALTER TABLE [dbo].[Loss_And_Damages]    WITH CHECK ADD FOREIGN KEY([booking_detail_id])     REFERENCES [dbo].[Booking_Details]   ([id])
+ALTER TABLE [dbo].[Loss_And_Damages]    WITH CHECK ADD FOREIGN KEY([room_inventory_id])     REFERENCES [dbo].[Room_Inventory]    ([id])
+ALTER TABLE [dbo].[Loss_And_Damages]    WITH CHECK ADD FOREIGN KEY([reported_by])           REFERENCES [dbo].[Users]             ([id])
+ALTER TABLE [dbo].[Order_Service_Details] WITH CHECK ADD FOREIGN KEY([order_service_id])   REFERENCES [dbo].[Order_Services]    ([id])
+ALTER TABLE [dbo].[Order_Service_Details] WITH CHECK ADD FOREIGN KEY([service_id])         REFERENCES [dbo].[Services]          ([id])
+ALTER TABLE [dbo].[Order_Services]      WITH CHECK ADD FOREIGN KEY([booking_detail_id])     REFERENCES [dbo].[Booking_Details]   ([id])
+ALTER TABLE [dbo].[Services]            WITH CHECK ADD FOREIGN KEY([category_id])           REFERENCES [dbo].[Service_Categories]([id])
+-- Cluster 5
+ALTER TABLE [dbo].[Articles]            WITH CHECK ADD FOREIGN KEY([author_id])             REFERENCES [dbo].[Users]             ([id])
+ALTER TABLE [dbo].[Articles]            WITH CHECK ADD FOREIGN KEY([category_id])           REFERENCES [dbo].[Article_Categories]([id])
+ALTER TABLE [dbo].[Articles]            WITH CHECK ADD FOREIGN KEY([attraction_id])         REFERENCES [dbo].[Attractions]       ([id])
+ALTER TABLE [dbo].[Invoice_Adjustments] WITH CHECK ADD FOREIGN KEY([invoice_id])            REFERENCES [dbo].[Invoices]          ([id])
+ALTER TABLE [dbo].[Payments]            WITH CHECK ADD FOREIGN KEY([invoice_id])            REFERENCES [dbo].[Invoices]          ([id])
+ALTER TABLE [dbo].[Payments]            WITH CHECK ADD FOREIGN KEY([booking_id])            REFERENCES [dbo].[Bookings]          ([id])
+ALTER TABLE [dbo].[Reviews]             WITH CHECK ADD FOREIGN KEY([booking_id])            REFERENCES [dbo].[Bookings]          ([id])
+ALTER TABLE [dbo].[Reviews]             WITH CHECK ADD FOREIGN KEY([room_type_id])          REFERENCES [dbo].[Room_Types]        ([id])
+ALTER TABLE [dbo].[Reviews]             WITH CHECK ADD FOREIGN KEY([user_id])               REFERENCES [dbo].[Users]             ([id])
+-- Cluster 6 & 7
+ALTER TABLE [dbo].[Loyalty_Transactions] WITH CHECK ADD FOREIGN KEY([user_id])             REFERENCES [dbo].[Users]             ([id])
+ALTER TABLE [dbo].[Loyalty_Transactions] WITH CHECK ADD FOREIGN KEY([booking_id])          REFERENCES [dbo].[Bookings]          ([id])
+ALTER TABLE [dbo].[Shifts]              WITH CHECK ADD FOREIGN KEY([user_id])               REFERENCES [dbo].[Users]             ([id])
+ALTER TABLE [dbo].[Shifts]              WITH CHECK ADD FOREIGN KEY([confirmed_by])          REFERENCES [dbo].[Users]             ([id])
+ALTER TABLE [dbo].[Maintenance_Tickets] WITH CHECK ADD FOREIGN KEY([room_id])              REFERENCES [dbo].[Rooms]             ([id])
+ALTER TABLE [dbo].[Maintenance_Tickets] WITH CHECK ADD FOREIGN KEY([reported_by_user_id])  REFERENCES [dbo].[Users]             ([id])
+ALTER TABLE [dbo].[Maintenance_Tickets] WITH CHECK ADD FOREIGN KEY([assigned_to_user_id])  REFERENCES [dbo].[Users]             ([id])
+ALTER TABLE [dbo].[Voucher_Usage]       WITH CHECK ADD FOREIGN KEY([voucher_id])            REFERENCES [dbo].[Vouchers]          ([id])
+ALTER TABLE [dbo].[Voucher_Usage]       WITH CHECK ADD FOREIGN KEY([user_id])               REFERENCES [dbo].[Users]             ([id])
+ALTER TABLE [dbo].[Voucher_Usage]       WITH CHECK ADD FOREIGN KEY([booking_id])            REFERENCES [dbo].[Bookings]          ([id])
+ALTER TABLE [dbo].[Voucher_Target_Users] WITH CHECK ADD FOREIGN KEY([voucher_id])           REFERENCES [dbo].[Vouchers]          ([id])
+ALTER TABLE [dbo].[Voucher_Target_Users] WITH CHECK ADD FOREIGN KEY([user_id])              REFERENCES [dbo].[Users]             ([id])
+GO
+
+CREATE INDEX [IX_Maintenance_Tickets_RoomId]
+    ON [dbo].[Maintenance_Tickets] ([room_id]);
+GO
+
+CREATE INDEX [IX_Maintenance_Tickets_ReportedByUserId]
+    ON [dbo].[Maintenance_Tickets] ([reported_by_user_id]);
+GO
+
+CREATE INDEX [IX_Maintenance_Tickets_AssignedToUserId]
+    ON [dbo].[Maintenance_Tickets] ([assigned_to_user_id]);
+GO
+
+-- ============================================================
+-- CHECK CONSTRAINTS
+-- ============================================================
+ALTER TABLE [dbo].[Reviews] WITH CHECK ADD CHECK (([rating]>=(1) AND [rating]<=(5)))
+GO
+
+-- Filtered unique index: mỗi user chỉ review 1 lần mỗi booking
+IF EXISTS (SELECT * FROM sys.indexes WHERE name = 'UQ_Reviews_User_Booking')
+    DROP INDEX [UQ_Reviews_User_Booking] ON [dbo].[Reviews];
+GO
+CREATE UNIQUE INDEX [UQ_Reviews_User_Booking]
+    ON [dbo].[Reviews] ([user_id], [booking_id])
+    WHERE [booking_id] IS NOT NULL;
+GO
+
+-- ============================================================
+-- BẢNG Activity_Logs
+-- Lưu thông báo hệ thống cho Admin/Manager/Staff
+-- ============================================================
+
+CREATE TABLE [dbo].[Activity_Logs](
+    [id]            [int]            IDENTITY(1,1) NOT NULL,
+    [user_id]       [int]            NULL,                        -- FK Users.id (ai thực hiện)
+    [role_name]     [nvarchar](100)  NULL,                        -- cache tên role lúc thực hiện
+    [action_code]   [nvarchar](100)  NOT NULL,                    -- APPROVE_REVIEW, CREATE_BOOKING...
+    [action_label]  [nvarchar](255)  NOT NULL,                    -- "Duyệt đánh giá", "Tạo đặt phòng"
+    [entity_type]   [nvarchar](100)  NULL,                        -- "Review", "Booking", "User"...
+    [entity_id]     [int]            NULL,                        -- ID bản ghi bị tác động
+    [entity_label]  [nvarchar](500)  NULL,                        -- mô tả thêm: "BK-0001", "Khách Hàng A"
+    [severity]      [nvarchar](20)   NOT NULL DEFAULT 'Info',     -- Info / Warning / Success / Critical
+    [message]       [nvarchar](max)  NOT NULL,                    -- nội dung thông báo hiển thị
+    [metadata]      [nvarchar](max)  NULL,                        -- JSON thêm nếu cần
+    [created_at]    [datetime]       NOT NULL DEFAULT GETDATE(),
+PRIMARY KEY CLUSTERED ([id] ASC)
+) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
+GO
+
+-- FK về Users
+ALTER TABLE [dbo].[Activity_Logs]
+    WITH CHECK ADD FOREIGN KEY([user_id]) REFERENCES [dbo].[Users]([id])
+GO
+
+-- Index để query nhanh theo user và thời gian
+CREATE NONCLUSTERED INDEX [IX_Activity_Logs_UserId_CreatedAt]
+    ON [dbo].[Activity_Logs] ([user_id] ASC, [created_at] DESC)
+GO
+
+CREATE NONCLUSTERED INDEX [IX_Activity_Logs_EntityType_EntityId]
+    ON [dbo].[Activity_Logs] ([entity_type] ASC, [entity_id] ASC)
+GO
+
+-- Index cho filter ActionCode trong backend
+CREATE NONCLUSTERED INDEX [IX_Activity_Logs_ActionCode]
+    ON [dbo].[Activity_Logs] ([action_code] ASC)
+GO
+
+-- Tạo lại bảng với tên cột dạng snake_case (theo đúng convention của AppDbContext)
+CREATE TABLE [dbo].[Activity_Log_Reads] (
+    [id] INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+    [activity_log_id] INT NOT NULL,
+    [user_id] INT NOT NULL,
+    [read_at] DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+    
+    CONSTRAINT [fk_activity_log_reads_activity_logs] FOREIGN KEY ([activity_log_id]) REFERENCES [dbo].[Activity_Logs] ([id]) ON DELETE CASCADE,
+    CONSTRAINT [fk_activity_log_reads_users] FOREIGN KEY ([user_id]) REFERENCES [dbo].[Users] ([id]) ON DELETE CASCADE
+);
+GO
+
+-- Tạo lại Index unique
+CREATE UNIQUE INDEX [uk_activity_log_user] ON [dbo].[Activity_Log_Reads] ([activity_log_id], [user_id]);
+GO
+
+-- Tạo index cho user_id để truy vấn nhanh
+CREATE INDEX [ix_activity_log_reads_user_id] ON [dbo].[Activity_Log_Reads] ([user_id]);
+GO
+
+
+-- ============================================================
+-- SEED DATA — THỨ TỰ CHA TRƯỚC CON
+-- ============================================================
+
+-- 1. Roles
+SET IDENTITY_INSERT [dbo].[Roles] ON
+INSERT [dbo].[Roles] ([id], [name], [description]) VALUES (1,  N'Admin',       N'Quản trị viên')
+INSERT [dbo].[Roles] ([id], [name], [description]) VALUES (2,  N'Manager',     N'Quản lý khách sạn')
+INSERT [dbo].[Roles] ([id], [name], [description]) VALUES (3,  N'Receptionist',N'Lễ tân')
+INSERT [dbo].[Roles] ([id], [name], [description]) VALUES (4,  N'Accountant',  N'Kế toán')
+INSERT [dbo].[Roles] ([id], [name], [description]) VALUES (5,  N'Housekeeping',N'Buồng phòng')
+INSERT [dbo].[Roles] ([id], [name], [description]) VALUES (6,  N'Security',    N'Bảo vệ')
+INSERT [dbo].[Roles] ([id], [name], [description]) VALUES (7,  N'Chef',        N'Đầu bếp')
+INSERT [dbo].[Roles] ([id], [name], [description]) VALUES (8,  N'Waiter',      N'Nhân viên phục vụ')
+INSERT [dbo].[Roles] ([id], [name], [description]) VALUES (9,  N'IT Support',  N'Kỹ thuật viên')
+INSERT [dbo].[Roles] ([id], [name], [description]) VALUES (10, N'Guest',       N'Khách hàng')
+INSERT [dbo].[Roles] ([id], [name], [description]) VALUES (11, N'WarehouseStaff', N'Nhân viên kho vật tư')
+SET IDENTITY_INSERT [dbo].[Roles] OFF
+GO
+
+-- 2. Permissions
+SET IDENTITY_INSERT [dbo].[Permissions] ON
+INSERT [dbo].[Permissions] ([id], [name], [permission_code]) VALUES (1,  N'VIEW_DASHBOARD',   N'VIEW_DASHBOARD')
+INSERT [dbo].[Permissions] ([id], [name], [permission_code]) VALUES (2,  N'MANAGE_USERS',     N'MANAGE_USERS')
+INSERT [dbo].[Permissions] ([id], [name], [permission_code]) VALUES (3,  N'MANAGE_ROLES',     N'MANAGE_ROLES')
+INSERT [dbo].[Permissions] ([id], [name], [permission_code]) VALUES (4,  N'MANAGE_ROOMS',     N'MANAGE_ROOMS')
+INSERT [dbo].[Permissions] ([id], [name], [permission_code]) VALUES (5,  N'MANAGE_BOOKINGS',  N'MANAGE_BOOKINGS')
+INSERT [dbo].[Permissions] ([id], [name], [permission_code]) VALUES (6,  N'MANAGE_INVOICES',  N'MANAGE_INVOICES')
+INSERT [dbo].[Permissions] ([id], [name], [permission_code]) VALUES (7,  N'MANAGE_SERVICES',  N'MANAGE_SERVICES')
+INSERT [dbo].[Permissions] ([id], [name], [permission_code]) VALUES (8,  N'VIEW_REPORTS',     N'VIEW_REPORTS')
+INSERT [dbo].[Permissions] ([id], [name], [permission_code]) VALUES (9,  N'MANAGE_CONTENT',   N'MANAGE_CONTENT')
+INSERT [dbo].[Permissions] ([id], [name], [permission_code]) VALUES (10, N'MANAGE_INVENTORY', N'MANAGE_INVENTORY')
+INSERT [dbo].[Permissions] ([id], [name], [permission_code]) VALUES (11, N'VIEW_USERS',       N'VIEW_USERS')
+INSERT [dbo].[Permissions] ([id], [name], [permission_code]) VALUES (12, N'VIEW_ROLES',       N'VIEW_ROLES')
+INSERT [dbo].[Permissions] ([id], [name], [permission_code]) VALUES (13, N'VIEW_AUDIT_LOGS',  N'VIEW_AUDIT_LOGS')
+INSERT [dbo].[Permissions] ([id], [name], [permission_code]) VALUES (14, N'EDIT_ROLES',       N'EDIT_ROLES')
+INSERT [dbo].[Permissions] ([id], [name], [permission_code]) VALUES (15, N'CREATE_USERS',     N'CREATE_USERS')
+SET IDENTITY_INSERT [dbo].[Permissions] OFF
+GO
+
+-- 3. Memberships
+SET IDENTITY_INSERT [dbo].[Memberships] ON
+INSERT [dbo].[Memberships] ([id], [tier_name], [min_points], [max_points], [discount_percent], [color_hex], [is_active]) VALUES (1,  N'Khách Mới', 0,      499,    CAST(0.00  AS Decimal(5,2)), N'#9E9E9E', 1)
+INSERT [dbo].[Memberships] ([id], [tier_name], [min_points], [max_points], [discount_percent], [color_hex], [is_active]) VALUES (2,  N'Đồng',      500,    999,    CAST(2.00  AS Decimal(5,2)), N'#CD7F32', 1)
+INSERT [dbo].[Memberships] ([id], [tier_name], [min_points], [max_points], [discount_percent], [color_hex], [is_active]) VALUES (3,  N'Bạc',       1000,   2999,   CAST(5.00  AS Decimal(5,2)), N'#C0C0C0', 1)
+INSERT [dbo].[Memberships] ([id], [tier_name], [min_points], [max_points], [discount_percent], [color_hex], [is_active]) VALUES (4,  N'Vàng',      3000,   4999,   CAST(8.00  AS Decimal(5,2)), N'#FFD700', 1)
+INSERT [dbo].[Memberships] ([id], [tier_name], [min_points], [max_points], [discount_percent], [color_hex], [is_active]) VALUES (5,  N'Bạch Kim',  5000,   9999,   CAST(10.00 AS Decimal(5,2)), N'#E5E4E2', 1)
+INSERT [dbo].[Memberships] ([id], [tier_name], [min_points], [max_points], [discount_percent], [color_hex], [is_active]) VALUES (6,  N'Kim Cương', 10000,  19999,  CAST(15.00 AS Decimal(5,2)), N'#B9F2FF', 1)
+INSERT [dbo].[Memberships] ([id], [tier_name], [min_points], [max_points], [discount_percent], [color_hex], [is_active]) VALUES (7,  N'Elite',     20000,  49999,  CAST(20.00 AS Decimal(5,2)), N'#7B68EE', 1)
+INSERT [dbo].[Memberships] ([id], [tier_name], [min_points], [max_points], [discount_percent], [color_hex], [is_active]) VALUES (8,  N'VIP',       50000,  99999,  CAST(25.00 AS Decimal(5,2)), N'#FF8C00', 1)
+INSERT [dbo].[Memberships] ([id], [tier_name], [min_points], [max_points], [discount_percent], [color_hex], [is_active]) VALUES (9,  N'VVIP',      100000, 199999, CAST(30.00 AS Decimal(5,2)), N'#DC143C', 1)
+INSERT [dbo].[Memberships] ([id], [tier_name], [min_points], [max_points], [discount_percent], [color_hex], [is_active]) VALUES (10, N'Signature', 200000, NULL,   CAST(35.00 AS Decimal(5,2)), N'#2F4F4F', 1)
+SET IDENTITY_INSERT [dbo].[Memberships] OFF
+GO
+
+-- 4. Users
+SET IDENTITY_INSERT [dbo].[Users] ON
+INSERT [dbo].[Users] ([id],[role_id],[membership_id],[full_name],[email],[phone],[password_hash],[status],[loyalty_points],[loyalty_points_usable],[created_at])
+VALUES (1,  1,  NULL, N'Nguyễn Admin',    N'admin@hotel.com',       N'0900000001', N'$2a$11$oFBpZq/8S8DAE2qhAt0TCOIsOXB3WlBlmdybSneBVxZBdqcKzm9Qu',  1, 0,    0,    CAST(N'2026-01-01T00:00:00.000' AS DateTime))
+
+INSERT [dbo].[Users] ([id], [role_id], [membership_id], [full_name], [email], [phone], [gender], [password_hash], [loyalty_points], [loyalty_points_usable], [status], [created_at]) 
+VALUES (2, 2, NULL, N'Tạ Trần Vinh Quang', N'fw62262@gmail.com', N'0937590998', N'Nam', N'$2a$11$y4M6/q0/GZIBubq7D2Q7rO4ZSfE94d0U15HghTMqngy42KBXfj9x.', 0, 0, 1, CAST(N'2026-05-15T17:36:39.477' AS DateTime))
+INSERT [dbo].[Users] ([id], [role_id], [membership_id], [full_name], [email], [phone], [gender], [password_hash], [loyalty_points], [loyalty_points_usable], [status], [created_at]) 
+VALUES (3, 3, NULL, N'Nguyễn Đức Hiếu', N'hieusaber@gmail.com', N'0912345678', N'Nam', N'$2a$11$LxOJyDM19P28jvDLPJn/gO29FgZ3b6IKbYUXV6ZBlxAVZeAny1VAa', 0, 0, 1, CAST(N'2026-05-15T17:39:32.407' AS DateTime))
+INSERT [dbo].[Users] ([id], [role_id], [membership_id], [full_name], [email], [phone], [gender], [password_hash], [loyalty_points], [loyalty_points_usable], [status], [created_at]) 
+VALUES (4, 4, NULL, N'Lê Minh Luân', N'leminhluan087@gmail.com', N'0912345678', N'Nam', N'$2a$11$6wAt4OLFFwVlzWHeIfU5E.D7tT8aNwIrJA9jGreq.gAeBo.tQ.KIe', 0, 0, 1, CAST(N'2026-05-15T17:46:56.353' AS DateTime))
+INSERT [dbo].[Users] ([id], [role_id], [membership_id], [full_name], [email], [phone], [gender], [password_hash], [loyalty_points], [loyalty_points_usable], [status], [created_at]) 
+VALUES (5, 11, NULL, N'Võ Nhạc Phước', N'vonhacphuoc@gmail.com', N'0912345678', N'Nữ', N'$2a$11$oIci..nfjmLZfrS0tQvtI.ISwiSAoZ30qbcnSulJREhNAu6TiHYZG', 0, 0, 1, CAST(N'2026-05-15T17:47:57.427' AS DateTime))
+INSERT [dbo].[Users] ([id], [role_id], [membership_id], [full_name], [email], [phone], [gender], [password_hash], [loyalty_points], [loyalty_points_usable], [status], [created_at]) 
+VALUES (6, 5, NULL, N'Ngô Tấn Lộc', N'ngotanloc3007@gmail.com', N'0912345678', N'Nam', N'$2a$11$mQ67hNBSI/S/e1xftbIQruRPzwol4nE4JcJoAQIcwO8ZqbRRNh0We', 0, 0, 1, CAST(N'2026-05-15T17:49:16.103' AS DateTime))
+SET IDENTITY_INSERT [dbo].[Users] OFF
+GO
+
+-- 5. Role_Permissions
+-- Permission matrix for dashboard roles:
+-- Admin(1):        1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
+-- Manager(2):      1,4,5,6,7,8,10,11
+-- Receptionist(3): 1,4,5,6
+-- Accountant(4):   1,5,6,8
+-- Housekeeping(5): 1,4,10
+-- Warehouse(11):   1,8,10
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (1, 1)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (1, 2)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (1, 3)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (1, 4)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (1, 5)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (1, 6)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (1, 7)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (1, 8)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (1, 9)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (1, 10)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (1, 11)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (1, 12)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (1, 13)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (1, 14)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (1, 15)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (2, 1)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (2, 4)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (2, 5)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (2, 6)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (2, 7)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (2, 8)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (2, 10)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (2, 11)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (3, 1)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (3, 4)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (3, 5)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (3, 6)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (4, 1)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (4, 5)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (4, 6)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (4, 8)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (5, 1)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (5, 4)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (5, 10)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (11, 1)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (11, 8)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (11, 10)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (7, 7)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (7, 8)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (7, 9)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (7, 10)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (9, 1)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (9, 2)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (9, 3)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (9, 4)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (9, 5)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (9, 6)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (9, 8)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (9, 9)
+INSERT [dbo].[Role_Permissions] ([role_id], [permission_id]) VALUES (9, 13)
+GO
+
+-- 6. Amenities
+SET IDENTITY_INSERT [dbo].[Amenities] ON
+INSERT [dbo].[Amenities] ([id], [name], [icon_url], [is_active]) VALUES (1,  N'Wifi Miễn Phí',     N'wifi.png',      1)
+INSERT [dbo].[Amenities] ([id], [name], [icon_url], [is_active]) VALUES (2,  N'Smart TV',           N'tv.png',        1)
+INSERT [dbo].[Amenities] ([id], [name], [icon_url], [is_active]) VALUES (3,  N'Điều Hòa',           N'ac.png',        1)
+INSERT [dbo].[Amenities] ([id], [name], [icon_url], [is_active]) VALUES (4,  N'Bồn Tắm Sứ',        N'bathtub.png',   1)
+INSERT [dbo].[Amenities] ([id], [name], [icon_url], [is_active]) VALUES (5,  N'Ban Công',           N'balcony.png',   1)
+INSERT [dbo].[Amenities] ([id], [name], [icon_url], [is_active]) VALUES (6,  N'Minibar',            N'minibar.png',   1)
+INSERT [dbo].[Amenities] ([id], [name], [icon_url], [is_active]) VALUES (7,  N'Két Sắt',            N'safe.png',      1)
+INSERT [dbo].[Amenities] ([id], [name], [icon_url], [is_active]) VALUES (8,  N'Máy Sấy Tóc',       N'hairdryer.png', 1)
+INSERT [dbo].[Amenities] ([id], [name], [icon_url], [is_active]) VALUES (9,  N'Máy Pha Cà Phê',    N'coffee.png',    1)
+INSERT [dbo].[Amenities] ([id], [name], [icon_url], [is_active]) VALUES (10, N'Bàn Làm Việc',      N'desk.png',      1)
+SET IDENTITY_INSERT [dbo].[Amenities] OFF
+GO
+
+-- 7. Room_Types
+SET IDENTITY_INSERT [dbo].[Room_Types] ON
+INSERT [dbo].[Room_Types] ([id],[name],[slug],[base_price],[capacity_adults],[capacity_children],[area_sqm],[bed_type],[description],[is_active])
+VALUES (1,  N'Standard Single',    N'standard-single',    CAST(400000.00  AS Decimal(18,2)), 1, 0, CAST(20.0 AS Decimal(8,2)), N'Single',  N'Phòng tiêu chuẩn 1 giường đơn',        1)
+INSERT [dbo].[Room_Types] ([id],[name],[slug],[base_price],[capacity_adults],[capacity_children],[area_sqm],[bed_type],[description],[is_active])
+VALUES (2,  N'Standard Double',    N'standard-double',    CAST(500000.00  AS Decimal(18,2)), 2, 1, CAST(25.0 AS Decimal(8,2)), N'Double',  N'Phòng tiêu chuẩn 1 giường đôi',        1)
+INSERT [dbo].[Room_Types] ([id],[name],[slug],[base_price],[capacity_adults],[capacity_children],[area_sqm],[bed_type],[description],[is_active])
+VALUES (3,  N'Superior City View', N'superior-city-view', CAST(700000.00  AS Decimal(18,2)), 2, 1, CAST(30.0 AS Decimal(8,2)), N'Queen',   N'Phòng cao cấp hướng phố',               1)
+INSERT [dbo].[Room_Types] ([id],[name],[slug],[base_price],[capacity_adults],[capacity_children],[area_sqm],[bed_type],[description],[is_active])
+VALUES (4,  N'Deluxe Ocean View',  N'deluxe-ocean-view',  CAST(900000.00  AS Decimal(18,2)), 2, 2, CAST(35.0 AS Decimal(8,2)), N'King',    N'Phòng Deluxe hướng biển',               1)
+INSERT [dbo].[Room_Types] ([id],[name],[slug],[base_price],[capacity_adults],[capacity_children],[area_sqm],[bed_type],[description],[is_active])
+VALUES (5,  N'Premium Deluxe',     N'premium-deluxe',     CAST(1200000.00 AS Decimal(18,2)), 2, 2, CAST(38.0 AS Decimal(8,2)), N'King',    N'Phòng Premium tiện nghi cao cấp',       1)
+INSERT [dbo].[Room_Types] ([id],[name],[slug],[base_price],[capacity_adults],[capacity_children],[area_sqm],[bed_type],[description],[is_active])
+VALUES (6,  N'Family Suite',       N'family-suite',       CAST(1500000.00 AS Decimal(18,2)), 4, 2, CAST(55.0 AS Decimal(8,2)), N'Twin',    N'Phòng Suite cho gia đình',              1)
+INSERT [dbo].[Room_Types] ([id],[name],[slug],[base_price],[capacity_adults],[capacity_children],[area_sqm],[bed_type],[description],[is_active])
+VALUES (7,  N'Junior Suite',       N'junior-suite',       CAST(1800000.00 AS Decimal(18,2)), 2, 2, CAST(60.0 AS Decimal(8,2)), N'King',    N'Phòng Suite nhỏ nhắn sang trọng',      1)
+INSERT [dbo].[Room_Types] ([id],[name],[slug],[base_price],[capacity_adults],[capacity_children],[area_sqm],[bed_type],[description],[is_active])
+VALUES (8,  N'Executive Suite',    N'executive-suite',    CAST(2500000.00 AS Decimal(18,2)), 2, 2, CAST(75.0 AS Decimal(8,2)), N'King',    N'Phòng Suite cho doanh nhân',            1)
+INSERT [dbo].[Room_Types] ([id],[name],[slug],[base_price],[capacity_adults],[capacity_children],[area_sqm],[bed_type],[description],[is_active])
+VALUES (9,  N'Presidential Suite', N'presidential-suite', CAST(5000000.00 AS Decimal(18,2)), 4, 2, CAST(120.0 AS Decimal(8,2)),N'King',   N'Phòng Tổng thống',                      1)
+INSERT [dbo].[Room_Types] ([id],[name],[slug],[base_price],[capacity_adults],[capacity_children],[area_sqm],[bed_type],[description],[is_active])
+VALUES (10, N'Royal Villa',        N'royal-villa',        CAST(8000000.00 AS Decimal(18,2)), 6, 4, CAST(250.0 AS Decimal(8,2)),N'King',   N'Biệt thự hoàng gia nguyên căn',         1)
+SET IDENTITY_INSERT [dbo].[Room_Types] OFF
+GO
+
+-- 8. Rooms
+SET IDENTITY_INSERT [dbo].[Rooms] ON
+INSERT [dbo].[Rooms] ([id], [room_type_id], [room_number], [floor], [view_type], [status], [business_status], [cleaning_status], [notes]) VALUES (1, 1, N'101', 1, N'Thành phố', N'Cleaning', N'Available', N'Dirty', NULL)
+INSERT [dbo].[Rooms] ([id], [room_type_id], [room_number], [floor], [view_type], [status], [business_status], [cleaning_status], [notes]) VALUES (2, 1, N'102', 1, N'Biển', N'Cleaning', N'Available', N'Dirty', NULL)
+INSERT [dbo].[Rooms] ([id], [room_type_id], [room_number], [floor], [view_type], [status], [business_status], [cleaning_status], [notes]) VALUES (3, 3, N'201', 2, N'Vườn', N'Available', N'Available', N'Clean', NULL)
+INSERT [dbo].[Rooms] ([id], [room_type_id], [room_number], [floor], [view_type], [status], [business_status], [cleaning_status], [notes]) VALUES (4, 4, N'202', 2, N'Biển', N'Available', N'Available', N'Clean', NULL)
+INSERT [dbo].[Rooms] ([id], [room_type_id], [room_number], [floor], [view_type], [status], [business_status], [cleaning_status], [notes]) VALUES (5, 5, N'301', 3, N'Thành phố', N'Available', N'Available', N'Clean', NULL)
+INSERT [dbo].[Rooms] ([id], [room_type_id], [room_number], [floor], [view_type], [status], [business_status], [cleaning_status], [notes]) VALUES (6, 6, N'302', 3, N'Biển', N'Available', N'Available', N'Clean', NULL)
+INSERT [dbo].[Rooms] ([id], [room_type_id], [room_number], [floor], [view_type], [status], [business_status], [cleaning_status], [notes]) VALUES (7, 7, N'401', 4, N'Vườn', N'Available', N'Available', N'Clean', NULL)
+INSERT [dbo].[Rooms] ([id], [room_type_id], [room_number], [floor], [view_type], [status], [business_status], [cleaning_status], [notes]) VALUES (8, 8, N'402', 4, N'Biển', N'Available', N'Available', N'Clean', NULL)
+INSERT [dbo].[Rooms] ([id], [room_type_id], [room_number], [floor], [view_type], [status], [business_status], [cleaning_status], [notes]) VALUES (9, 9, N'501', 5, N'Biển', N'Available', N'Available', N'Clean', NULL)
+INSERT [dbo].[Rooms] ([id], [room_type_id], [room_number], [floor], [view_type], [status], [business_status], [cleaning_status], [notes]) VALUES (10, 10, N'VILLA-1', 1, N'Vườn', N'Available', N'Available', N'Clean', NULL)
+INSERT [dbo].[Rooms] ([id], [room_type_id], [room_number], [floor], [view_type], [status], [business_status], [cleaning_status], [notes]) VALUES (11, 1, N'103', 1, N'Thành phố', N'Available', N'Available', N'Clean', NULL)
+INSERT [dbo].[Rooms] ([id], [room_type_id], [room_number], [floor], [view_type], [status], [business_status], [cleaning_status], [notes]) VALUES (12, 1, N'104', 1, N'Vườn', N'Available', N'Available', N'Clean', NULL)
+INSERT [dbo].[Rooms] ([id], [room_type_id], [room_number], [floor], [view_type], [status], [business_status], [cleaning_status], [notes]) VALUES (13, 4, N'203', 2, N'Biển', N'Available', N'Available', N'Clean', NULL)
+INSERT [dbo].[Rooms] ([id], [room_type_id], [room_number], [floor], [view_type], [status], [business_status], [cleaning_status], [notes]) VALUES (14, 3, N'204', 2, N'Thành phố', N'Available', N'Available', N'Clean', NULL)
+SET IDENTITY_INSERT [dbo].[Rooms] OFF
+GO
+
+-- 9. RoomType_Amenities
+INSERT [dbo].[RoomType_Amenities] ([room_type_id], [amenity_id]) VALUES (1, 1)
+INSERT [dbo].[RoomType_Amenities] ([room_type_id], [amenity_id]) VALUES (1, 2)
+INSERT [dbo].[RoomType_Amenities] ([room_type_id], [amenity_id]) VALUES (1, 3)
+INSERT [dbo].[RoomType_Amenities] ([room_type_id], [amenity_id]) VALUES (2, 1)
+INSERT [dbo].[RoomType_Amenities] ([room_type_id], [amenity_id]) VALUES (2, 2)
+INSERT [dbo].[RoomType_Amenities] ([room_type_id], [amenity_id]) VALUES (3, 4)
+INSERT [dbo].[RoomType_Amenities] ([room_type_id], [amenity_id]) VALUES (3, 5)
+INSERT [dbo].[RoomType_Amenities] ([room_type_id], [amenity_id]) VALUES (4, 6)
+INSERT [dbo].[RoomType_Amenities] ([room_type_id], [amenity_id]) VALUES (4, 7)
+INSERT [dbo].[RoomType_Amenities] ([room_type_id], [amenity_id]) VALUES (5, 8)
+GO
+
+-- 10. Room_Images
+SET IDENTITY_INSERT [dbo].[Room_Images] ON
+INSERT [dbo].[Room_Images] ([id], [room_type_id], [image_url], [cloudinary_public_id], [is_primary], [sort_order], [is_active]) VALUES (1, 1, N'https://res.cloudinary.com/dekvhccnn/image/upload/v1775154214/hotel/room-types/1/crw6molabapnox1khazi.jpg', N'hotel/room-types/1/crw6molabapnox1khazi', 1, 0, 1)
+INSERT [dbo].[Room_Images] ([id], [room_type_id], [image_url], [cloudinary_public_id], [is_primary], [sort_order], [is_active]) VALUES (2, 2, N'https://res.cloudinary.com/dekvhccnn/image/upload/v1775154197/hotel/room-types/2/mekf9ki56w102inizn6z.jpg', N'hotel/room-types/2/mekf9ki56w102inizn6z', 1, 0, 1)
+INSERT [dbo].[Room_Images] ([id], [room_type_id], [image_url], [cloudinary_public_id], [is_primary], [sort_order], [is_active]) VALUES (3, 3, N'https://res.cloudinary.com/dekvhccnn/image/upload/v1775154229/hotel/room-types/3/viy3r9wupitadubpir7s.jpg', N'hotel/room-types/3/viy3r9wupitadubpir7s', 1, 0, 1)
+INSERT [dbo].[Room_Images] ([id], [room_type_id], [image_url], [cloudinary_public_id], [is_primary], [sort_order], [is_active]) VALUES (4, 4, N'https://res.cloudinary.com/dekvhccnn/image/upload/v1775156566/hotel/room-types/4/x2izong8svk0aa78c4lh.jpg', N'hotel/room-types/4/x2izong8svk0aa78c4lh', 1, 0, 1)
+INSERT [dbo].[Room_Images] ([id], [room_type_id], [image_url], [cloudinary_public_id], [is_primary], [sort_order], [is_active]) VALUES (5, 5, N'https://res.cloudinary.com/dekvhccnn/image/upload/v1775154150/hotel/room-types/5/vkbl56yybog4blncgubi.jpg', N'hotel/room-types/5/vkbl56yybog4blncgubi', 1, 0, 1)
+INSERT [dbo].[Room_Images] ([id], [room_type_id], [image_url], [cloudinary_public_id], [is_primary], [sort_order], [is_active]) VALUES (6, 6, N'https://res.cloudinary.com/dekvhccnn/image/upload/v1775153906/hotel/room-types/6/blrz4q4gbq75mt1q2rk5.jpg', N'hotel/room-types/6/blrz4q4gbq75mt1q2rk5', 1, 0, 1)
+INSERT [dbo].[Room_Images] ([id], [room_type_id], [image_url], [cloudinary_public_id], [is_primary], [sort_order], [is_active]) VALUES (7, 7, N'https://res.cloudinary.com/dekvhccnn/image/upload/v1775154137/hotel/room-types/7/xgjdljfv6tswwfqq2ovw.jpg', N'hotel/room-types/7/xgjdljfv6tswwfqq2ovw', 1, 0, 1)
+INSERT [dbo].[Room_Images] ([id], [room_type_id], [image_url], [cloudinary_public_id], [is_primary], [sort_order], [is_active]) VALUES (8, 8, N'https://res.cloudinary.com/dekvhccnn/image/upload/v1775153887/hotel/room-types/8/boksaj6gmalul8auj2wo.jpg', N'hotel/room-types/8/boksaj6gmalul8auj2wo', 1, 0, 1)
+INSERT [dbo].[Room_Images] ([id], [room_type_id], [image_url], [cloudinary_public_id], [is_primary], [sort_order], [is_active]) VALUES (9, 9, N'https://res.cloudinary.com/dekvhccnn/image/upload/v1775154162/hotel/room-types/9/lmnowdhlz9stfs9g9sve.jpg', N'hotel/room-types/9/lmnowdhlz9stfs9g9sve', 1, 0, 1)
+INSERT [dbo].[Room_Images] ([id], [room_type_id], [image_url], [cloudinary_public_id], [is_primary], [sort_order], [is_active]) VALUES (10, 10, N'https://res.cloudinary.com/dekvhccnn/image/upload/v1775154183/hotel/room-types/10/wzp5lmcb6gebwd7iawaj.jpg', N'hotel/room-types/10/wzp5lmcb6gebwd7iawaj', 1, 0, 1)
+SET IDENTITY_INSERT [dbo].[Room_Images] OFF
+GO
+
+-- 11. Equipments
+SET IDENTITY_INSERT [dbo].[Equipments] ON 
+
+INSERT [dbo].[Equipments] ([id], [item_code], [name], [category], [unit], [total_quantity], [in_use_quantity], [damaged_quantity], [liquidated_quantity], [base_price], [default_price_if_lost], [supplier], [is_active], [created_at], [updated_at], [image_url]) VALUES (1, N'TV-SS-43', N'Smart TV Samsung 43 inch', N'Điện tử', N'Cái', 60, 6, 0, 0, CAST(7500000.00 AS Decimal(18, 2)), CAST(8000000.00 AS Decimal(18, 2)), N'Samsung Vietnam', 1, CAST(N'2026-03-25T14:10:11.000' AS DateTime), CAST(N'2026-04-03T01:33:08.103' AS DateTime), N'https://res.cloudinary.com/dekvhccnn/image/upload/v1775179986/QuanTriKhachSan/Equipments/bc0copnaxxcnocjovhhd.jpg')
+INSERT [dbo].[Equipments] ([id], [item_code], [name], [category], [unit], [total_quantity], [in_use_quantity], [damaged_quantity], [liquidated_quantity], [base_price], [default_price_if_lost], [supplier], [is_active], [created_at], [updated_at], [image_url]) VALUES (2, N'AC-DK-9000', N'Điều hòa Daikin 9000 BTU', N'Điện tử', N'Cái', 60, 9, 0, 0, CAST(8200000.00 AS Decimal(18, 2)), CAST(9000000.00 AS Decimal(18, 2)), N'Daikin Vietnam', 1, CAST(N'2026-03-25T14:10:11.000' AS DateTime), CAST(N'2026-04-03T01:31:19.883' AS DateTime), N'https://res.cloudinary.com/dekvhccnn/image/upload/v1775179878/QuanTriKhachSan/Equipments/yhhmra6dxybwiwn2yaqm.jpg')
+INSERT [dbo].[Equipments] ([id], [item_code], [name], [category], [unit], [total_quantity], [in_use_quantity], [damaged_quantity], [liquidated_quantity], [base_price], [default_price_if_lost], [supplier], [is_active], [created_at], [updated_at], [image_url]) VALUES (3, N'MB-AF-50', N'Tủ lạnh Minibar Aqua 50L', N'Điện tử', N'Cái', 60, 9, 0, 0, CAST(2500000.00 AS Decimal(18, 2)), CAST(3000000.00 AS Decimal(18, 2)), N'Aqua', 1, CAST(N'2026-03-25T14:10:11.000' AS DateTime), CAST(N'2026-04-03T01:33:28.893' AS DateTime), N'https://res.cloudinary.com/dekvhccnn/image/upload/v1775180007/QuanTriKhachSan/Equipments/kdqqlentkb7v1nrwanfy.jpg')
+INSERT [dbo].[Equipments] ([id], [item_code], [name], [category], [unit], [total_quantity], [in_use_quantity], [damaged_quantity], [liquidated_quantity], [base_price], [default_price_if_lost], [supplier], [is_active], [created_at], [updated_at], [image_url]) VALUES (4, N'HD-PN-1000', N'Máy sấy tóc Panasonic', N'Điện tử', N'Cái', 70, 9, 0, 0, CAST(450000.00 AS Decimal(18, 2)), CAST(600000.00 AS Decimal(18, 2)), N'Điện Máy Xanh', 1, CAST(N'2026-03-25T14:10:11.000' AS DateTime), CAST(N'2026-04-03T01:32:29.497' AS DateTime), N'https://res.cloudinary.com/dekvhccnn/image/upload/v1775179948/QuanTriKhachSan/Equipments/cdxhcafmz69zsc8jynpj.jpg')
+INSERT [dbo].[Equipments] ([id], [item_code], [name], [category], [unit], [total_quantity], [in_use_quantity], [damaged_quantity], [liquidated_quantity], [base_price], [default_price_if_lost], [supplier], [is_active], [created_at], [updated_at], [image_url]) VALUES (5, N'KL-SH-17', N'Ấm đun nước siêu tốc Sunhouse', N'Điện tử', N'Cái', 70, 9, 0, 0, CAST(250000.00 AS Decimal(18, 2)), CAST(350000.00 AS Decimal(18, 2)), N'Sunhouse', 1, CAST(N'2026-03-25T14:10:11.000' AS DateTime), CAST(N'2026-04-03T01:29:48.703' AS DateTime), N'https://res.cloudinary.com/dekvhccnn/image/upload/v1775179787/QuanTriKhachSan/Equipments/rdlvkfd1bihiw7ovcfbh.jpg')
+INSERT [dbo].[Equipments] ([id], [item_code], [name], [category], [unit], [total_quantity], [in_use_quantity], [damaged_quantity], [liquidated_quantity], [base_price], [default_price_if_lost], [supplier], [is_active], [created_at], [updated_at], [image_url]) VALUES (6, N'BD-KG-20', N'Giường King Size 2m x 2m2', N'Nội thất', N'Chiếc', 25, 12, 0, 0, CAST(12000000.00 AS Decimal(18, 2)), CAST(15000000.00 AS Decimal(18, 2)), N'Nội thất Hòa Phát', 1, CAST(N'2026-03-25T14:10:11.000' AS DateTime), CAST(N'2026-04-03T01:31:51.537' AS DateTime), N'https://res.cloudinary.com/dekvhccnn/image/upload/v1775179910/QuanTriKhachSan/Equipments/znpshjefropgics8bkh2.jpg')
+INSERT [dbo].[Equipments] ([id], [item_code], [name], [category], [unit], [total_quantity], [in_use_quantity], [damaged_quantity], [liquidated_quantity], [base_price], [default_price_if_lost], [supplier], [is_active], [created_at], [updated_at], [image_url]) VALUES (7, N'BD-SG-12', N'Giường Single 1m2 x 2m', N'Nội thất', N'Chiếc', 50, 11, 0, 0, CAST(5500000.00 AS Decimal(18, 2)), CAST(7000000.00 AS Decimal(18, 2)), N'Nội thất Hòa Phát', 1, CAST(N'2026-03-25T14:10:11.000' AS DateTime), CAST(N'2026-04-03T01:32:03.793' AS DateTime), N'https://res.cloudinary.com/dekvhccnn/image/upload/v1775179922/QuanTriKhachSan/Equipments/evxxijuwsqfe3y2qr74x.jpg')
+INSERT [dbo].[Equipments] ([id], [item_code], [name], [category], [unit], [total_quantity], [in_use_quantity], [damaged_quantity], [liquidated_quantity], [base_price], [default_price_if_lost], [supplier], [is_active], [created_at], [updated_at], [image_url]) VALUES (8, N'WD-WD-01', N'Tủ quần áo gỗ công nghiệp', N'Nội thất', N'Cái', 60, 9, 0, 0, CAST(3500000.00 AS Decimal(18, 2)), CAST(5000000.00 AS Decimal(18, 2)), N'Xưởng Gỗ An Cường', 1, CAST(N'2026-03-25T14:10:11.000' AS DateTime), CAST(N'2026-04-03T01:33:34.947' AS DateTime), N'https://res.cloudinary.com/dekvhccnn/image/upload/v1775180013/QuanTriKhachSan/Equipments/xccor1jwwjjnrxgjbcsx.jpg')
+INSERT [dbo].[Equipments] ([id], [item_code], [name], [category], [unit], [total_quantity], [in_use_quantity], [damaged_quantity], [liquidated_quantity], [base_price], [default_price_if_lost], [supplier], [is_active], [created_at], [updated_at], [image_url]) VALUES (9, N'TB-WK-01', N'Bàn làm việc + Ghế', N'Nội thất', N'Bộ', 60, 9, 0, 0, CAST(2200000.00 AS Decimal(18, 2)), CAST(3000000.00 AS Decimal(18, 2)), N'Nội thất Hòa Phát', 1, CAST(N'2026-03-25T14:10:11.000' AS DateTime), CAST(N'2026-04-03T01:29:57.740' AS DateTime), N'https://res.cloudinary.com/dekvhccnn/image/upload/v1775179796/QuanTriKhachSan/Equipments/a7huw3azduwbzu7caooj.jpg')
+INSERT [dbo].[Equipments] ([id], [item_code], [name], [category], [unit], [total_quantity], [in_use_quantity], [damaged_quantity], [liquidated_quantity], [base_price], [default_price_if_lost], [supplier], [is_active], [created_at], [updated_at], [image_url]) VALUES (10, N'HG-WD-01', N'Móc treo quần áo bằng gỗ', N'Nội thất', N'Chiếc', 600, 48, 0, 0, CAST(15000.00 AS Decimal(18, 2)), CAST(30000.00 AS Decimal(18, 2)), N'Nhựa Duy Tân', 1, CAST(N'2026-03-25T14:10:11.000' AS DateTime), CAST(N'2026-04-03T01:32:44.537' AS DateTime), N'https://res.cloudinary.com/dekvhccnn/image/upload/v1775179963/QuanTriKhachSan/Equipments/yd3it2qr5ax1hf7vsvyr.jpg')
+INSERT [dbo].[Equipments] ([id], [item_code], [name], [category], [unit], [total_quantity], [in_use_quantity], [damaged_quantity], [liquidated_quantity], [base_price], [default_price_if_lost], [supplier], [is_active], [created_at], [updated_at], [image_url]) VALUES (11, N'TW-BT-01', N'Khăn tắm cotton 70x140cm', N'Đồ vải', N'Chiếc', 250, 26, 0, 0, CAST(85000.00 AS Decimal(18, 2)), CAST(150000.00 AS Decimal(18, 2)), N'Dệt may Thành Công', 1, CAST(N'2026-03-25T14:10:11.000' AS DateTime), CAST(N'2026-04-03T01:32:22.140' AS DateTime), N'https://res.cloudinary.com/dekvhccnn/image/upload/v1775179941/QuanTriKhachSan/Equipments/fbdwh4abv7hh4dfier6t.jpg')
+INSERT [dbo].[Equipments] ([id], [item_code], [name], [category], [unit], [total_quantity], [in_use_quantity], [damaged_quantity], [liquidated_quantity], [base_price], [default_price_if_lost], [supplier], [is_active], [created_at], [updated_at], [image_url]) VALUES (12, N'TW-FC-01', N'Khăn mặt cotton 30x30cm', N'Đồ vải', N'Chiếc', 250, 26, 0, 0, CAST(25000.00 AS Decimal(18, 2)), CAST(50000.00 AS Decimal(18, 2)), N'Dệt may Thành Công', 1, CAST(N'2026-03-25T14:10:11.000' AS DateTime), CAST(N'2026-04-03T01:32:13.420' AS DateTime), N'https://res.cloudinary.com/dekvhccnn/image/upload/v1775179932/QuanTriKhachSan/Equipments/isq6ckitl1gamquw7eui.jpg')
+INSERT [dbo].[Equipments] ([id], [item_code], [name], [category], [unit], [total_quantity], [in_use_quantity], [damaged_quantity], [liquidated_quantity], [base_price], [default_price_if_lost], [supplier], [is_active], [created_at], [updated_at], [image_url]) VALUES (13, N'MT-FT-01', N'Thảm chùi chân', N'Đồ vải', N'Chiếc', 150, 9, 0, 0, CAST(45000.00 AS Decimal(18, 2)), CAST(80000.00 AS Decimal(18, 2)), N'Dệt may Thành Công', 1, CAST(N'2026-03-25T14:10:11.000' AS DateTime), CAST(N'2026-04-03T01:33:43.447' AS DateTime), N'https://res.cloudinary.com/dekvhccnn/image/upload/v1775180022/QuanTriKhachSan/Equipments/lj22knewmhpsqdow0omn.jpg')
+INSERT [dbo].[Equipments] ([id], [item_code], [name], [category], [unit], [total_quantity], [in_use_quantity], [damaged_quantity], [liquidated_quantity], [base_price], [default_price_if_lost], [supplier], [is_active], [created_at], [updated_at], [image_url]) VALUES (14, N'BL-DC-01', N'Chăn lông vũ', N'Đồ vải', N'Chiếc', 100, 23, 0, 0, CAST(850000.00 AS Decimal(18, 2)), CAST(1200000.00 AS Decimal(18, 2)), N'Everon', 1, CAST(N'2026-03-25T14:10:11.000' AS DateTime), CAST(N'2026-04-03T01:31:11.420' AS DateTime), N'https://res.cloudinary.com/dekvhccnn/image/upload/v1775179870/QuanTriKhachSan/Equipments/ltli8ilbwy0nidk6zhbh.jpg')
+INSERT [dbo].[Equipments] ([id], [item_code], [name], [category], [unit], [total_quantity], [in_use_quantity], [damaged_quantity], [liquidated_quantity], [base_price], [default_price_if_lost], [supplier], [is_active], [created_at], [updated_at], [image_url]) VALUES (15, N'PL-CT-01', N'Gối tựa lưng / Gối ngủ', N'Đồ vải', N'Chiếc', 200, 34, 0, 0, CAST(150000.00 AS Decimal(18, 2)), CAST(250000.00 AS Decimal(18, 2)), N'Everon', 1, CAST(N'2026-03-25T14:10:11.000' AS DateTime), CAST(N'2026-04-03T01:31:37.580' AS DateTime), N'https://res.cloudinary.com/dekvhccnn/image/upload/v1775179896/QuanTriKhachSan/Equipments/bpd6kf16ks3hod1fdn6k.jpg')
+INSERT [dbo].[Equipments] ([id], [item_code], [name], [category], [unit], [total_quantity], [in_use_quantity], [damaged_quantity], [liquidated_quantity], [base_price], [default_price_if_lost], [supplier], [is_active], [created_at], [updated_at], [image_url]) VALUES (16, N'DR-LV-500', N'Nước suối Lavie 500ml', N'Minibar', N'Chai', 800, 48, 0, 0, CAST(4000.00 AS Decimal(18, 2)), CAST(10000.00 AS Decimal(18, 2)), N'Lavie', 1, CAST(N'2026-03-25T14:10:11.000' AS DateTime), CAST(N'2026-04-03T01:33:01.247' AS DateTime), N'https://res.cloudinary.com/dekvhccnn/image/upload/v1775179979/QuanTriKhachSan/Equipments/tikrgk9fy7jdw5weoguq.jpg')
+INSERT [dbo].[Equipments] ([id], [item_code], [name], [category], [unit], [total_quantity], [in_use_quantity], [damaged_quantity], [liquidated_quantity], [base_price], [default_price_if_lost], [supplier], [is_active], [created_at], [updated_at], [image_url]) VALUES (17, N'DR-CC-320', N'Nước ngọt Coca Cola 320ml', N'Minibar', N'Lon', 400, 10, 0, 0, CAST(7000.00 AS Decimal(18, 2)), CAST(20000.00 AS Decimal(18, 2)), N'Coca Cola', 1, CAST(N'2026-03-25T14:10:11.000' AS DateTime), CAST(N'2026-04-03T01:32:53.867' AS DateTime), N'https://res.cloudinary.com/dekvhccnn/image/upload/v1775179972/QuanTriKhachSan/Equipments/nvme1zf3ey3nn94qasum.jpg')
+INSERT [dbo].[Equipments] ([id], [item_code], [name], [category], [unit], [total_quantity], [in_use_quantity], [damaged_quantity], [liquidated_quantity], [base_price], [default_price_if_lost], [supplier], [is_active], [created_at], [updated_at], [image_url]) VALUES (18, N'DR-HB-330', N'Bia Heineken 330ml', N'Minibar', N'Lon', 300, 22, 0, 0, CAST(16000.00 AS Decimal(18, 2)), CAST(35000.00 AS Decimal(18, 2)), N'Heineken', 1, CAST(N'2026-03-25T14:10:11.000' AS DateTime), CAST(N'2026-04-03T01:30:14.003' AS DateTime), N'https://res.cloudinary.com/dekvhccnn/image/upload/v1775179812/QuanTriKhachSan/Equipments/r8dohogecgngzzgjajw8.jpg')
+INSERT [dbo].[Equipments] ([id], [item_code], [name], [category], [unit], [total_quantity], [in_use_quantity], [damaged_quantity], [liquidated_quantity], [base_price], [default_price_if_lost], [supplier], [is_active], [created_at], [updated_at], [image_url]) VALUES (19, N'SN-OM-01', N'Mì ly Omachi', N'Minibar', N'Ly', 150, 18, 0, 0, CAST(12000.00 AS Decimal(18, 2)), CAST(25000.00 AS Decimal(18, 2)), N'Masan', 1, CAST(N'2026-03-25T14:10:11.000' AS DateTime), CAST(N'2026-04-03T01:32:37.287' AS DateTime), N'https://res.cloudinary.com/dekvhccnn/image/upload/v1775179956/QuanTriKhachSan/Equipments/ug3qdolzlgr8yxtyopen.jpg')
+INSERT [dbo].[Equipments] ([id], [item_code], [name], [category], [unit], [total_quantity], [in_use_quantity], [damaged_quantity], [liquidated_quantity], [base_price], [default_price_if_lost], [supplier], [is_active], [created_at], [updated_at], [image_url]) VALUES (20, N'SN-OR-01', N'Bánh Oreo 133g', N'Minibar', N'Hộp', 150, 18, 0, 0, CAST(15000.00 AS Decimal(18, 2)), CAST(30000.00 AS Decimal(18, 2)), N'Mondelez', 1, CAST(N'2026-03-25T14:10:11.000' AS DateTime), CAST(N'2026-04-03T01:30:05.527' AS DateTime), N'https://res.cloudinary.com/dekvhccnn/image/upload/v1775179804/QuanTriKhachSan/Equipments/gli8geoomaudnlyz5cpk.jpg')
+INSERT [dbo].[Equipments] ([id], [item_code], [name], [category], [unit], [total_quantity], [in_use_quantity], [damaged_quantity], [liquidated_quantity], [base_price], [default_price_if_lost], [supplier], [is_active], [created_at], [updated_at], [image_url]) VALUES (21, N'TV-SS-55', N'Tivi Samsung 55 inch', N'Điện tử', N'cái', 10, 7, 0, 0, CAST(15000000.00 AS Decimal(18, 2)), CAST(17000000.00 AS Decimal(18, 2)), N'Điện Máy Xanh', 1, CAST(N'2026-03-26T17:29:39.000' AS DateTime), CAST(N'2026-04-03T01:33:14.863' AS DateTime), N'https://res.cloudinary.com/dekvhccnn/image/upload/v1775179993/QuanTriKhachSan/Equipments/lujhndv05zngr3kn3hqc.jpg')
+
+SET IDENTITY_INSERT [dbo].[Equipments] OFF
+GO
+
+-- 12. Room_Inventory
+
+SET IDENTITY_INSERT [dbo].[Room_Inventory] ON
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (1, 1, 1, CAST(350000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 5)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (2, 1, 1, CAST(3000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 9)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (3, 1, 1, CAST(30000.00 AS Decimal(18, 2)), NULL, 1, N'Minibar', 20)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (4, 1, 1, CAST(35000.00 AS Decimal(18, 2)), NULL, 1, N'Minibar', 18)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (5, 1, 1, CAST(1200000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 14)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (6, 1, 1, CAST(9000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 2)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (7, 1, 2, CAST(250000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 15)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (8, 1, 1, CAST(15000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 7)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (9, 1, 1, CAST(50000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 12)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (10, 1, 1, CAST(150000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 11)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (11, 1, 1, CAST(600000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 4)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (12, 1, 1, CAST(25000.00 AS Decimal(18, 2)), NULL, 1, N'Minibar', 19)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (13, 1, 3, CAST(30000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 10)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (14, 1, 1, CAST(20000.00 AS Decimal(18, 2)), NULL, 1, N'Minibar', 17)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (15, 1, 2, CAST(10000.00 AS Decimal(18, 2)), NULL, 1, N'Minibar', 16)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (16, 1, 1, CAST(8000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 1)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (17, 1, 1, CAST(3000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 3)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (18, 1, 1, CAST(5000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 8)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (19, 1, 1, CAST(80000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 13)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (20, 10, 1, CAST(350000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 5)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (21, 10, 1, CAST(3000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 9)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (22, 10, 3, CAST(30000.00 AS Decimal(18, 2)), NULL, 1, N'Minibar', 20)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (23, 10, 4, CAST(35000.00 AS Decimal(18, 2)), NULL, 1, N'Minibar', 18)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (24, 10, 4, CAST(1200000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 14)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (25, 10, 1, CAST(9000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 2)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (26, 10, 6, CAST(250000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 15)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (27, 10, 2, CAST(15000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 7)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (28, 10, 4, CAST(50000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 12)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (29, 10, 4, CAST(150000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 11)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (30, 10, 1, CAST(600000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 4)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (31, 10, 3, CAST(25000.00 AS Decimal(18, 2)), NULL, 1, N'Minibar', 19)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (32, 10, 7, CAST(30000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 10)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (33, 10, 1, CAST(20000.00 AS Decimal(18, 2)), NULL, 1, N'Minibar', 17)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (34, 10, 8, CAST(10000.00 AS Decimal(18, 2)), NULL, 1, N'Minibar', 16)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (35, 10, 1, CAST(8000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 1)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (36, 10, 1, CAST(3000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 3)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (37, 10, 1, CAST(5000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 8)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (38, 10, 1, CAST(80000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 13)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (39, 10, 1, CAST(17000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 21)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (40, 10, 2, CAST(15000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 6)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (41, 3, 1, CAST(350000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 5)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (42, 3, 1, CAST(3000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 9)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (43, 3, 1, CAST(30000.00 AS Decimal(18, 2)), NULL, 1, N'Minibar', 20)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (44, 3, 1, CAST(35000.00 AS Decimal(18, 2)), NULL, 1, N'Minibar', 18)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (45, 3, 1, CAST(1200000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 14)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (46, 3, 1, CAST(9000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 2)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (47, 3, 2, CAST(250000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 15)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (48, 3, 1, CAST(15000000.00 AS Decimal(18, 2)), NULL, 0, N'Asset', 7)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (49, 3, 2, CAST(50000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 12)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (50, 3, 2, CAST(150000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 11)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (51, 3, 1, CAST(600000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 4)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (52, 3, 1, CAST(25000.00 AS Decimal(18, 2)), NULL, 1, N'Minibar', 19)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (53, 3, 4, CAST(30000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 10)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (54, 3, 1, CAST(20000.00 AS Decimal(18, 2)), NULL, 1, N'Minibar', 17)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (55, 3, 4, CAST(10000.00 AS Decimal(18, 2)), NULL, 1, N'Minibar', 16)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (56, 3, 1, CAST(8000000.00 AS Decimal(18, 2)), NULL, 0, N'Asset', 1)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (57, 3, 1, CAST(3000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 3)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (58, 3, 1, CAST(5000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 8)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (59, 3, 1, CAST(80000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 13)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (60, 3, 1, CAST(15000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 6)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (61, 3, 1, CAST(17000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 21)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (62, 4, 1, CAST(350000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 5)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (63, 4, 1, CAST(3000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 9)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (64, 4, 1, CAST(30000.00 AS Decimal(18, 2)), NULL, 1, N'Minibar', 20)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (65, 4, 1, CAST(35000.00 AS Decimal(18, 2)), NULL, 1, N'Minibar', 18)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (66, 4, 1, CAST(1200000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 14)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (67, 4, 1, CAST(9000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 2)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (68, 4, 2, CAST(250000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 15)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (69, 4, 2, CAST(50000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 12)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (70, 4, 2, CAST(150000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 11)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (71, 4, 1, CAST(600000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 4)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (72, 4, 1, CAST(25000.00 AS Decimal(18, 2)), NULL, 1, N'Minibar', 19)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (73, 4, 4, CAST(30000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 10)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (74, 4, 1, CAST(20000.00 AS Decimal(18, 2)), NULL, 1, N'Minibar', 17)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (75, 4, 4, CAST(10000.00 AS Decimal(18, 2)), NULL, 1, N'Minibar', 16)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (76, 4, 1, CAST(3000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 3)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (77, 4, 1, CAST(5000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 8)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (78, 4, 1, CAST(80000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 13)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (79, 4, 1, CAST(15000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 6)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (80, 4, 1, CAST(17000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 21)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (81, 5, 1, CAST(350000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 5)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (82, 5, 1, CAST(3000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 9)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (83, 5, 2, CAST(30000.00 AS Decimal(18, 2)), NULL, 1, N'Minibar', 20)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (84, 5, 2, CAST(35000.00 AS Decimal(18, 2)), NULL, 1, N'Minibar', 18)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (85, 5, 2, CAST(1200000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 14)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (86, 5, 1, CAST(9000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 2)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (87, 5, 2, CAST(250000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 15)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (88, 5, 4, CAST(50000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 12)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (89, 5, 4, CAST(150000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 11)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (90, 5, 1, CAST(600000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 4)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (91, 5, 2, CAST(25000.00 AS Decimal(18, 2)), NULL, 1, N'Minibar', 19)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (92, 5, 4, CAST(30000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 10)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (93, 5, 2, CAST(20000.00 AS Decimal(18, 2)), NULL, 1, N'Minibar', 17)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (94, 5, 4, CAST(10000.00 AS Decimal(18, 2)), NULL, 1, N'Minibar', 16)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (95, 5, 1, CAST(3000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 3)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (96, 5, 1, CAST(5000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 8)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (97, 5, 1, CAST(80000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 13)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (98, 5, 2, CAST(15000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 6)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (99, 5, 1, CAST(17000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 21)
+GO
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (100, 6, 1, CAST(350000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 5)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (101, 6, 1, CAST(3000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 9)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (102, 6, 1, CAST(30000.00 AS Decimal(18, 2)), NULL, 1, N'Minibar', 20)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (103, 6, 1, CAST(35000.00 AS Decimal(18, 2)), NULL, 1, N'Minibar', 18)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (104, 6, 2, CAST(1200000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 14)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (105, 6, 1, CAST(9000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 2)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (106, 6, 2, CAST(250000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 15)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (107, 6, 2, CAST(15000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 7)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (108, 6, 1, CAST(50000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 12)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (109, 6, 1, CAST(150000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 11)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (110, 6, 1, CAST(600000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 4)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (111, 6, 1, CAST(25000.00 AS Decimal(18, 2)), NULL, 1, N'Minibar', 19)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (112, 6, 5, CAST(30000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 10)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (113, 6, 1, CAST(20000.00 AS Decimal(18, 2)), NULL, 1, N'Minibar', 17)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (114, 6, 2, CAST(10000.00 AS Decimal(18, 2)), NULL, 1, N'Minibar', 16)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (115, 6, 1, CAST(8000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 1)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (116, 6, 1, CAST(3000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 3)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (117, 6, 1, CAST(5000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 8)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (118, 6, 1, CAST(80000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 13)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (119, 7, 1, CAST(350000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 5)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (120, 7, 1, CAST(3000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 9)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (121, 7, 3, CAST(30000.00 AS Decimal(18, 2)), NULL, 1, N'Minibar', 20)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (122, 7, 4, CAST(35000.00 AS Decimal(18, 2)), NULL, 1, N'Minibar', 18)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (123, 7, 4, CAST(1200000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 14)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (124, 7, 1, CAST(9000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 2)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (125, 7, 6, CAST(250000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 15)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (126, 7, 2, CAST(15000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 7)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (127, 7, 4, CAST(50000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 12)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (128, 7, 4, CAST(150000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 11)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (129, 7, 1, CAST(600000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 4)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (130, 7, 3, CAST(25000.00 AS Decimal(18, 2)), NULL, 1, N'Minibar', 19)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (131, 7, 7, CAST(30000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 10)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (132, 7, 1, CAST(20000.00 AS Decimal(18, 2)), NULL, 1, N'Minibar', 17)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (133, 7, 8, CAST(10000.00 AS Decimal(18, 2)), NULL, 1, N'Minibar', 16)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (134, 7, 1, CAST(8000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 1)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (135, 7, 1, CAST(3000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 3)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (136, 7, 1, CAST(5000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 8)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (137, 7, 1, CAST(80000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 13)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (138, 7, 1, CAST(17000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 21)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (139, 7, 2, CAST(15000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 6)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (140, 8, 1, CAST(350000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 5)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (141, 8, 1, CAST(3000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 9)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (142, 8, 3, CAST(30000.00 AS Decimal(18, 2)), NULL, 1, N'Minibar', 20)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (143, 8, 4, CAST(35000.00 AS Decimal(18, 2)), NULL, 1, N'Minibar', 18)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (144, 8, 4, CAST(1200000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 14)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (145, 8, 1, CAST(9000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 2)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (146, 8, 6, CAST(250000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 15)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (147, 8, 2, CAST(15000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 7)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (148, 8, 4, CAST(50000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 12)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (149, 8, 4, CAST(150000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 11)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (150, 8, 1, CAST(600000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 4)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (151, 8, 3, CAST(25000.00 AS Decimal(18, 2)), NULL, 1, N'Minibar', 19)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (152, 8, 7, CAST(30000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 10)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (153, 8, 1, CAST(20000.00 AS Decimal(18, 2)), NULL, 1, N'Minibar', 17)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (154, 8, 8, CAST(10000.00 AS Decimal(18, 2)), NULL, 1, N'Minibar', 16)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (155, 8, 1, CAST(8000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 1)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (156, 8, 1, CAST(3000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 3)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (157, 8, 1, CAST(5000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 8)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (158, 8, 1, CAST(80000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 13)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (159, 8, 1, CAST(17000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 21)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (160, 8, 2, CAST(15000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 6)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (161, 9, 1, CAST(350000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 5)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (162, 9, 1, CAST(3000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 9)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (163, 9, 3, CAST(30000.00 AS Decimal(18, 2)), NULL, 1, N'Minibar', 20)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (164, 9, 4, CAST(35000.00 AS Decimal(18, 2)), NULL, 1, N'Minibar', 18)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (165, 9, 4, CAST(1200000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 14)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (166, 9, 1, CAST(9000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 2)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (167, 9, 6, CAST(250000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 15)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (168, 9, 2, CAST(15000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 7)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (169, 9, 4, CAST(50000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 12)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (170, 9, 4, CAST(150000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 11)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (171, 9, 1, CAST(600000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 4)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (172, 9, 3, CAST(25000.00 AS Decimal(18, 2)), NULL, 1, N'Minibar', 19)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (173, 9, 7, CAST(30000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 10)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (174, 9, 1, CAST(20000.00 AS Decimal(18, 2)), NULL, 1, N'Minibar', 17)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (175, 9, 8, CAST(10000.00 AS Decimal(18, 2)), NULL, 1, N'Minibar', 16)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (176, 9, 1, CAST(8000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 1)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (177, 9, 1, CAST(3000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 3)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (178, 9, 1, CAST(5000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 8)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (179, 9, 1, CAST(80000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 13)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (180, 9, 1, CAST(17000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 21)
+INSERT [dbo].[Room_Inventory] ([id], [room_id], [quantity], [price_if_lost], [note], [is_active], [item_type], [equipment_id]) VALUES (181, 9, 2, CAST(15000000.00 AS Decimal(18, 2)), NULL, 1, N'Asset', 6)
+SET IDENTITY_INSERT [dbo].[Room_Inventory] OFF
+GO
+
+-- 13. Vouchers
+SET IDENTITY_INSERT [dbo].[Vouchers] ON
+INSERT [dbo].[Vouchers] ([id],[code],[discount_type],[discount_value],[max_discount_amount],[min_booking_value],[applicable_room_type_id],[valid_from],[valid_to],[usage_limit],[used_count],[max_uses_per_user],[is_active],[created_at])
+VALUES (1,  N'KM1',  N'PERCENT',      CAST(10.00  AS Decimal(18,2)), CAST(500000.00  AS Decimal(18,2)), CAST(500000.00   AS Decimal(18,2)), NULL, CAST(N'2025-01-01' AS DateTime), CAST(N'2026-12-31' AS DateTime), 100, 0, 1, 1, CAST(N'2025-01-01' AS DateTime))
+INSERT [dbo].[Vouchers] ([id],[code],[discount_type],[discount_value],[max_discount_amount],[min_booking_value],[applicable_room_type_id],[valid_from],[valid_to],[usage_limit],[used_count],[max_uses_per_user],[is_active],[created_at])
+VALUES (2,  N'KM2',  N'FIXED_AMOUNT', CAST(100000.00 AS Decimal(18,2)), NULL, CAST(1000000.00  AS Decimal(18,2)), NULL, CAST(N'2025-01-01' AS DateTime), CAST(N'2026-12-31' AS DateTime), 50,  0, 1, 1, CAST(N'2025-01-01' AS DateTime))
+INSERT [dbo].[Vouchers] ([id],[code],[discount_type],[discount_value],[max_discount_amount],[min_booking_value],[applicable_room_type_id],[valid_from],[valid_to],[usage_limit],[used_count],[max_uses_per_user],[is_active],[created_at])
+VALUES (3,  N'KM3',  N'PERCENT',      CAST(15.00  AS Decimal(18,2)), CAST(1000000.00 AS Decimal(18,2)), CAST(2000000.00  AS Decimal(18,2)), NULL, CAST(N'2025-01-01' AS DateTime), CAST(N'2026-12-31' AS DateTime), 30,  0, 1, 1, CAST(N'2025-01-01' AS DateTime))
+INSERT [dbo].[Vouchers] ([id],[code],[discount_type],[discount_value],[max_discount_amount],[min_booking_value],[applicable_room_type_id],[valid_from],[valid_to],[usage_limit],[used_count],[max_uses_per_user],[is_active],[created_at])
+VALUES (4,  N'KM4',  N'FIXED_AMOUNT', CAST(200000.00 AS Decimal(18,2)), NULL, CAST(1500000.00  AS Decimal(18,2)), NULL, CAST(N'2025-01-01' AS DateTime), CAST(N'2026-12-31' AS DateTime), 50,  0, 1, 1, CAST(N'2025-01-01' AS DateTime))
+INSERT [dbo].[Vouchers] ([id],[code],[discount_type],[discount_value],[max_discount_amount],[min_booking_value],[applicable_room_type_id],[valid_from],[valid_to],[usage_limit],[used_count],[max_uses_per_user],[is_active],[created_at])
+VALUES (5,  N'KM5',  N'PERCENT',      CAST(20.00  AS Decimal(18,2)), CAST(2000000.00 AS Decimal(18,2)), CAST(3000000.00  AS Decimal(18,2)), NULL, CAST(N'2025-01-01' AS DateTime), CAST(N'2026-12-31' AS DateTime), 20,  0, 1, 1, CAST(N'2025-01-01' AS DateTime))
+INSERT [dbo].[Vouchers] ([id],[code],[discount_type],[discount_value],[max_discount_amount],[min_booking_value],[applicable_room_type_id],[valid_from],[valid_to],[usage_limit],[used_count],[max_uses_per_user],[is_active],[created_at])
+VALUES (6,  N'KM6',  N'FIXED_AMOUNT', CAST(50000.00  AS Decimal(18,2)), NULL, CAST(0.00         AS Decimal(18,2)), NULL, CAST(N'2025-01-01' AS DateTime), CAST(N'2026-12-31' AS DateTime), 200, 0, 1, 1, CAST(N'2025-01-01' AS DateTime))
+INSERT [dbo].[Vouchers] ([id],[code],[discount_type],[discount_value],[max_discount_amount],[min_booking_value],[applicable_room_type_id],[valid_from],[valid_to],[usage_limit],[used_count],[max_uses_per_user],[is_active],[created_at])
+VALUES (7,  N'KM7',  N'PERCENT',      CAST(5.00   AS Decimal(18,2)), CAST(300000.00  AS Decimal(18,2)), CAST(0.00         AS Decimal(18,2)), NULL, CAST(N'2025-01-01' AS DateTime), CAST(N'2026-12-31' AS DateTime), 500, 0, 1, 1, CAST(N'2025-01-01' AS DateTime))
+INSERT [dbo].[Vouchers] ([id],[code],[discount_type],[discount_value],[max_discount_amount],[min_booking_value],[applicable_room_type_id],[valid_from],[valid_to],[usage_limit],[used_count],[max_uses_per_user],[is_active],[created_at])
+VALUES (8,  N'KM8',  N'FIXED_AMOUNT', CAST(500000.00 AS Decimal(18,2)), NULL, CAST(5000000.00  AS Decimal(18,2)), NULL, CAST(N'2025-01-01' AS DateTime), CAST(N'2026-12-31' AS DateTime), 10,  0, 1, 1, CAST(N'2025-01-01' AS DateTime))
+INSERT [dbo].[Vouchers] ([id],[code],[discount_type],[discount_value],[max_discount_amount],[min_booking_value],[applicable_room_type_id],[valid_from],[valid_to],[usage_limit],[used_count],[max_uses_per_user],[is_active],[created_at])
+VALUES (9,  N'KM9',  N'PERCENT',      CAST(25.00  AS Decimal(18,2)), CAST(5000000.00 AS Decimal(18,2)), CAST(10000000.00 AS Decimal(18,2)), NULL, CAST(N'2025-01-01' AS DateTime), CAST(N'2026-12-31' AS DateTime), 5,   0, 1, 1, CAST(N'2025-01-01' AS DateTime))
+INSERT [dbo].[Vouchers] ([id],[code],[discount_type],[discount_value],[max_discount_amount],[min_booking_value],[applicable_room_type_id],[valid_from],[valid_to],[usage_limit],[used_count],[max_uses_per_user],[is_active],[created_at])
+VALUES (10, N'KM10', N'FIXED_AMOUNT', CAST(1000000.00 AS Decimal(18,2)), NULL, CAST(20000000.00 AS Decimal(18,2)), NULL, CAST(N'2025-01-01' AS DateTime), CAST(N'2026-12-31' AS DateTime), 2,   0, 1, 1, CAST(N'2025-01-01' AS DateTime))
+SET IDENTITY_INSERT [dbo].[Vouchers] OFF
+GO
+
+-- 14. Bookings
+SET IDENTITY_INSERT [dbo].[Bookings] ON
+--TỰ TẠO LẠI SAU
+SET IDENTITY_INSERT [dbo].[Bookings] OFF
+GO
+
+-- 15. Booking_Details
+SET IDENTITY_INSERT [dbo].[Booking_Details] ON
+--Tự tạo lại sau
+SET IDENTITY_INSERT [dbo].[Booking_Details] OFF
+GO
+
+-- 16. Invoices
+--Tự tạo
+SET IDENTITY_INSERT [dbo].[Invoices] OFF
+GO
+
+-- 17. Payments
+SET IDENTITY_INSERT [dbo].[Payments] ON
+--Tự
+SET IDENTITY_INSERT [dbo].[Payments] OFF
+GO
+
+-- 18 Service_Categories
+SET IDENTITY_INSERT [dbo].[Service_Categories] ON
+INSERT [dbo].[Service_Categories] ([id], [name], [is_active]) VALUES (1,  N'Nhà Hàng & Ẩm Thực', 1)
+INSERT [dbo].[Service_Categories] ([id], [name], [is_active]) VALUES (2,  N'Spa & Massage', 1)
+INSERT [dbo].[Service_Categories] ([id], [name], [is_active]) VALUES (3,  N'Di Chuyển & Đưa Đón', 1)
+INSERT [dbo].[Service_Categories] ([id], [name], [is_active]) VALUES (4,  N'Giặt Ủi', 1)
+INSERT [dbo].[Service_Categories] ([id], [name], [is_active]) VALUES (5,  N'Tour Du Lịch', 1)
+INSERT [dbo].[Service_Categories] ([id], [name], [is_active]) VALUES (6,  N'Phòng Gym & Yoga', 1)
+INSERT [dbo].[Service_Categories] ([id], [name], [is_active]) VALUES (7,  N'Hồ Bơi', 1)
+INSERT [dbo].[Service_Categories] ([id], [name], [is_active]) VALUES (8,  N'Tổ Chức Sự Kiện', 1)
+INSERT [dbo].[Service_Categories] ([id], [name], [is_active]) VALUES (9,  N'Khu Vui Chơi Trẻ Em', 1)
+INSERT [dbo].[Service_Categories] ([id], [name], [is_active]) VALUES (10, N'Cửa Hàng Lưu Niệm', 1)
+SET IDENTITY_INSERT [dbo].[Service_Categories] OFF
+GO
+
+-- 19. Services
+SET IDENTITY_INSERT [dbo].[Services] ON
+INSERT [dbo].[Services] ([id], [category_id], [name], [description], [price], [unit], [image_url], [is_active]) VALUES (1, 1, N'Set Ăn Sáng Buffet', NULL, CAST(200000.00 AS Decimal(18, 2)), N'Người', N'https://res.cloudinary.com/dekvhccnn/image/upload/v1778867619/hotel/services/mneltgepkxxldezypoqi.jpg', 1)
+INSERT [dbo].[Services] ([id], [category_id], [name], [description], [price], [unit], [image_url], [is_active]) VALUES (2, 1, N'Mì Ý Hải Sản', NULL, CAST(150000.00 AS Decimal(18, 2)), N'Phần', N'https://res.cloudinary.com/dekvhccnn/image/upload/v1778867644/hotel/services/ot93hlsw6b5kdlqgkvii.jpg', 1)
+INSERT [dbo].[Services] ([id], [category_id], [name], [description], [price], [unit], [image_url], [is_active]) VALUES (3, 2, N'Massage Toàn Thân 60p', NULL, CAST(500000.00 AS Decimal(18, 2)), N'Lượt', N'https://res.cloudinary.com/dekvhccnn/image/upload/v1778867653/hotel/services/afjunhpefudirmf1msck.jpg', 1)
+INSERT [dbo].[Services] ([id], [category_id], [name], [description], [price], [unit], [image_url], [is_active]) VALUES (4, 2, N'Xông Hơi Thảo Dược', NULL, CAST(300000.00 AS Decimal(18, 2)), N'Lượt', N'https://res.cloudinary.com/dekvhccnn/image/upload/v1778867584/hotel/services/fqpx7nc8aco7ls2udlgw.jpg', 1)
+INSERT [dbo].[Services] ([id], [category_id], [name], [description], [price], [unit], [image_url], [is_active]) VALUES (5, 3, N'Đưa Đón Sân Bay 4 Chỗ', NULL, CAST(350000.00 AS Decimal(18, 2)), N'Chuyến', N'https://res.cloudinary.com/dekvhccnn/image/upload/v1778867679/hotel/services/ff36c6wdjlrzkhikpjnp.jpg', 1)
+INSERT [dbo].[Services] ([id], [category_id], [name], [description], [price], [unit], [image_url], [is_active]) VALUES (6, 3, N'Thuê Xe Máy Nửa Ngày', NULL, CAST(100000.00 AS Decimal(18, 2)), N'Chiếc', N'https://res.cloudinary.com/dekvhccnn/image/upload/v1778867596/hotel/services/k5y3raqfidtktocxlmvi.jpg', 1)
+INSERT [dbo].[Services] ([id], [category_id], [name], [description], [price], [unit], [image_url], [is_active]) VALUES (7, 4, N'Giặt Khô Áo Vest', NULL, CAST(120000.00 AS Decimal(18, 2)), N'Cái', N'https://res.cloudinary.com/dekvhccnn/image/upload/v1778867670/hotel/services/jybfb2eo2wwbqpbjhatn.jpg', 1)
+INSERT [dbo].[Services] ([id], [category_id], [name], [description], [price], [unit], [image_url], [is_active]) VALUES (8, 4, N'Giặt Sấy Tiêu Chuẩn', NULL, CAST(40000.00 AS Decimal(18, 2)), N'Kg', N'https://res.cloudinary.com/dekvhccnn/image/upload/v1778867662/hotel/services/fv6iikq6raqjianzojqy.jpg', 1)
+INSERT [dbo].[Services] ([id], [category_id], [name], [description], [price], [unit], [image_url], [is_active]) VALUES (9, 5, N'Tour Đảo Nửa Ngày', NULL, CAST(800000.00 AS Decimal(18, 2)), N'Người', N'https://res.cloudinary.com/dekvhccnn/image/upload/v1778867607/hotel/services/gh6giozf9mfbendpdfnh.jpg', 1)
+INSERT [dbo].[Services] ([id], [category_id], [name], [description], [price], [unit], [image_url], [is_active]) VALUES (10, 10, N'Móc Khóa Kỷ Niệm', NULL, CAST(50000.00 AS Decimal(18, 2)), N'Cái', N'https://res.cloudinary.com/dekvhccnn/image/upload/v1778867634/hotel/services/n12ehej0jusrdh9u4jyt.jpg', 1)
+SET IDENTITY_INSERT [dbo].[Services] OFF
+GO
+
+-- 20. Order_Services
+SET IDENTITY_INSERT [dbo].[Order_Services] ON
+--Tự
+SET IDENTITY_INSERT [dbo].[Order_Services] OFF
+GO
+
+-- 21. Order_Service_Details
+SET IDENTITY_INSERT [dbo].[Order_Service_Details] ON
+--Tự
+SET IDENTITY_INSERT [dbo].[Order_Service_Details] OFF
+GO
+
+-- 22. Loss_And_Damages - Để trống cho sạch :Đ
+SET IDENTITY_INSERT [dbo].[Loss_And_Damages] ON
+
+SET IDENTITY_INSERT [dbo].[Loss_And_Damages] OFF
+GO
+
+-- 23. Reviews
+SET IDENTITY_INSERT [dbo].[Reviews] ON
+
+SET IDENTITY_INSERT [dbo].[Reviews] OFF
+GO
+
+-- 24. Article_Categories
+SET IDENTITY_INSERT [dbo].[Article_Categories] ON
+INSERT [dbo].[Article_Categories] ([id],[name],[slug],[is_active]) VALUES (1,  N'Tin Tức Khách Sạn',     N'tin-tuc-khach-san',     1)
+INSERT [dbo].[Article_Categories] ([id],[name],[slug],[is_active]) VALUES (2,  N'Cẩm Nang Du Lịch',     N'cam-nang-du-lich',      1)
+INSERT [dbo].[Article_Categories] ([id],[name],[slug],[is_active]) VALUES (3,  N'Khám Phá Ẩm Thực',     N'kham-pha-am-thuc',      1)
+INSERT [dbo].[Article_Categories] ([id],[name],[slug],[is_active]) VALUES (4,  N'Sự Kiện & Lễ Hội',     N'su-kien-le-hoi',        1)
+INSERT [dbo].[Article_Categories] ([id],[name],[slug],[is_active]) VALUES (5,  N'Chương Trình Khuyến Mãi',N'chuong-trinh-khuyen-mai',1)
+INSERT [dbo].[Article_Categories] ([id],[name],[slug],[is_active]) VALUES (6,  N'Văn Hóa Địa Phương',   N'van-hoa-dia-phuong',    1)
+INSERT [dbo].[Article_Categories] ([id],[name],[slug],[is_active]) VALUES (7,  N'Hướng Dẫn Di Chuyển',  N'huong-dan-di-chuyen',   1)
+INSERT [dbo].[Article_Categories] ([id],[name],[slug],[is_active]) VALUES (8,  N'Góc Thư Giãn',          N'goc-thu-gian',           1)
+INSERT [dbo].[Article_Categories] ([id],[name],[slug],[is_active]) VALUES (9,  N'Hỏi Đáp (FAQ)',         N'hoi-dap-faq',            1)
+INSERT [dbo].[Article_Categories] ([id],[name],[slug],[is_active]) VALUES (10, N'Thư Viện Ảnh',          N'thu-vien-anh',           1)
+SET IDENTITY_INSERT [dbo].[Article_Categories] OFF
+GO
+
+-- 25. Articles
+SET IDENTITY_INSERT [dbo].[Articles] ON
+INSERT [dbo].[Articles] ([id],[category_id],[author_id],[title],[slug],[content],[thumbnail_url],[status],[is_active],[published_at])
+VALUES (1,  1,  1, N'Khai trương nhà hàng mới',       N'khai-truong-nha-hang', N'Nội dung...', NULL, N'Published', 1, CAST(N'2026-03-06T22:07:35.023' AS DateTime))
+INSERT [dbo].[Articles] ([id],[category_id],[author_id],[title],[slug],[content],[thumbnail_url],[status],[is_active],[published_at])
+VALUES (2,  2,  2, N'5 điểm đến không thể bỏ lỡ',    N'5-diem-den',           N'Nội dung...', NULL, N'Published', 1, CAST(N'2026-03-06T22:07:35.023' AS DateTime))
+INSERT [dbo].[Articles] ([id],[category_id],[author_id],[title],[slug],[content],[thumbnail_url],[status],[is_active],[published_at])
+VALUES (3,  3,  3, N'Món ngon hải sản địa phương',    N'mon-ngon-hai-san',     N'Nội dung...', NULL, N'Published', 1, CAST(N'2026-03-06T22:07:35.023' AS DateTime))
+INSERT [dbo].[Articles] ([id],[category_id],[author_id],[title],[slug],[content],[thumbnail_url],[status],[is_active],[published_at])
+VALUES (4,  4,  1, N'Sự kiện đếm ngược năm mới',      N'su-kien-nam-moi',      N'Nội dung...', NULL, N'Published', 1, CAST(N'2026-03-06T22:07:35.023' AS DateTime))
+INSERT [dbo].[Articles] ([id],[category_id],[author_id],[title],[slug],[content],[thumbnail_url],[status],[is_active],[published_at])
+VALUES (5,  5,  2, N'Khuyến mãi mùa hè 2026',        N'khuyen-mai-mua-he',    N'Nội dung...', NULL, N'Published', 1, CAST(N'2026-03-06T22:07:35.023' AS DateTime))
+INSERT [dbo].[Articles] ([id],[category_id],[author_id],[title],[slug],[content],[thumbnail_url],[status],[is_active],[published_at])
+VALUES (6,  6,  3, N'Lịch sử văn hóa vùng miền',     N'lich-su-van-hoa',      N'Nội dung...', NULL, N'Published', 1, CAST(N'2026-03-06T22:07:35.023' AS DateTime))
+INSERT [dbo].[Articles] ([id],[category_id],[author_id],[title],[slug],[content],[thumbnail_url],[status],[is_active],[published_at])
+VALUES (7,  7,  1, N'Từ sân bay về khách sạn',        N'tu-san-bay-ve-ks',     N'Nội dung...', NULL, N'Published', 1, CAST(N'2026-03-06T22:07:35.023' AS DateTime))
+INSERT [dbo].[Articles] ([id],[category_id],[author_id],[title],[slug],[content],[thumbnail_url],[status],[is_active],[published_at])
+VALUES (8,  8,  2, N'Cách thư giãn cuối tuần',        N'cach-thu-gian',        N'Nội dung...', NULL, N'Published', 1, CAST(N'2026-03-06T22:07:35.023' AS DateTime))
+INSERT [dbo].[Articles] ([id],[category_id],[author_id],[title],[slug],[content],[thumbnail_url],[status],[is_active],[published_at])
+VALUES (9,  9,  3, N'Quy định nhận trả phòng',        N'quy-dinh-nhan-tra',    N'Nội dung...', NULL, N'Published', 1, CAST(N'2026-03-06T22:07:35.023' AS DateTime))
+INSERT [dbo].[Articles] ([id],[category_id],[author_id],[title],[slug],[content],[thumbnail_url],[status],[is_active],[published_at])
+VALUES (10, 10, 1, N'Bộ ảnh resort flycam',           N'bo-anh-resort',        N'Nội dung...', NULL, N'Published', 1, CAST(N'2026-03-06T22:07:35.023' AS DateTime))
+SET IDENTITY_INSERT [dbo].[Articles] OFF
+GO
+
+-- 26. Attractions
+SET IDENTITY_INSERT [dbo].[Attractions] ON
+INSERT [dbo].[Attractions] ([id], [name], [category], [address], [latitude], [longitude], [distance_km], [description], [image_url], [cloudinary_public_id], [map_embed_link], [is_active]) VALUES (1, N'Chợ Trung Tâm', N'Ẩm thực', N'123 Đường Trung Tâm', CAST(16.047079 AS Decimal(9, 6)), CAST(108.206230 AS Decimal(9, 6)), CAST(586.37 AS Decimal(5, 2)), N'Khu chợ truyền thống sầm uất', N'https://res.cloudinary.com/dekvhccnn/image/upload/v1778867888/hotel/attractions/attraction_1778867877.jpg', N'hotel/attractions/attraction_1778867877', N'link_map_1', 1)
+INSERT [dbo].[Attractions] ([id], [name], [category], [address], [latitude], [longitude], [distance_km], [description], [image_url], [cloudinary_public_id], [map_embed_link], [is_active]) VALUES (2, N'Bãi Biển Chính', N'Thiên nhiên', N'Bờ biển Đông', CAST(16.050000 AS Decimal(9, 6)), CAST(108.210000 AS Decimal(9, 6)), CAST(586.79 AS Decimal(5, 2)), N'Bãi tắm công cộng tuyệt đẹp', N'https://res.cloudinary.com/dekvhccnn/image/upload/v1778867867/hotel/attractions/attraction_1778867858.jpg', N'hotel/attractions/attraction_1778867858', N'link_map_2', 1)
+INSERT [dbo].[Attractions] ([id], [name], [category], [address], [latitude], [longitude], [distance_km], [description], [image_url], [cloudinary_public_id], [map_embed_link], [is_active]) VALUES (3, N'Bảo Tàng Thành Phố', N'Di tích', N'456 Đường Lịch Sử', CAST(16.040000 AS Decimal(9, 6)), CAST(108.200000 AS Decimal(9, 6)), CAST(585.43 AS Decimal(5, 2)), N'Lưu giữ giá trị lịch sử', N'https://res.cloudinary.com/dekvhccnn/image/upload/v1778867908/hotel/attractions/attraction_1778867896.jpg', N'hotel/attractions/attraction_1778867896', N'link_map_3', 1)
+INSERT [dbo].[Attractions] ([id], [name], [category], [address], [latitude], [longitude], [distance_km], [description], [image_url], [cloudinary_public_id], [map_embed_link], [is_active]) VALUES (4, N'Phố Đi Bộ', N'Giải trí', N'789 Phố Đêm', CAST(16.045000 AS Decimal(9, 6)), CAST(108.205000 AS Decimal(9, 6)), CAST(586.11 AS Decimal(5, 2)), N'Khu vực vui chơi giải trí về đêm', N'https://res.cloudinary.com/dekvhccnn/image/upload/v1778867878/hotel/attractions/attraction_1778867868.jpg', N'hotel/attractions/attraction_1778867868', N'link_map_4', 1)
+INSERT [dbo].[Attractions] ([id], [name], [category], [address], [latitude], [longitude], [distance_km], [description], [image_url], [cloudinary_public_id], [map_embed_link], [is_active]) VALUES (5, N'Chùa Cổ Lịch Sử', N'Di tích', N'Núi Ngũ Hành Sơn', CAST(16.000000 AS Decimal(9, 6)), CAST(108.230000 AS Decimal(9, 6)), CAST(581.99 AS Decimal(5, 2)), N'Ngôi chùa linh thiêng', N'https://res.cloudinary.com/dekvhccnn/image/upload/v1778867930/hotel/attractions/attraction_1778867920.jpg', N'hotel/attractions/attraction_1778867920', N'link_map_5', 1)
+INSERT [dbo].[Attractions] ([id], [name], [category], [address], [latitude], [longitude], [distance_km], [description], [image_url], [cloudinary_public_id], [map_embed_link], [is_active]) VALUES (6, N'Khu Vui Chơi Giải Trí', N'Giải trí', N'Khu Vui Chơi Phía Tây', CAST(15.990000 AS Decimal(9, 6)), CAST(108.150000 AS Decimal(9, 6)), CAST(578.68 AS Decimal(5, 2)), N'Công viên trò chơi quy mô lớn', N'https://res.cloudinary.com/dekvhccnn/image/upload/v1778867842/hotel/attractions/attraction_1778867831.jpg', N'hotel/attractions/attraction_1778867831', N'link_map_6', 1)
+INSERT [dbo].[Attractions] ([id], [name], [category], [address], [latitude], [longitude], [distance_km], [description], [image_url], [cloudinary_public_id], [map_embed_link], [is_active]) VALUES (7, N'Suối Nước Nóng', N'Thiên nhiên', N'Vùng Núi Phía Tây', CAST(15.920000 AS Decimal(9, 6)), CAST(108.100000 AS Decimal(9, 6)), CAST(569.81 AS Decimal(5, 2)), N'Điểm nghỉ dưỡng thiên nhiên', N'https://res.cloudinary.com/dekvhccnn/image/upload/v1778867783/hotel/attractions/attraction_1778867772.jpg', N'hotel/attractions/attraction_1778867772', N'link_map_7', 1)
+INSERT [dbo].[Attractions] ([id], [name], [category], [address], [latitude], [longitude], [distance_km], [description], [image_url], [cloudinary_public_id], [map_embed_link], [is_active]) VALUES (8, N'Làng Nghề Truyền Thống', N'Di tích', N'Làng Cổ Ngoại Ô', CAST(15.960000 AS Decimal(9, 6)), CAST(108.130000 AS Decimal(9, 6)), CAST(574.92 AS Decimal(5, 2)), N'Trải nghiệm văn hóa bản địa', N'https://res.cloudinary.com/dekvhccnn/image/upload/v1778867831/hotel/attractions/attraction_1778867821.jpg', N'hotel/attractions/attraction_1778867821', N'link_map_8', 1)
+INSERT [dbo].[Attractions] ([id], [name], [category], [address], [latitude], [longitude], [distance_km], [description], [image_url], [cloudinary_public_id], [map_embed_link], [is_active]) VALUES (9, N'Trung Tâm Thương Mại', N'Giải trí', N'321 Đường Mua Sắm', CAST(16.043000 AS Decimal(9, 6)), CAST(108.208000 AS Decimal(9, 6)), CAST(585.98 AS Decimal(5, 2)), N'Khu mua sắm cao cấp', N'https://res.cloudinary.com/dekvhccnn/image/upload/v1778867896/hotel/attractions/attraction_1778867887.jpg', N'hotel/attractions/attraction_1778867887', N'link_map_9', 1)
+INSERT [dbo].[Attractions] ([id], [name], [category], [address], [latitude], [longitude], [distance_km], [description], [image_url], [cloudinary_public_id], [map_embed_link], [is_active]) VALUES (10, N'Điểm Ngắm Hoàng Hôn', N'Thiên nhiên', N'Mũi Đất Phía Nam', CAST(16.020000 AS Decimal(9, 6)), CAST(108.215000 AS Decimal(9, 6)), CAST(583.71 AS Decimal(5, 2)), N'Nơi có view biển đẹp nhất', N'https://res.cloudinary.com/dekvhccnn/image/upload/v1778867917/hotel/attractions/attraction_1778867907.jpg', N'hotel/attractions/attraction_1778867907', N'link_map_10', 1)
+SET IDENTITY_INSERT [dbo].[Attractions] OFF
+-- Hệ thống backend sẽ tự động tổng hợp Dashboard Snapshot từ các bảng thực tế khi người dùng truy cập lần đầu trong ngày, hoặc khi có các tương tác mới cần refresh snapshot.
+GO
+
+-- ============================================================
+-- CLUSTER 8: DASHBOARD THEO KỲ (Role-Based Period Dashboard)
+-- Lưu số liệu dashboard tổng hợp theo role + kỳ thời gian.
+-- Mỗi role có 1 dòng / kỳ (DAILY / WEEKLY / MONTHLY).
+-- Service tự động rebuild khi có sự kiện nghiệp vụ (DAMAGE_REPORTED, ...).
+-- ============================================================
+
+CREATE TABLE [dbo].[Role_Dashboard_Period_States]
+(
+    -- Identity
+    [id]                  [int]            IDENTITY(1,1) NOT NULL,
+
+    -- Role info
+    [role_id]             [int]            NOT NULL,       -- FK Roles.id
+    [role_name]           [nvarchar](100)  NOT NULL,       -- cache tên role (tránh JOIN khi query)
+
+    -- Dashboard identity
+    [dashboard_code]      [varchar](100)   NOT NULL,       -- ADMIN_DASHBOARD, MANAGER_DASHBOARD, WAREHOUSE_DASHBOARD, ...
+    [dashboard_title]     [nvarchar](255)  NOT NULL,       -- "Admin Dashboard"
+
+    -- Period info
+    [period_type]         [varchar](20)    NOT NULL,       -- DAILY / WEEKLY / MONTHLY / QUARTERLY / YEARLY
+    [period_key]          [varchar](30)    NOT NULL,       -- "2026-05" / "2026-W20" / "2026-05-13"
+    [period_start]        [datetime2](7)   NOT NULL,       -- UTC start của kỳ
+    [period_end]          [datetime2](7)   NOT NULL,       -- UTC end của kỳ
+
+    -- JSON payload
+    [dashboard_json]      [nvarchar](max)  NOT NULL,       -- số liệu chính của kỳ (phải là JSON hợp lệ)
+    [comparison_json]     [nvarchar](max)  NULL,           -- so sánh với kỳ trước (cache)
+
+    -- Trạng thái kỳ
+    [status]              [varchar](20)    NOT NULL
+        CONSTRAINT [DF_RoleDashboardPeriod_Status]    DEFAULT ('OPEN'),
+                                                           -- OPEN / CLOSED / REBUILT / CORRECTED
+    [is_current]          [bit]            NOT NULL
+        CONSTRAINT [DF_RoleDashboardPeriod_IsCurrent] DEFAULT ((0)),
+                                                           -- 1 = kỳ hiện tại đang OPEN
+
+    -- Event tracking
+    [last_event_type]     [varchar](100)   NULL,           -- DAMAGE_REPORTED, MANUAL_REBUILD, ...
+    [last_event_source]   [varchar](100)   NULL,           -- tên service đã trigger
+    [last_event_ref_id]   [int]            NULL,           -- ID bản ghi nguồn (LossAndDamage.id, ...)
+
+    -- Optimistic concurrency
+    [version]             [int]            NOT NULL
+        CONSTRAINT [DF_RoleDashboardPeriod_Version]   DEFAULT ((1)),
+
+    -- Timestamps
+    [created_at]          [datetime2](7)   NOT NULL
+        CONSTRAINT [DF_RoleDashboardPeriod_CreatedAt] DEFAULT (SYSUTCDATETIME()),
+    [updated_at]          [datetime2](7)   NOT NULL
+        CONSTRAINT [DF_RoleDashboardPeriod_UpdatedAt] DEFAULT (SYSUTCDATETIME()),
+    [closed_at]           [datetime2](7)   NULL,           -- thời điểm kỳ chuyển sang CLOSED
+
+    -- Audit
+    [updated_by]          [int]            NULL,           -- FK Users.id (ai rebuild / update)
+
+    -- PRIMARY KEY
+    CONSTRAINT [PK_Role_Dashboard_Period_States]
+        PRIMARY KEY CLUSTERED ([id] ASC),
+
+    -- FOREIGN KEYS
+    CONSTRAINT [FK_RoleDashboardPeriod_Roles]
+        FOREIGN KEY ([role_id]) REFERENCES [dbo].[Roles] ([id]),
+
+    CONSTRAINT [FK_RoleDashboardPeriod_UpdatedBy]
+        FOREIGN KEY ([updated_by]) REFERENCES [dbo].[Users] ([id]),
+
+    -- CHECK CONSTRAINTS
+    CONSTRAINT [CK_RoleDashboardPeriod_PeriodType]
+        CHECK ([period_type] IN ('DAILY', 'WEEKLY', 'MONTHLY', 'QUARTERLY', 'YEARLY')),
+
+    CONSTRAINT [CK_RoleDashboardPeriod_Status]
+        CHECK ([status] IN ('OPEN', 'CLOSED', 'REBUILT', 'CORRECTED')),
+
+    CONSTRAINT [CK_RoleDashboardPeriod_DashboardJson_IsJson]
+        CHECK (ISJSON([dashboard_json]) = 1),
+
+    CONSTRAINT [CK_RoleDashboardPeriod_ComparisonJson_IsJson]
+        CHECK ([comparison_json] IS NULL OR ISJSON([comparison_json]) = 1)
+
+) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
+GO
+
+-- Unique index: role_id + dashboard_code + period_type + period_key phải unique
+CREATE UNIQUE INDEX [UX_RoleDashboardPeriod_Role_Dashboard_Period]
+ON [dbo].[Role_Dashboard_Period_States]
+(
+    [role_id],
+    [dashboard_code],
+    [period_type],
+    [period_key]
+)
+GO
+
+-- Query index: tìm theo role_name + period_type + thời gian
+CREATE INDEX [IX_RoleDashboardPeriod_Query]
+ON [dbo].[Role_Dashboard_Period_States]
+(
+    [dashboard_code],
+    [role_name],
+    [period_type],
+    [period_start],
+    [period_end]
+)
+GO
+
+-- Filtered index: tối ưu truy vấn kỳ hiện tại (is_current = 1)
+CREATE INDEX [IX_RoleDashboardPeriod_Current]
+ON [dbo].[Role_Dashboard_Period_States]
+(
+    [role_id],
+    [dashboard_code],
+    [period_type],
+    [is_current]
+)
+WHERE [is_current] = 1
+GO
+
+-- Sort index: lấy lịch sử (ORDER BY updated_at DESC)
+CREATE INDEX [IX_RoleDashboardPeriod_UpdatedAt]
+ON [dbo].[Role_Dashboard_Period_States]
+(
+    [updated_at] DESC
+)
+GO
+
+-- Seed dữ liệu: 1 dòng MONTHLY is_current=1 cho từng role
+DECLARE @PeriodType  VARCHAR(20)  = 'MONTHLY';
+DECLARE @PeriodKey   VARCHAR(30)  = FORMAT(GETUTCDATE(), 'yyyy-MM');
+DECLARE @PeriodStart DATETIME2(7) = DATEFROMPARTS(YEAR(GETUTCDATE()), MONTH(GETUTCDATE()), 1);
+DECLARE @PeriodEnd   DATETIME2(7) = DATEADD(MILLISECOND, -1, DATEADD(MONTH, 1, @PeriodStart));
+
+INSERT INTO [dbo].[Role_Dashboard_Period_States]
+(
+    [role_id], [role_name], [dashboard_code], [dashboard_title],
+    [period_type], [period_key], [period_start], [period_end],
+    [dashboard_json], [comparison_json], [status], [is_current]
+)
+SELECT
+    r.[id],
+    r.[name],
+    CASE r.[name]
+        WHEN N'Admin'          THEN 'ADMIN_DASHBOARD'
+        WHEN N'Manager'        THEN 'MANAGER_DASHBOARD'
+        WHEN N'Receptionist'   THEN 'RECEPTION_DASHBOARD'
+        WHEN N'Accountant'     THEN 'ACCOUNTANT_DASHBOARD'
+        WHEN N'Housekeeping'   THEN 'HOUSEKEEPING_DASHBOARD'
+        WHEN N'WarehouseStaff' THEN 'WAREHOUSE_DASHBOARD'
+        ELSE UPPER(REPLACE(CONVERT(VARCHAR(100), r.[name]), ' ', '_')) + '_DASHBOARD'
+    END,
+    r.[name] + N' Dashboard',
+    @PeriodType, @PeriodKey, @PeriodStart, @PeriodEnd,
+    N'{"meta":{"schemaVersion":1,"dashboardCode":"","roleName":"","periodType":"MONTHLY","periodKey":"","status":"OPEN"},"summary":{},"widgets":{},"breakdown":{},"alerts":[],"events":[]}',
+    N'{"baseInfo":{"comparisonType":"PREVIOUS_PERIOD"},"metrics":{}}',
+    'OPEN', 1
+FROM [dbo].[Roles] r
+GO
+
+/* ================= 2026-05-19 Delta: System Settings + Granular Permissions ================= */
+IF OBJECT_ID(N'dbo.System_Settings', N'U') IS NULL
+BEGIN
+CREATE TABLE [dbo].[System_Settings](
+    [id] [int] IDENTITY(1,1) NOT NULL,
+    [booking_deposit_percent] [decimal](5, 2) NOT NULL DEFAULT 30,
+    [check_in_required_percent] [decimal](5, 2) NOT NULL DEFAULT 50,
+    [hotel_address] [nvarchar](500) NULL,
+    [hotel_latitude] [decimal](9, 6) NULL,
+    [hotel_longitude] [decimal](9, 6) NULL,
+    [created_at] [datetime] NOT NULL DEFAULT GETUTCDATE(),
+    [updated_at] [datetime] NULL,
+    [updated_by] [int] NULL,
+ CONSTRAINT [PK_System_Settings] PRIMARY KEY CLUSTERED ([id] ASC)
+);
+END
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE [name] = N'FK_System_Settings_Users_UpdatedBy')
+BEGIN
+ALTER TABLE [dbo].[System_Settings] WITH CHECK ADD CONSTRAINT [FK_System_Settings_Users_UpdatedBy]
+FOREIGN KEY([updated_by]) REFERENCES [dbo].[Users] ([id]);
+END
+GO
+
+IF NOT EXISTS (SELECT 1 FROM [dbo].[System_Settings])
+BEGIN
+INSERT [dbo].[System_Settings] ([booking_deposit_percent], [check_in_required_percent], [hotel_address], [hotel_latitude], [hotel_longitude], [created_at])
+VALUES (30, 50, N'', CAST(10.953402 AS Decimal(9, 6)), CAST(106.802169 AS Decimal(9, 6)), GETUTCDATE());
+END
+GO
+
+IF NOT EXISTS (SELECT 1 FROM [dbo].[Permissions] WHERE [permission_code] = N'MANAGE_SYSTEM_SETTINGS')
+INSERT [dbo].[Permissions] ([name], [permission_code]) VALUES (N'MANAGE_SYSTEM_SETTINGS', N'MANAGE_SYSTEM_SETTINGS');
+IF NOT EXISTS (SELECT 1 FROM [dbo].[Permissions] WHERE [permission_code] = N'MANAGE_VOUCHERS')
+INSERT [dbo].[Permissions] ([name], [permission_code]) VALUES (N'MANAGE_VOUCHERS', N'MANAGE_VOUCHERS');
+IF NOT EXISTS (SELECT 1 FROM [dbo].[Permissions] WHERE [permission_code] = N'CHANGE_USER_ROLE')
+INSERT [dbo].[Permissions] ([name], [permission_code]) VALUES (N'CHANGE_USER_ROLE', N'CHANGE_USER_ROLE');
+IF NOT EXISTS (SELECT 1 FROM [dbo].[Permissions] WHERE [permission_code] = N'EDIT_ROLE_PERMISSIONS')
+INSERT [dbo].[Permissions] ([name], [permission_code]) VALUES (N'EDIT_ROLE_PERMISSIONS', N'EDIT_ROLE_PERMISSIONS');
+IF NOT EXISTS (SELECT 1 FROM [dbo].[Permissions] WHERE [permission_code] = N'VIEW_SYSTEM_SETTINGS')
+INSERT [dbo].[Permissions] ([name], [permission_code]) VALUES (N'VIEW_SYSTEM_SETTINGS', N'VIEW_SYSTEM_SETTINGS');
+GO
+
+DECLARE @AdminRoleId INT = (SELECT TOP 1 [id] FROM [dbo].[Roles] WHERE [name] = N'Admin');
+DECLARE @ManagerRoleId INT = (SELECT TOP 1 [id] FROM [dbo].[Roles] WHERE [name] = N'Manager');
+
+INSERT INTO [dbo].[Role_Permissions] ([role_id], [permission_id])
+SELECT @AdminRoleId, p.[id]
+FROM [dbo].[Permissions] p
+WHERE @AdminRoleId IS NOT NULL
+  AND p.[permission_code] IN (
+    N'MANAGE_SYSTEM_SETTINGS',
+    N'MANAGE_VOUCHERS',
+    N'CHANGE_USER_ROLE',
+    N'EDIT_ROLE_PERMISSIONS',
+    N'VIEW_SYSTEM_SETTINGS'
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM [dbo].[Role_Permissions] rp
+    WHERE rp.[role_id] = @AdminRoleId
+      AND rp.[permission_id] = p.[id]
+  );
+
+INSERT INTO [dbo].[Role_Permissions] ([role_id], [permission_id])
+SELECT @ManagerRoleId, p.[id]
+FROM [dbo].[Permissions] p
+WHERE @ManagerRoleId IS NOT NULL
+  AND p.[permission_code] IN (N'MANAGE_VOUCHERS')
+  AND NOT EXISTS (
+    SELECT 1
+    FROM [dbo].[Role_Permissions] rp
+    WHERE rp.[role_id] = @ManagerRoleId
+      AND rp.[permission_id] = p.[id]
+  );
+GO
+
+
+IF COL_LENGTH(N'dbo.Attractions', N'distance_km') IS NOT NULL
+BEGIN
+    ALTER TABLE [dbo].[Attractions]
+    ALTER COLUMN [distance_km] [decimal](7, 2) NULL;
+END

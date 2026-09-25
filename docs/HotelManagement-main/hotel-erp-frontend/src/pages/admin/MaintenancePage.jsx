@@ -1,0 +1,520 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { createMaintenanceTicket, getMaintenanceTickets, updateMaintenanceTicketStatus } from "../../api/maintenanceApi";
+import { getRooms } from "../../api/roomsApi";
+import { useResponsiveAdmin } from "../../hooks/useResponsiveAdmin";
+import { getUsers } from "../../api/userManagementApi";
+
+const cardStyle = {
+  background: "var(--a-surface)",
+  border: "1px solid var(--a-border)",
+  borderRadius: 20,
+  boxShadow: "var(--a-shadow-sm)",
+};
+
+const inputStyle = {
+  width: "100%",
+  boxSizing: "border-box",
+  padding: "10px 14px",
+  borderRadius: 12,
+  border: "1.5px solid var(--a-border)",
+  background: "var(--a-surface-raised)",
+  fontSize: 14,
+  fontWeight: 600,
+  color: "var(--a-text)",
+  outline: "none",
+  fontFamily: "'Manrope', sans-serif",
+  transition: "all 0.2s",
+};
+
+const PRIMARY_BUTTON = {
+  background: "linear-gradient(135deg,#4f645b 0%,#43574f 100%)",
+  color: "#e7fef3",
+  border: "none",
+  borderRadius: 12,
+  padding: "10px 22px",
+  fontSize: 14,
+  fontWeight: 800,
+  cursor: "pointer",
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 8,
+  boxShadow: "0 4px 12px rgba(79,100,91,.2)",
+  transition: "all 0.15s",
+};
+
+const SECONDARY_BUTTON = {
+  padding: "10px 22px",
+  borderRadius: 12,
+  border: "1.5px solid var(--a-border)",
+  background: "var(--a-surface-raised)",
+  color: "var(--a-text-muted)",
+  fontSize: 14,
+  fontWeight: 700,
+  cursor: "pointer",
+  transition: "all 0.15s",
+};
+
+const statusMeta = {
+  Open: { bg: "#fef3c7", color: "#92400e" },
+  InProgress: { bg: "#dbeafe", color: "#1d4ed8" },
+  Resolved: { bg: "#ede9fe", color: "#6d28d9" },
+  Closed: { bg: "#dcfce7", color: "#166534" },
+  Cancelled: { bg: "#fee2e2", color: "#991b1b" },
+};
+
+const statusLabels = {
+  Open: "Mới mở",
+  InProgress: "Đang xử lý",
+  Resolved: "Đã sửa xong",
+  Closed: "Hoàn tất",
+  Cancelled: "Đã hủy",
+};
+
+const statusActionLabels = {
+  InProgress: "Bắt đầu xử lý",
+  Resolved: "Báo đã sửa xong",
+  Closed: "Xác nhận hoàn tất",
+  Cancelled: "Hủy ticket",
+};
+
+const categoryLabels = {
+  Repair: "Sửa chữa",
+  Inspection: "Kiểm tra",
+  Preventive: "Bảo trì định kỳ",
+};
+
+const priorityLabels = {
+  Low: "Thấp",
+  Medium: "Trung bình",
+  High: "Cao",
+  Critical: "Khẩn cấp",
+};
+
+const workflowNotes = [
+  { status: "Open", text: "Ghi nhận sự cố, có thể chưa block phòng." },
+  { status: "InProgress", text: "Kỹ thuật bắt đầu xử lý; nếu ticket block phòng thì phòng sẽ ở trạng thái Ngưng phục vụ." },
+  { status: "Resolved", text: "Kỹ thuật báo đã sửa xong, phòng chưa mở bán lại ngay." },
+  { status: "Closed", text: "Vận hành xác nhận hoàn tất, hệ thống bỏ Ngưng phục vụ và đưa phòng về Trống + Cần dọn." },
+  { status: "Cancelled", text: "Ticket tạo nhầm hoặc không còn cần xử lý." },
+];
+
+const fmtDateTime = (value) =>
+  value
+    ? new Date(value).toLocaleString("vi-VN", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "—";
+
+const isTicketBlockingRoom = (ticket) =>
+  Boolean(ticket?.blocksRoom) && !["Closed", "Cancelled"].includes(ticket?.status);
+
+const canTransitionMaintenanceStatus = (currentStatus, nextStatus) => {
+  if (currentStatus === nextStatus) return false;
+
+  if (currentStatus === "Open") {
+    return nextStatus === "InProgress" || nextStatus === "Cancelled";
+  }
+
+  if (currentStatus === "InProgress") {
+    return nextStatus === "Resolved";
+  }
+
+  if (currentStatus === "Resolved") {
+    return nextStatus === "Closed";
+  }
+
+  return false;
+};
+
+export default function MaintenancePage() {
+  const { isMobile } = useResponsiveAdmin();
+  const [rooms, setRooms] = useState([]);
+  const [staff, setStaff] = useState([]);
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+  const [statusNotes, setStatusNotes] = useState({});
+  const [filters, setFilters] = useState({ status: "" });
+  const [form, setForm] = useState({
+    roomId: "",
+    title: "",
+    reason: "",
+    category: "Repair",
+    priority: "Medium",
+    assignedToUserId: "",
+    blocksRoom: true,
+    expectedDoneAt: "",
+  });
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setErrorMessage("");
+    try {
+      const [roomRes, userRes, ticketRes] = await Promise.all([
+        getRooms(),
+        getUsers({ page: 1, pageSize: 200 }),
+        getMaintenanceTickets(filters.status ? { status: filters.status } : {}),
+      ]);
+
+      setRooms(roomRes.data?.data || []);
+      setStaff(userRes.data?.data || []);
+      setRows(ticketRes.data?.data || []);
+    } catch (error) {
+      setErrorMessage(error?.response?.data?.message || "Không thể tải dữ liệu bảo trì.");
+    } finally {
+      setLoading(false);
+    }
+  }, [filters.status]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const roomOptions = useMemo(() => rooms || [], [rooms]);
+  const staffOptions = useMemo(
+    () =>
+      (staff || []).filter(
+        (user) =>
+          user.status !== false &&
+          String(user.roleName || user.role?.name || "").toLowerCase() !== "guest",
+      ),
+    [staff],
+  );
+
+  const handleCreate = async (event) => {
+    event.preventDefault();
+    setSaving(true);
+    setErrorMessage("");
+    try {
+      await createMaintenanceTicket({
+        roomId: Number(form.roomId),
+        title: form.title,
+        reason: form.reason,
+        category: form.category,
+        priority: form.priority,
+        assignedToUserId: form.assignedToUserId ? Number(form.assignedToUserId) : null,
+        blocksRoom: Boolean(form.blocksRoom),
+        expectedDoneAt: form.expectedDoneAt || null,
+      });
+
+      setForm({
+        roomId: "",
+        title: "",
+        reason: "",
+        category: "Repair",
+        priority: "Medium",
+        assignedToUserId: "",
+        blocksRoom: true,
+        expectedDoneAt: "",
+      });
+      await load();
+    } catch (error) {
+      setErrorMessage(error?.response?.data?.message || "Không thể tạo phiếu bảo trì.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleStatusUpdate = async (ticketId, status) => {
+    setSaving(true);
+    setErrorMessage("");
+    try {
+      await updateMaintenanceTicketStatus(ticketId, {
+        status,
+        resolutionNote: statusNotes[ticketId] || null,
+      });
+      await load();
+    } catch (error) {
+      setErrorMessage(error?.response?.data?.message || "Không thể cập nhật trạng thái ticket.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={{ maxWidth: 1360, margin: "0 auto" }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
+        * { font-family: 'Manrope', sans-serif; }
+      `}</style>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap", marginBottom: 24 }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 28, color: "var(--a-text)", fontWeight: 800 }}>Bảo trì phòng</h2>
+          <p style={{ margin: "8px 0 0", color: "var(--a-text-muted)", fontSize: 14, maxWidth: 760, lineHeight: 1.65 }}>
+            Workflow này tách ticket bảo trì khỏi trạng thái vận hành của phòng. Khi ticket có `blocksRoom`, backend sẽ đưa phòng sang `Disabled` cho tới lúc đóng ticket.
+          </p>
+        </div>
+        <button type="button" onClick={load} disabled={loading} style={{ ...SECONDARY_BUTTON, height: 42 }}>
+          {loading ? "Đang tải..." : "Làm mới"}
+        </button>
+      </div>
+
+      {errorMessage ? <div className="sub-card-p" style={{ ...cardStyle, marginBottom: 20, padding: 14, color: "var(--a-error)", background: "var(--a-error-bg)", borderColor: "color-mix(in srgb, var(--a-error) 28%, var(--a-border))" }}>{errorMessage}</div> : null}
+
+      <section className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
+        <article className="primary-card-p" style={{ ...cardStyle, padding: 22 }}>
+          <h3 style={{ margin: "0 0 18px", fontSize: 18, color: "var(--a-text)", fontWeight: 800 }}>Tạo ticket bảo trì</h3>
+          <form onSubmit={handleCreate} style={{ display: "grid", gap: 12 }}>
+            <select value={form.roomId} onChange={(e) => setForm((prev) => ({ ...prev, roomId: e.target.value }))} style={inputStyle} required>
+              <option value="">Chọn phòng</option>
+              {roomOptions.map((room) => (
+                <option key={room.id} value={room.id}>Phòng {room.roomNumber} - {room.roomTypeName || "Chưa có loại"}</option>
+              ))}
+            </select>
+            <input value={form.title} onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))} placeholder="Tiêu đề sự cố" style={inputStyle} required />
+            <textarea value={form.reason} onChange={(e) => setForm((prev) => ({ ...prev, reason: e.target.value }))} placeholder="Mô tả / nguyên nhân" style={{ ...inputStyle, minHeight: 84, resize: "vertical" }} required />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <select value={form.category} onChange={(e) => setForm((prev) => ({ ...prev, category: e.target.value }))} style={inputStyle}>
+                <option value="Repair">{categoryLabels.Repair}</option>
+                <option value="Inspection">{categoryLabels.Inspection}</option>
+                <option value="Preventive">{categoryLabels.Preventive}</option>
+              </select>
+              <select value={form.priority} onChange={(e) => setForm((prev) => ({ ...prev, priority: e.target.value }))} style={inputStyle}>
+                <option value="Low">{priorityLabels.Low}</option>
+                <option value="Medium">{priorityLabels.Medium}</option>
+                <option value="High">{priorityLabels.High}</option>
+                <option value="Critical">{priorityLabels.Critical}</option>
+              </select>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <select value={form.assignedToUserId} onChange={(e) => setForm((prev) => ({ ...prev, assignedToUserId: e.target.value }))} style={inputStyle}>
+                <option value="">Chưa phân công</option>
+                {staffOptions.map((user) => (
+                  <option key={user.id} value={user.id}>{user.fullName}</option>
+                ))}
+              </select>
+              <input type="datetime-local" value={form.expectedDoneAt} onChange={(e) => setForm((prev) => ({ ...prev, expectedDoneAt: e.target.value }))} style={inputStyle} />
+            </div>
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
+                padding: "12px 14px",
+                borderRadius: 14,
+                border: `1.5px solid ${form.blocksRoom ? "var(--a-warning-border)" : "var(--a-border)"}`,
+                background: form.blocksRoom ? "var(--a-warning-bg)" : "var(--a-surface-raised)",
+                color: form.blocksRoom ? "var(--a-warning)" : "var(--a-text-muted)",
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+                <input
+                  type="checkbox"
+                  checked={form.blocksRoom}
+                  onChange={(e) => setForm((prev) => ({ ...prev, blocksRoom: e.target.checked }))}
+                  style={{
+                    position: "absolute",
+                    opacity: 0,
+                    width: 1,
+                    height: 1,
+                    pointerEvents: "none",
+                  }}
+                />
+                <span
+                  aria-hidden="true"
+                  style={{
+                    width: 20,
+                    height: 20,
+                    borderRadius: 6,
+                    border: `1.5px solid ${form.blocksRoom ? "var(--a-warning)" : "var(--a-border-strong)"}`,
+                    background: form.blocksRoom ? "var(--a-warning)" : "var(--a-surface)",
+                    color: form.blocksRoom ? "#fff" : "transparent",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: 14,
+                    fontWeight: 900,
+                    lineHeight: 1,
+                    flexShrink: 0,
+                  }}
+                >
+                  ✓
+                </span>
+                Block phòng ngay khi mở ticket
+              </span>
+            </label>
+            <button type="submit" disabled={saving} style={{ ...PRIMARY_BUTTON, height: 44, justifyContent: "center" }}>
+              {saving ? "Đang lưu..." : "Tạo ticket bảo trì"}
+            </button>
+          </form>
+        </article>
+
+        <article style={{ ...cardStyle, padding: 22 }}>
+          <h3 style={{ margin: "0 0 18px", fontSize: 18, color: "var(--a-text)", fontWeight: 800 }}>Quy trình đề xuất</h3>
+          <div style={{ display: "grid", gap: 12 }}>
+            {workflowNotes.map((item) => (
+              <div key={item.status} className="sub-card-p" style={{ background: "var(--a-surface-raised)", border: "1px solid var(--a-border)", borderRadius: 14, padding: 14, color: "var(--a-text-muted)", lineHeight: 1.6 }}>
+                <strong style={{ color: statusMeta[item.status]?.color || "var(--a-text)" }}>{statusLabels[item.status] || item.status}:</strong> {item.text}
+              </div>
+            ))}
+            {false && [
+              "Open: ghi nhận sự cố, có thể chưa block phòng.",
+              "InProgress: kỹ thuật bắt đầu xử lý, nếu ticket block phòng thì phòng phải ở Disabled.",
+              "Resolved: kỹ thuật báo sửa xong, chưa mở bán lại ngay.",
+              "Closed: vận hành xác nhận hoàn tất, backend bỏ Disabled và đưa phòng về Available + Dirty.",
+              "Cancelled: ticket tạo nhầm hoặc không còn cần xử lý.",
+            ].map((line) => (
+              <div key={line} className="sub-card-p" style={{ background: "var(--a-surface-raised)", border: "1px solid var(--a-border)", borderRadius: 14, padding: 14, color: "var(--a-text-muted)", lineHeight: 1.6 }}>
+                {line}
+              </div>
+            ))}
+          </div>
+        </article>
+      </section>
+
+      <section className="primary-card-p" style={{ ...cardStyle, overflow: "hidden" }}>
+        <div style={{ padding: "18px 20px", borderBottom: "1px solid var(--a-border)", display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+          <strong style={{ color: "var(--a-text)", fontSize: 18 }}>Danh sách ticket bảo trì</strong>
+          <select value={filters.status} onChange={(e) => setFilters((prev) => ({ ...prev, status: e.target.value }))} style={{ ...inputStyle, width: isMobile ? "100%" : 180 }}>
+            <option value="">Tất cả trạng thái</option>
+            <option value="Open">{statusLabels.Open}</option>
+            <option value="InProgress">{statusLabels.InProgress}</option>
+            <option value="Resolved">{statusLabels.Resolved}</option>
+            <option value="Closed">{statusLabels.Closed}</option>
+            <option value="Cancelled">{statusLabels.Cancelled}</option>
+          </select>
+        </div>
+        {isMobile ? (
+          <div style={{ display: "grid", gap: 12, padding: 14 }}>
+            {rows.length === 0 ? (
+              <div style={{ padding: 24, textAlign: "center", color: "var(--a-text-muted)" }}>Chua co ticket bao tri nao.</div>
+            ) : rows.map((ticket) => {
+              const meta = statusMeta[ticket.status] || statusMeta.Open;
+              return (
+                <article key={ticket.id} style={{ border: "1px solid var(--a-border)", borderRadius: 16, padding: 14, display: "grid", gap: 12, background: "var(--a-surface-raised)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start" }}>
+                    <div>
+                      <div style={{ color: "var(--a-text)", fontWeight: 900, fontSize: 16 }}>Phong {ticket.roomNumber}</div>
+                      <div style={{ color: "var(--a-text-muted)", fontSize: 13 }}>{ticket.roomTypeName || "-"}</div>
+                    </div>
+                    <span style={{ padding: "6px 10px", borderRadius: 999, background: meta.bg, color: meta.color, fontSize: 11, fontWeight: 900 }}>{statusLabels[ticket.status] || ticket.status}</span>
+                  </div>
+                  <div>
+                    <div style={{ color: "var(--a-text)", fontWeight: 900 }}>{ticket.title}</div>
+                    <div style={{ color: "var(--a-text-muted)", fontSize: 13, marginTop: 4 }}>{ticket.reason}</div>
+                    <div style={{ marginTop: 6, color: "var(--a-text-soft)", fontSize: 12, fontWeight: 800 }}>{categoryLabels[ticket.category] || ticket.category || "-"} - {priorityLabels[ticket.priority] || ticket.priority}</div>
+                  </div>
+                  <div style={{ display: "grid", gap: 5, color: "var(--a-text-soft)", fontSize: 12 }}>
+                    <div>Mở: {fmtDateTime(ticket.openedAt)}</div>
+                    <div>ETA: {fmtDateTime(ticket.expectedDoneAt)}</div>
+                    <div>Báo cáo: {ticket.reportedBy?.fullName || "-"}</div>
+                    <div>Xử lý: {ticket.assignedTo?.fullName || "Chưa gán"}</div>
+                  </div>
+                  <textarea value={statusNotes[ticket.id] || ticket.resolutionNote || ""} onChange={(e) => setStatusNotes((prev) => ({ ...prev, [ticket.id]: e.target.value }))} placeholder="Ghi chú khi xử lý / đóng ticket" style={{ ...inputStyle, minHeight: 78, resize: "vertical" }} />
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                      {["InProgress", "Resolved", "Closed", "Cancelled"].map((status) => (
+                        <button
+                          key={status}
+                          type="button"
+                          onClick={() => handleStatusUpdate(ticket.id, status)}
+                          disabled={saving || !canTransitionMaintenanceStatus(ticket.status, status)}
+                          style={{
+                            height: 36,
+                            borderRadius: 10,
+                            border: "1px solid var(--a-border)",
+                            background: "var(--a-surface)",
+                            color: "var(--a-text-muted)",
+                            fontWeight: 800,
+                            opacity: canTransitionMaintenanceStatus(ticket.status, status) ? 1 : 0.5,
+                          }}
+                        >
+                          {statusActionLabels[status] || status}
+                        </button>
+                      ))}
+                    </div>
+                </article>
+              );
+            })}
+          </div>
+        ) : (
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", minWidth: 1100, borderCollapse: "collapse" }}>
+            <thead>
+              <tr style={{ background: "color-mix(in srgb, var(--a-surface-raised) 88%, transparent)", borderBottom: "1px solid var(--a-border)" }}>
+                {["Phòng", "Ticket", "Phụ trách", "Thời gian", "Trạng thái", "Ghi chú đóng", "Cập nhật"].map((title) => (
+                  <th key={title} style={{ padding: "14px 18px", textAlign: "left", color: "var(--a-text-muted)", fontSize: 11, textTransform: "uppercase", letterSpacing: ".08em" }}>{title}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length === 0 ? (
+                <tr><td colSpan={7} style={{ padding: 32, textAlign: "center", color: "var(--a-text-muted)" }}>Chưa có ticket bảo trì nào.</td></tr>
+              ) : rows.map((ticket) => {
+                const meta = statusMeta[ticket.status] || statusMeta.Open;
+                return (
+                  <tr key={ticket.id} style={{ borderBottom: "1px solid var(--a-border)", verticalAlign: "top" }}>
+                    <td style={{ padding: "16px 18px" }}>
+                      <div style={{ color: "var(--a-text)", fontWeight: 800 }}>Phòng {ticket.roomNumber}</div>
+                      <div style={{ color: "var(--a-text-muted)", fontSize: 13 }}>{ticket.roomTypeName || "—"}</div>
+                      <div style={{ marginTop: 6, color: isTicketBlockingRoom(ticket) ? "var(--a-warning)" : "var(--a-text-muted)", fontSize: 12, fontWeight: 700 }}>
+                        {isTicketBlockingRoom(ticket) ? "Đang block phòng" : "Không block phòng"}
+                      </div>
+                    </td>
+                    <td style={{ padding: "16px 18px" }}>
+                      <div style={{ color: "var(--a-text)", fontWeight: 800 }}>{ticket.title}</div>
+                      <div style={{ color: "var(--a-text-muted)", fontSize: 13 }}>{ticket.reason}</div>
+                      <div style={{ marginTop: 6, color: "var(--a-text-soft)", fontSize: 12, fontWeight: 700 }}>{categoryLabels[ticket.category] || ticket.category || "—"} • {priorityLabels[ticket.priority] || ticket.priority}</div>
+                    </td>
+                    <td style={{ padding: "16px 18px", color: "var(--a-text-soft)" }}>
+                      <div>Báo cáo: {ticket.reportedBy?.fullName || "—"}</div>
+                      <div style={{ marginTop: 6 }}>Xử lý: {ticket.assignedTo?.fullName || "Chưa gán"}</div>
+                    </td>
+                    <td style={{ padding: "16px 18px", color: "var(--a-text-soft)", fontSize: 13 }}>
+                      <div>Mở: {fmtDateTime(ticket.openedAt)}</div>
+                      <div style={{ marginTop: 6 }}>ETA: {fmtDateTime(ticket.expectedDoneAt)}</div>
+                      <div style={{ marginTop: 6 }}>Resolved: {fmtDateTime(ticket.resolvedAt)}</div>
+                    </td>
+                    <td style={{ padding: "16px 18px" }}>
+                      <span style={{ padding: "6px 10px", borderRadius: 999, background: meta.bg, color: meta.color, fontSize: 11, fontWeight: 800 }}>{statusLabels[ticket.status] || ticket.status}</span>
+                    </td>
+                    <td style={{ padding: "16px 18px" }}>
+                      <textarea
+                        value={statusNotes[ticket.id] || ticket.resolutionNote || ""}
+                        onChange={(e) => setStatusNotes((prev) => ({ ...prev, [ticket.id]: e.target.value }))}
+                        placeholder="Ghi chú khi xử lý / đóng ticket"
+                        style={{ ...inputStyle, minHeight: 82, resize: "vertical" }}
+                      />
+                    </td>
+                    <td style={{ padding: "16px 18px" }}>
+                      <div style={{ display: "grid", gap: 8 }}>
+                        {["InProgress", "Resolved", "Closed", "Cancelled"].map((status) => (
+                          <button
+                            key={status}
+                            type="button"
+                            onClick={() => handleStatusUpdate(ticket.id, status)}
+                            disabled={saving || !canTransitionMaintenanceStatus(ticket.status, status)}
+                            style={{
+                              height: 34,
+                              borderRadius: 10,
+                              border: "1px solid var(--a-border)",
+                              background: "var(--a-surface)",
+                              color: "var(--a-text-muted)",
+                              fontWeight: 700,
+                              cursor: "pointer",
+                              opacity: canTransitionMaintenanceStatus(ticket.status, status) ? 1 : 0.5,
+                            }}
+                          >
+                            {statusActionLabels[status] || status}
+                          </button>
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        )}
+      </section>
+    </div>
+  );
+}

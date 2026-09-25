@@ -1,0 +1,65 @@
+const normalizePermissionCode = (permission) => {
+  if (typeof permission === "string") return permission;
+  if (permission && typeof permission === "object") return permission.permissionCode;
+  return null;
+};
+
+const getPermissionSet = (permissions = []) => {
+  const codes = permissions
+    .map(normalizePermissionCode)
+    .filter(Boolean);
+  return new Set(codes);
+};
+
+const hasPermission = (permissionSet, code) => {
+  return permissionSet.has(code);
+};
+
+export function isGuestRole(role) {
+  return role === "Customer" || role === "Guest";
+}
+
+export function canAccessGuestPortal(role) {
+  return Boolean(role);
+}
+
+export function getDefaultAdminPath(role, permissions = []) {
+  const permissionSet = getPermissionSet(permissions);
+
+  if (hasPermission(permissionSet, "VIEW_DASHBOARD")) return "/admin/dashboard";
+
+  if (role === "Receptionist" && hasPermission(permissionSet, "MANAGE_BOOKINGS")) {
+    return "/admin/bookings";
+  }
+
+  if (role === "Accountant" && hasPermission(permissionSet, "MANAGE_INVOICES")) {
+    return "/admin/invoices";
+  }
+
+  // Housekeeping thường đi thẳng khu vực dọn phòng khi không có dashboard.
+  if (role === "Housekeeping" && hasPermission(permissionSet, "MANAGE_ROOMS")) {
+    return "/admin/housekeeping";
+  }
+
+  if (role === "WarehouseStaff" && hasPermission(permissionSet, "MANAGE_INVENTORY")) {
+    return "/admin/items";
+  }
+
+  if (hasPermission(permissionSet, "MANAGE_ROOMS")) return "/admin/rooms";
+  if (hasPermission(permissionSet, "MANAGE_INVENTORY")) return "/admin/items";
+  if (hasPermission(permissionSet, "MANAGE_BOOKINGS")) return "/admin/bookings";
+  if (hasPermission(permissionSet, "MANAGE_VOUCHERS")) return "/admin/vouchers";
+  if (hasPermission(permissionSet, "MANAGE_SERVICES")) return "/admin/services";
+  if (hasPermission(permissionSet, "MANAGE_INVOICES")) return "/admin/invoices";
+  if (hasPermission(permissionSet, "MANAGE_ROOMS")) return "/admin/maintenance";
+  if (hasPermission(permissionSet, "MANAGE_USERS")) return "/admin/staff";
+  if (hasPermission(permissionSet, "VIEW_AUDIT_LOGS")) return "/admin/audit-logs";
+  if (hasPermission(permissionSet, "VIEW_ROLES")) return "/admin/roles";
+
+  return "/403";
+}
+
+export function getDefaultAuthenticatedPath(role, permissions = []) {
+  if (isGuestRole(role)) return "/guest/dashboard";
+  return getDefaultAdminPath(role, permissions);
+}

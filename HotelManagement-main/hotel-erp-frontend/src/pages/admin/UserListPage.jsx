@@ -1,0 +1,1611 @@
+// src/pages/admin/staff/UserListPage.jsx
+// Giao diện khớp 1:1 với UserManagement.html + tích hợp API thực tế
+import { useState, useEffect, useRef, useCallback } from "react";
+import {
+  getUsers,
+  getUserById,
+  createUser,
+  updateUser,
+  toggleStatus,
+  changeRole,
+  resetUserPassword,
+} from "../../api/userManagementApi";
+import { getRoles } from "../../api/rolesApi";
+import { useNavigate } from "react-router-dom";
+import { useResponsiveAdmin } from "../../hooks/useResponsiveAdmin";
+import { useAdminAuthStore } from "../../store/adminAuthStore";
+
+const ROLE_BADGE = {
+  Admin: "bg-purple-50 text-purple-600",
+  Manager: "bg-emerald-50 text-emerald-600",
+  Receptionist: "bg-blue-50 text-blue-600",
+  Accountant: "bg-stone-100 text-stone-600",
+  Housekeeping: "bg-yellow-50 text-yellow-700",
+  Security: "bg-orange-50 text-orange-600",
+  Chef: "bg-red-50 text-red-600",
+  Waiter: "bg-pink-50 text-pink-600",
+  "IT Support": "bg-cyan-50 text-cyan-600",
+  Guest: "bg-gray-100 text-gray-500",
+};
+
+const ACTION_LABELS = {
+  LoginAccount: "Đăng nhập",
+  CreateAccount: "Tạo tài khoản",
+  UpdateAccount: "Cập nhật",
+  LockAccount: "Khóa tài khoản",
+  UnlockAccount: "Mở khóa",
+  ViewUsers: "Xem danh sách",
+};
+
+const INPUT_STYLE = {
+  width: "100%",
+  padding: "10px 14px",
+  borderRadius: 12,
+  border: "1.5px solid var(--a-border-strong)",
+  background: "var(--a-surface-raised)",
+  fontSize: 14,
+  fontWeight: 600,
+  color: "var(--a-text)",
+  outline: "none",
+  fontFamily: "'Manrope', sans-serif",
+  transition: "all 0.2s",
+};
+
+const PRIMARY_BUTTON = {
+  background: "var(--a-primary)",
+  color: "var(--a-text-inverse)",
+  border: "none",
+  borderRadius: 12,
+  padding: "10px 22px",
+  fontSize: 14,
+  fontWeight: 800,
+  cursor: "pointer",
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 8,
+  boxShadow: "var(--a-shadow-sm)",
+  transition: "all 0.15s",
+};
+
+const SECONDARY_BUTTON = {
+  padding: "10px 22px",
+  borderRadius: 12,
+  border: "1.5px solid var(--a-border-strong)",
+  background: "var(--a-surface)",
+  color: "var(--a-text-muted)",
+  fontSize: 14,
+  fontWeight: 700,
+  cursor: "pointer",
+  transition: "all 0.15s",
+};
+
+const DETAIL_GRID_CARD = {
+  background: "var(--a-surface-raised)",
+  border: "1px solid var(--a-border)",
+  borderRadius: 14,
+  padding: 14,
+};
+
+function getUserStatusBadgeStyle(active) {
+  return active
+    ? {
+        background: "var(--a-success-bg)",
+        color: "var(--a-success)",
+        border: "1px solid var(--a-success-border)",
+      }
+    : {
+        background: "var(--a-warning-bg)",
+        color: "var(--a-warning)",
+        border: "1px solid var(--a-warning-border)",
+      };
+}
+
+// Thành phần thông báo ──────────────────────────────────────────────────────────
+const TOAST_STYLES = {
+  success: {
+    bg: "var(--a-success-bg)",
+    border: "var(--a-success-border)",
+    text: "var(--a-success)",
+    prog: "var(--a-success)",
+    icon: "check_circle",
+  },
+  error: {
+    bg: "var(--a-error-bg)",
+    border: "var(--a-error-border)",
+    text: "var(--a-error)",
+    prog: "var(--a-error)",
+    icon: "error",
+  },
+  warning: {
+    bg: "var(--a-warning-bg)",
+    border: "var(--a-warning-border)",
+    text: "var(--a-warning)",
+    prog: "var(--a-warning)",
+    icon: "warning",
+  },
+  info: {
+    bg: "var(--a-info-bg)",
+    border: "var(--a-info-border)",
+    text: "var(--a-info)",
+    prog: "var(--a-info)",
+    icon: "info",
+  },
+};
+
+function Toast({ id, msg, type = "success", action, dur = 4000, onDismiss }) {
+  const s = TOAST_STYLES[type] || TOAST_STYLES.info;
+  const actLabel =
+    action && ACTION_LABELS[action] ? ACTION_LABELS[action] : null;
+  useEffect(() => {
+    const t = setTimeout(() => onDismiss(id), dur);
+    return () => clearTimeout(t);
+  }, [id, dur, onDismiss]);
+  return (
+    <div
+      style={{
+        background: s.bg,
+        border: `1px solid ${s.border}`,
+        color: s.text,
+        borderRadius: 16,
+        overflow: "hidden",
+        boxShadow: "0 8px 32px rgba(0,0,0,.3)",
+        pointerEvents: "auto",
+        marginBottom: 10,
+        animation: "toastIn .35s cubic-bezier(.22,1,.36,1) forwards",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          gap: 10,
+          padding: "13px 13px 9px",
+        }}
+      >
+        <span
+          className="material-symbols-outlined"
+          style={{
+            fontSize: 19,
+            flexShrink: 0,
+            marginTop: 1,
+            fontVariationSettings: "'FILL' 1,'wght' 400,'GRAD' 0,'opsz' 20",
+          }}
+        >
+          {s.icon}
+        </span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {actLabel && (
+            <div
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                textTransform: "uppercase",
+                letterSpacing: ".08em",
+                opacity: 0.5,
+                marginBottom: 2,
+              }}
+            >
+              {actLabel}
+            </div>
+          )}
+          <p
+            style={{
+              fontSize: 13,
+              fontWeight: 600,
+              lineHeight: 1.4,
+              margin: 0,
+            }}
+          >
+            {msg}
+          </p>
+        </div>
+        <button
+          onClick={() => onDismiss(id)}
+          style={{
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            opacity: 0.4,
+            padding: 2,
+            color: "inherit",
+          }}
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
+            close
+          </span>
+        </button>
+      </div>
+      <div
+        style={{
+          margin: "0 12px 9px",
+          height: 3,
+          borderRadius: 9999,
+          background: "rgba(255,255,255,.1)",
+          overflow: "hidden",
+        }}
+      >
+        <div
+          style={{
+            height: "100%",
+            borderRadius: 9999,
+            background: s.prog,
+            animation: `toastProgress ${dur}ms linear forwards`,
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function ToastContainer({ toasts, onDismiss }) {
+  return (
+    <div
+      style={{
+        position: "fixed",
+        top: 24,
+        right: 24,
+        zIndex: 300,
+        minWidth: 280,
+        maxWidth: 360,
+        pointerEvents: "none",
+      }}
+    >
+      {toasts.map((t) => (
+        <Toast key={t.id} {...t} onDismiss={onDismiss} />
+      ))}
+    </div>
+  );
+}
+
+// ─── Skeleton Rows ────────────────────────────────────────────────────────────
+function SkeletonRows() {
+  return Array.from({ length: 5 }).map((_, i) => (
+    <tr key={i}>
+      <td className="px-6 py-4">
+        <div className="flex items-center gap-3">
+          <div className="skeleton w-9 h-9 rounded-full" />
+          <div>
+            <div className="skeleton w-28 h-4 mb-1" />
+            <div className="skeleton w-10 h-3" />
+          </div>
+        </div>
+      </td>
+      <td className="px-6 py-4">
+        <div className="skeleton w-40 h-4" />
+      </td>
+      <td className="px-6 py-4">
+        <div className="skeleton w-28 h-4" />
+      </td>
+      <td className="px-6 py-4">
+        <div className="skeleton w-24 h-5 rounded-full" />
+      </td>
+      <td className="px-6 py-4">
+        <div className="skeleton w-32 h-6 rounded-full" />
+      </td>
+      <td className="px-6 py-4">
+        <div className="skeleton w-16 h-8 rounded-lg ml-auto" />
+      </td>
+    </tr>
+  ));
+}
+
+// ─── Main Component ───────────────────────────────────────────────────────────
+export default function UserListPage() {
+  const navigate = useNavigate();
+  const permissions = useAdminAuthStore((state) => state.permissions || []);
+  const canChangeUserRole = permissions.includes("CHANGE_USER_ROLE");
+
+  const [allUsers, setAllUsers] = useState([]);
+  const [filtered, setFiltered] = useState([]);
+  const [roles, setRoles] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [filters, setFilters] = useState({
+    search: "",
+    roleId: "",
+    status: "",
+  });
+  const [toasts, setToasts] = useState([]);
+  const [togglingIds, setTogglingIds] = useState(new Set());
+
+  // Modal: Thêm/Sửa
+  const [addModalOpen, setAddModalOpen] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [fFullName, setFFullName] = useState("");
+  const [fEmail, setFEmail] = useState("");
+  const [fPhone, setFPhone] = useState("");
+  const [fRoleId, setFRoleId] = useState("");
+  const [fGender, setFGender] = useState("");
+  const [formError, setFormError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [formLoading, setFormLoading] = useState(false);
+
+  // Modal: Chi tiết
+  const [detailModalOpen, setDetailModalOpen] = useState(false);
+  const [detailUser, setDetailUser] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [resetPasswordLoading, setResetPasswordLoading] = useState(false);
+
+  const [topSearch, setTopSearch] = useState("");
+  const debounceRef = useRef(null);
+
+  // ── Toast helpers ──
+  const showToast = useCallback(
+    (msg, type = "success", action = null, dur = 4000) => {
+      const id = Date.now() + Math.random();
+      setToasts((prev) => [...prev, { id, msg, type, action, dur }]);
+    },
+    [],
+  );
+
+  const dismissToast = useCallback(
+    (id) => setToasts((prev) => prev.filter((t) => t.id !== id)),
+    [],
+  );
+
+  const showNotif = useCallback(
+    (notif, fallbackMsg = "", fallbackType = "info") => {
+      if (notif?.message) {
+        const t = (notif.type || fallbackType).toLowerCase();
+        showToast(
+          notif.message,
+          ["success", "error", "warning", "info"].includes(t)
+            ? t
+            : fallbackType,
+          notif.action || null,
+        );
+      } else if (fallbackMsg) {
+        showToast(fallbackMsg, fallbackType);
+      }
+    },
+    [showToast],
+  );
+
+  // ── Load users ──
+  const loadUsers = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await getUsers({ page: 1, pageSize: 200 });
+      const data = res.data;
+      let users = data.data || [];
+      const total = data.pagination?.totalItems || users.length;
+      if (total > 200) {
+        const all = await getUsers({ page: 1, pageSize: total });
+        if (all.data) users = all.data.data || users;
+      }
+      setAllUsers(users);
+    } catch (e) {
+      showNotif(
+        e?.response?.data?.notification,
+        e?.response?.data?.message || "Không thể tải danh sách người dùng.",
+        "error",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [showNotif]);
+
+  const loadRoles = useCallback(async () => {
+    try {
+      const res = await getRoles();
+      setRoles(res.data?.data || []);
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    loadUsers();
+    loadRoles();
+  }, [loadUsers, loadRoles]);
+
+  // ── Apply filters ──
+  useEffect(() => {
+    let users = [...allUsers];
+    const q = filters.search.toLowerCase().trim();
+    if (q)
+      users = users.filter(
+        (u) =>
+          (u.fullName || "").toLowerCase().includes(q) ||
+          (u.email || "").toLowerCase().includes(q) ||
+          (u.phone || "").toLowerCase().includes(q),
+      );
+    if (filters.roleId)
+      users = users.filter((u) => u.roleId === parseInt(filters.roleId));
+    if (filters.status === "active")
+      users = users.filter((u) => u.status === true);
+    if (filters.status === "locked") users = users.filter((u) => !u.status);
+    setFiltered(users);
+    setPage(1);
+  }, [allUsers, filters]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const paginatedUsers = filtered.slice((page - 1) * pageSize, page * pageSize);
+
+  // ── Toggle status ──
+  const handleToggle = async (userId) => {
+    if (togglingIds.has(userId)) return;
+    setTogglingIds((prev) => new Set(prev).add(userId));
+    try {
+      const res = await toggleStatus(userId);
+      const data = res.data;
+      const isActive = data.status === true || data.status === 1;
+      setAllUsers((prev) =>
+        prev.map((u) => (u.id === userId ? { ...u, status: isActive } : u)),
+      );
+      showNotif(
+        data.notification,
+        isActive ? "Đã mở khóa tài khoản." : "Đã khóa tài khoản.",
+        isActive ? "success" : "warning",
+      );
+    } catch (e) {
+      showNotif(
+        e?.response?.data?.notification,
+        e?.response?.data?.message || "Không thể thay đổi trạng thái.",
+        "error",
+      );
+    } finally {
+      setTogglingIds((prev) => {
+        const n = new Set(prev);
+        n.delete(userId);
+        return n;
+      });
+    }
+  };
+
+  // ── Detail modal — fetch trước, mở modal sau (tránh flash skeleton) ──
+  const openDetail = async (userId) => {
+    try {
+      const res = await getUserById(userId);
+      setDetailUser(res.data);
+      setDetailModalOpen(true);
+    } catch (e) {
+      showToast(
+        e?.response?.data?.message || "Không thể tải thông tin.",
+        "error",
+      );
+    }
+  };
+
+  // ── Reset Password ──
+  const handleResetPassword = async (userId) => {
+    if (!window.confirm("Bạn có chắc chắn muốn thiết lập lại mật khẩu cho người dùng này? Mật khẩu mới sẽ được gởi qua email.")) {
+      return;
+    }
+    setResetPasswordLoading(true);
+    try {
+      const res = await resetUserPassword(userId);
+      showNotif(
+        res.data?.notification,
+        res.data?.message || "Đã reset mật khẩu thành công.",
+        "success"
+      );
+    } catch (e) {
+      showNotif(
+        e?.response?.data?.notification,
+        e?.response?.data?.message || "Không thể reset mật khẩu.",
+        "error"
+      );
+    } finally {
+      setResetPasswordLoading(false);
+    }
+  };
+
+
+  // ── Add/Edit modal ──
+  const openAdd = () => {
+    setEditingId(null);
+    resetForm();
+    setAddModalOpen(true);
+  };
+
+  const openEdit = async (userId) => {
+    try {
+      const res = await getUserById(userId);
+      const u = res.data;
+      setEditingId(userId);
+      setFFullName(u.fullName || "");
+      setFEmail(u.email || "");
+      setFPhone(u.phone || "");
+      setFGender(u.gender || "");
+      setFRoleId(u.roleId?.toString() || "");
+      setFormError("");
+      setFieldErrors({});
+      setAddModalOpen(true);
+    } catch (e) {
+      showToast(
+        e?.response?.data?.message || "Không thể tải thông tin.",
+        "error",
+      );
+    }
+  };
+
+  const resetForm = () => {
+    setFFullName("");
+    setFEmail("");
+    setFPhone("");
+    setFRoleId("");
+    setFGender("");
+    setFormError("");
+    setFieldErrors({});
+  };
+
+  // ── Form validation & submit ──
+  const validateForm = () => {
+    const errs = {};
+    if (!fFullName.trim()) errs.fullName = "Họ và tên không được để trống.";
+    if (!editingId) {
+      if (!fEmail.trim()) errs.email = "Email không được để trống.";
+      else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fEmail))
+        errs.email = "Email không hợp lệ.";
+    }
+    setFieldErrors(errs);
+    return Object.keys(errs).length === 0;
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!validateForm()) return;
+    setFormLoading(true);
+    setFormError("");
+    try {
+      if (editingId) {
+        const cur = allUsers.find((u) => u.id === editingId);
+        const roleChanged = canChangeUserRole && fRoleId && cur && parseInt(fRoleId) !== cur.roleId;
+
+        const promises = [
+          updateUser(editingId, { fullName: fFullName, phone: fPhone || null, gender: fGender || null }),
+          ...(roleChanged ? [changeRole(editingId, parseInt(fRoleId))] : []),
+        ];
+
+        const [res, rRes] = await Promise.all(promises);
+        if (roleChanged && rRes) showNotif(rRes.data?.notification);
+        showNotif(
+          res.data?.notification,
+          res.data?.message || "Cập nhật thành công!",
+          "success",
+        );
+      } else {
+        const res = await createUser({
+          fullName: fFullName,
+          email: fEmail,
+          phone: fPhone || null,
+          gender: fGender || null,
+          roleId: fRoleId ? parseInt(fRoleId) : null,
+        });
+        showNotif(
+          res.data?.notification,
+          res.data?.message || "Tạo tài khoản thành công!",
+          "success",
+        );
+      }
+      setAddModalOpen(false);
+      await loadUsers();
+    } catch (e) {
+      setFormError(e?.response?.data?.message || "Có lỗi xảy ra.");
+      showNotif(e?.response?.data?.notification);
+    } finally {
+      setFormLoading(false);
+    }
+  };
+
+  // ── Search debounce ──
+  const onSearch = (val) => {
+    setTopSearch(val);
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(
+      () => setFilters((f) => ({ ...f, search: val.trim() })),
+      320,
+    );
+  };
+
+  // ── Export CSV ──
+  const exportCSV = () => {
+    const users = filtered.length ? filtered : allUsers;
+    if (!users.length) {
+      showToast("Không có dữ liệu để xuất.", "warning");
+      return;
+    }
+    const h = [
+      "ID",
+      "Họ tên",
+      "Email",
+      "Điện thoại",
+      "Vai trò",
+      "Hạng",
+      "Điểm",
+      "Trạng thái",
+      "Ngày tạo",
+    ];
+    const rows = users.map((u) => [
+      u.id,
+      u.fullName || "",
+      u.email || "",
+      u.phone || "",
+      u.roleName || "",
+      u.membershipTier || "",
+      u.loyaltyPoints || 0,
+      u.status === true ? "Hoạt động" : "Đã khóa",
+      u.createdAt ? new Date(u.createdAt).toLocaleDateString("vi-VN") : "",
+    ]);
+    const csv = [h, ...rows]
+      .map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","))
+      .join("\n");
+    const blob = new Blob(["\ufeff" + csv], {
+      type: "text/csv;charset=utf-8;",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = Object.assign(document.createElement("a"), {
+      href: url,
+      download: `nhan-su_${new Date().toISOString().slice(0, 10)}.csv`,
+    });
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast(`Đã xuất ${users.length} bản ghi.`, "success");
+  };
+
+
+
+  // ── Pagination ──
+  const renderPagination = () => {
+    if (totalPages <= 1) return null;
+    const DELTA = 2;
+    const lo = Math.max(1, page - DELTA),
+      hi = Math.min(totalPages, page + DELTA);
+    const nums = Array.from({ length: hi - lo + 1 }, (_, i) => lo + i);
+
+    const Btn = ({ p, label, disabled, active }) => (
+      <button
+        key={`pg-${p}-${label}`}
+        onClick={() => !disabled && setPage(p)}
+        disabled={disabled}
+        className={`pg-btn${active ? " active" : ""}${typeof label !== "number" ? " icon" : ""}`}
+      >
+        {typeof label === "number" ? (
+          label
+        ) : (
+          <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
+            {label}
+          </span>
+        )}
+      </button>
+    );
+
+    return (
+      <div className="flex items-center gap-1">
+        <Btn p={page - 1} label="chevron_left" disabled={page <= 1} />
+        {nums[0] > 1 && (
+          <>
+            <Btn p={1} label={1} />
+            {nums[0] > 2 && (
+              <span className="px-1 text-stone-300 text-sm">...</span>
+            )}
+          </>
+        )}
+        {nums.map((n) => (
+          <Btn key={n} p={n} label={n} active={n === page} />
+        ))}
+        {nums[nums.length - 1] < totalPages && (
+          <>
+            {nums[nums.length - 1] < totalPages - 1 && (
+              <span className="px-1 text-stone-300 text-sm">...</span>
+            )}
+            <Btn p={totalPages} label={totalPages} />
+          </>
+        )}
+        <Btn p={page + 1} label="chevron_right" disabled={page >= totalPages} />
+      </div>
+    );
+  };
+
+  const hasFilter = filters.search || filters.roleId || filters.status;
+  const start = (page - 1) * pageSize + 1,
+    end = Math.min(page * pageSize, filtered.length);
+
+  return (
+    <>
+      {/* ── Global Styles ── */}
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
+        * { font-family: 'Manrope', sans-serif; }
+
+        .toggle-switch { position:relative; display:inline-block; width:44px; height:24px; }
+        .toggle-switch input { opacity:0; width:0; height:0; }
+        .slider { position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background-color:#cbd5e1; transition:.4s; border-radius:24px; }
+        .slider:before { position:absolute; content:""; height:18px; width:18px; left:3px; bottom:3px; background-color:white; transition:.4s; border-radius:50%; }
+        input:checked + .slider { background-color:#4f645b; }
+        input:checked + .slider:before { transform:translateX(20px); }
+        input:disabled + .slider { opacity:0.5; cursor:not-allowed; }
+
+        @keyframes spin { to { transform:rotate(360deg) } }
+        .spinner { display:inline-block; width:14px; height:14px; border:2px solid rgba(255,255,255,.35); border-top-color:white; border-radius:50%; animation:spin .65s linear infinite; vertical-align:middle; margin-right:6px; }
+        .spinner-dark { border-color:rgba(79,100,91,.2); border-top-color:#4f645b; }
+
+        @keyframes shimmer { 0%{background-position:-600px 0} 100%{background-position:600px 0} }
+        .skeleton { background:linear-gradient(90deg,#e8e8e0 25%,#f2f2ea 50%,#e8e8e0 75%); background-size:600px; animation:shimmer 1.4s infinite; border-radius:6px; }
+
+        @keyframes toastIn  { from{transform:translateX(110%);opacity:0} to{transform:translateX(0);opacity:1} }
+        @keyframes toastOut { from{transform:translateX(0);opacity:1} to{transform:translateX(110%);opacity:0} }
+        @keyframes toastProgress { from{width:100%} to{width:0} }
+
+        @keyframes fadeRow { from{opacity:0;transform:translateY(5px)} to{opacity:1;transform:translateY(0)} }
+        .fade-row { animation:fadeRow .22s ease forwards; }
+        tbody tr { transition:background .12s; }
+
+        .modal-backdrop { backdrop-filter:blur(4px); }
+
+        .pg-btn { width:2rem; height:2rem; border-radius:.5rem; display:flex; align-items:center; justify-content:center; font-size:.875rem; font-weight:500; color:#6b7280; background:transparent; border:none; cursor:pointer; transition:background .15s,color .15s; }
+        .pg-btn:hover:not(:disabled) { background:#f3f4f6; }
+        .pg-btn.active { background:#4f645b; color:#e7fef3; font-weight:800; cursor:default; }
+        .pg-btn:disabled { opacity:.35; cursor:not-allowed; }
+        .pg-btn.icon { color:#9ca3af; }
+      `}</style>
+
+      {/* Khu vực thông báo */}
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+
+      {/* ══════ MODALS ══════ */}
+      {addModalOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 modal-backdrop flex items-center justify-center z-50"
+          onClick={(e) => e.target === e.currentTarget && setAddModalOpen(false)}
+        >
+          <div className="rounded-2xl p-8 w-full max-w-md shadow-2xl" style={{ background: "var(--a-surface)", border: "1px solid var(--a-border)", color: "var(--a-text)" }}>
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-bold">
+                {editingId ? "Chỉnh sửa thông tin" : "Thêm người dùng mới"}
+              </h3>
+              <button
+                onClick={() => setAddModalOpen(false)}
+                className="p-1.5 rounded-lg transition-colors border-0"
+                style={{ color: "var(--a-text-soft)" }}
+              >
+                <span className="material-symbols-outlined text-xl">close</span>
+              </button>
+            </div>
+            <form noValidate onSubmit={handleSubmit}>
+              <div className="mb-4">
+                <label className="block text-sm font-medium mb-1">Họ và tên *</label>
+                <input
+                  type="text"
+                  placeholder="Nguyễn Văn A"
+                  value={fFullName}
+                  onChange={(e) => setFFullName(e.target.value)}
+                  style={INPUT_STYLE}
+                  onFocus={(e) => { e.target.style.borderColor = "var(--a-primary)"; e.target.style.boxShadow = "0 0 0 2px color-mix(in srgb, var(--a-primary) 18%, transparent)"; }}
+                  onBlur={(e) => { e.target.style.borderColor = "var(--a-border-strong)"; e.target.style.boxShadow = "none"; }}
+                />
+                {fieldErrors.fullName && (
+                  <p className="text-xs mt-1 text-red-600">{fieldErrors.fullName}</p>
+                )}
+              </div>
+              <div className="mb-4">
+                <label className="block text-sm font-medium mb-1">Email *</label>
+                <input
+                  type="email"
+                  placeholder="email@hotel.com"
+                  value={fEmail}
+                  onChange={(e) => setFEmail(e.target.value)}
+                  disabled={!!editingId}
+                  style={{ ...INPUT_STYLE, opacity: editingId ? 0.6 : 1, cursor: editingId ? "not-allowed" : "text" }}
+                />
+                {fieldErrors.email && (
+                  <p className="text-xs mt-1 text-red-600">{fieldErrors.email}</p>
+                )}
+              </div>
+              <div className="mb-4">
+                <label className="block text-sm font-medium mb-1">SĐT</label>
+                <input
+                  type="tel"
+                  placeholder="09xxxxxxxx"
+                  value={fPhone}
+                  onChange={(e) => setFPhone(e.target.value)}
+                  style={INPUT_STYLE}
+                  onFocus={(e) => { e.target.style.borderColor = "var(--a-primary)"; e.target.style.boxShadow = "0 0 0 2px color-mix(in srgb, var(--a-primary) 18%, transparent)"; }}
+                  onBlur={(e) => { e.target.style.borderColor = "var(--a-border-strong)"; e.target.style.boxShadow = "none"; }}
+                />
+              </div>
+              <div className="mb-4">
+                <label className="block text-sm font-medium mb-1">Vai trò</label>
+                <select
+                  value={fRoleId}
+                    onChange={(e) => setFRoleId(e.target.value)}
+                    style={INPUT_STYLE}
+                    disabled={editingId && !canChangeUserRole}
+                  >
+                  <option value="">-- Chọn vai trò --</option>
+                  {roles.map((r) => (
+                    <option key={r.id} value={r.id}>{r.name}</option>
+                  ))}
+                  </select>
+                  {editingId && !canChangeUserRole ? (
+                    <div style={{ marginTop: 6, fontSize: 12, color: "var(--a-text-soft)" }}>
+                      Tài khoản của bạn không có quyền đổi vai trò người dùng.
+                    </div>
+                  ) : null}
+              </div>
+              <div className="mb-4">
+                <label className="block text-sm font-medium mb-1">Giới tính</label>
+                <select
+                  value={fGender}
+                  onChange={(e) => setFGender(e.target.value)}
+                  style={INPUT_STYLE}
+                >
+                  <option value="">-- Chọn --</option>
+                  <option value="Nam">Nam</option>
+                  <option value="Nữ">Nữ</option>
+                  <option value="Khác">Khác</option>
+                </select>
+              </div>
+              {!editingId && (
+                <div className="mb-4 rounded-xl px-4 py-3 text-sm" style={{ background: "var(--a-warning-bg)", border: "1px solid var(--a-warning-border)", color: "var(--a-warning)" }}>
+                  Mật khẩu sẽ được tạo ngẫu nhiên và gửi về email người dùng sau khi tạo tài khoản.
+                </div>
+              )}
+              {formError && (
+                <div className="mb-4 rounded-xl px-4 py-3 text-sm flex items-start gap-2" style={{ background: "var(--a-error-bg)", border: "1px solid var(--a-error-border)", color: "var(--a-error)" }}>
+                  <span className="material-symbols-outlined mt-0.5" style={{ fontSize: 16, color: "var(--a-error)" }}>error</span>
+                  <span>{formError}</span>
+                </div>
+              )}
+              <div className="flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setAddModalOpen(false)}
+                  style={SECONDARY_BUTTON}
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  disabled={formLoading}
+                  style={{ ...PRIMARY_BUTTON, opacity: formLoading ? 0.6 : 1 }}
+                >
+                  {formLoading && <span className="spinner" />}
+                  {editingId ? "Lưu" : "Thêm"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {detailModalOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 modal-backdrop flex items-center justify-center z-50"
+          onClick={(e) => e.target === e.currentTarget && setDetailModalOpen(false)}
+        >
+          <div
+            className="rounded-2xl w-full max-w-md shadow-2xl"
+            style={{ maxHeight: "90vh", display: "flex", flexDirection: "column", background: "var(--a-surface)", border: "1px solid var(--a-border)", color: "var(--a-text)" }}
+          >
+            <div className="flex items-center justify-between px-8 pt-7 pb-4 flex-shrink-0" style={{ borderBottom: "1px solid var(--a-border)" }}>
+              <h3 className="text-xl font-bold">Chi tiết người dùng</h3>
+              <button
+                onClick={() => setDetailModalOpen(false)}
+                className="p-1.5 rounded-lg transition-colors"
+                style={{ color: "var(--a-text-soft)" }}
+              >
+                <span className="material-symbols-outlined text-xl">close</span>
+              </button>
+            </div>
+            <div className="px-8 py-5 overflow-y-auto flex-1">
+              {detailLoading ? (
+                <div className="py-10 flex justify-center">
+                  <div className="spinner-dark" style={{ width: 24, height: 24, border: "3px solid color-mix(in srgb, var(--a-primary) 22%, transparent)", borderTopColor: "var(--a-primary)", borderRadius: "50%", animation: "spin .65s linear infinite" }} />
+                </div>
+              ) : detailUser ? (
+                (() => {
+                  const active = detailUser.status === true || detailUser.status === 1;
+                  const statusStyle = getUserStatusBadgeStyle(active);
+                  const infoRows = [
+                    ["Vai trò", detailUser.roleName || "—"],
+                    ["Hạng thành viên", detailUser.membershipTier || "—"],
+                    ["Điện thoại", detailUser.phone || "—"],
+                    ["Giới tính", detailUser.gender || "—"],
+                    ["Ngày sinh", detailUser.dateOfBirth || "—"],
+                    ["CCCD / Hộ chiếu", detailUser.nationalId || "—"],
+                    ["Điểm tích lũy", detailUser.loyaltyPoints ?? "-"],
+                    ["Điểm khả dụng", detailUser.loyaltyPointsUsable ?? "-"],
+                    ["Địa chỉ", detailUser.address || "—"],
+                    ["Ngày tạo", detailUser.createdAt ? new Date(detailUser.createdAt).toLocaleDateString("vi-VN") : "—"],
+                  ];
+
+                  return (
+                <>
+                  <div
+                    style={{
+                      background: "var(--a-emphasis-bg)",
+                      border: "1px solid color-mix(in srgb, var(--a-primary) 20%, transparent)",
+                      borderRadius: 18,
+                      padding: 18,
+                      marginBottom: 18,
+                    }}
+                  >
+                    <div className="flex items-start gap-4">
+                      <div
+                        className="w-16 h-16 rounded-full flex items-center justify-center font-bold text-2xl"
+                        style={{
+                          background: "color-mix(in srgb, var(--a-surface) 20%, transparent)",
+                          color: "var(--a-emphasis-text)",
+                          border: "1px solid color-mix(in srgb, var(--a-emphasis-text) 16%, transparent)",
+                          flexShrink: 0,
+                        }}
+                      >
+                        {(detailUser.fullName || "?")[0].toUpperCase()}
+                      </div>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".12em", textTransform: "uppercase", color: "var(--a-emphasis-muted)" }}>
+                          Hồ sơ người dùng
+                        </div>
+                        <div style={{ marginTop: 6, fontSize: 22, fontWeight: 800, color: "var(--a-emphasis-text)", lineHeight: 1.2 }}>
+                          {detailUser.fullName || "—"}
+                        </div>
+                        <div style={{ marginTop: 6, fontSize: 13, color: "var(--a-emphasis-muted)", overflowWrap: "anywhere" }}>
+                          {detailUser.email || "—"}
+                        </div>
+                        <div className="flex items-center gap-2 mt-3 flex-wrap">
+                          <span
+                            style={{
+                              ...statusStyle,
+                              padding: "5px 10px",
+                              borderRadius: 999,
+                              fontSize: 11,
+                              fontWeight: 800,
+                              textTransform: "uppercase",
+                              letterSpacing: ".04em",
+                            }}
+                          >
+                            {active ? "Hoạt động" : "Đã khóa"}
+                          </span>
+                          <span className={`px-2.5 py-1 rounded-full text-[11px] font-extrabold uppercase ${ROLE_BADGE[detailUser.roleName] || "bg-stone-100 text-stone-500"}`}>
+                            {detailUser.roleName || "—"}
+                          </span>
+                          <span
+                            style={{
+                              padding: "5px 10px",
+                              borderRadius: 999,
+                              fontSize: 11,
+                              fontWeight: 700,
+                              color: "var(--a-emphasis-text)",
+                              background: "color-mix(in srgb, var(--a-surface) 18%, transparent)",
+                              border: "1px solid color-mix(in srgb, var(--a-emphasis-text) 14%, transparent)",
+                            }}
+                          >
+                            ID #{detailUser.id}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                      gap: 12,
+                    }}
+                  >
+                    {infoRows.map(([k, v], i) => (
+                      <div key={i} style={DETAIL_GRID_CARD}>
+                        <div
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 800,
+                            textTransform: "uppercase",
+                            letterSpacing: ".12em",
+                            color: "var(--a-text-soft)",
+                            marginBottom: 8,
+                          }}
+                        >
+                          {k}
+                        </div>
+                        <div
+                          style={{
+                            fontSize: 14,
+                            fontWeight: 700,
+                            color: "var(--a-text)",
+                            lineHeight: 1.45,
+                            wordBreak: "break-word",
+                          }}
+                          title={String(v)}
+                        >
+                          {String(v)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="flex justify-end gap-3 mt-5 pt-4" style={{ borderTop: "1px solid var(--a-border)" }}>
+                    <button
+                      onClick={() => handleResetPassword(detailUser.id)}
+                      disabled={resetPasswordLoading}
+                      className="px-4 py-2 text-sm font-bold rounded-xl hover:opacity-90 transition-all flex items-center gap-1.5 disabled:opacity-50"
+                      style={{ background: "var(--a-error-bg)", color: "var(--a-error)", border: "1px solid var(--a-error-border)" }}
+                    >
+                      {resetPasswordLoading ? (
+                        <span className="spinner-dark" style={{ borderColor: "color-mix(in srgb, var(--a-error) 20%, transparent)", borderTopColor: "var(--a-error)", width: 16, height: 16 }} />
+                      ) : (
+                        <span className="material-symbols-outlined text-base">key</span>
+                      )}
+                      Quên mật khẩu
+                    </button>
+                    <button
+                      onClick={() => { setDetailModalOpen(false); openEdit(detailUser.id); }}
+                      className="px-4 py-2 text-sm font-bold rounded-xl hover:opacity-90 transition-all flex items-center gap-1.5"
+                      style={{ background: "var(--a-emphasis-bg)", color: "var(--a-emphasis-text)" }}
+                    >
+                      <span className="material-symbols-outlined text-base">edit_square</span>
+                      Chỉnh sửa
+                    </button>
+                  </div>
+                </>
+                  );
+                })()
+              ) : null}
+            </div>
+          </div>
+        </div>
+      )}
+
+
+      {/* ── Main Content Area ── */}
+      <div style={{ maxWidth: 1400, margin: "0 auto" }}>
+        <UserListHeader
+          allUsersCount={allUsers.length}
+          hasFilter={hasFilter}
+          filteredCount={filtered.length}
+          onExportCSV={exportCSV}
+          onOpenAdd={openAdd}
+        />
+
+        <UserListFilters
+          topSearch={topSearch}
+          onSearch={onSearch}
+          roles={roles}
+          filters={filters}
+          setFilters={setFilters}
+          onClearFilters={() => {
+            clearTimeout(debounceRef.current);
+            setTopSearch("");
+            setFilters({ search: "", roleId: "", status: "" });
+          }}
+        />
+
+        <UserListTable
+          loading={loading}
+          paginatedUsers={paginatedUsers}
+          togglingIds={togglingIds}
+          pageSize={pageSize}
+          filteredCount={filtered.length}
+          start={start}
+          end={end}
+          page={page}
+          setPage={setPage}
+          setPageSize={setPageSize}
+          openDetail={openDetail}
+          handleToggle={handleToggle}
+          renderPagination={renderPagination}
+          ROLE_BADGE={ROLE_BADGE}
+          SkeletonRows={SkeletonRows}
+        />
+      </div>
+      </>
+    );
+  }
+
+
+
+
+
+
+export function UserListHeader({
+  allUsersCount,
+  hasFilter,
+  filteredCount,
+  onExportCSV,
+  onOpenAdd,
+}) {
+  const { isMobile } = useResponsiveAdmin();
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: isMobile ? "column" : "row",
+        justifyContent: "space-between",
+        alignItems: isMobile ? "stretch" : "center",
+        gap: isMobile ? 16 : 24,
+        marginBottom: 32,
+      }}
+    >
+      <div>
+        <h2
+          style={{
+            fontSize: 28,
+            fontWeight: 800,
+            color: "var(--a-text)",
+            letterSpacing: "-0.02em",
+            margin: 0,
+          }}
+        >
+          Quản lý Nhân sự &amp; Người dùng
+        </h2>
+        <p style={{ fontSize: 14, color: "var(--a-text-muted)", marginTop: 4 }}>
+          Tổng: <span style={{ fontWeight: 600, color: "var(--a-text)" }}>{allUsersCount}</span> người dùng
+          {hasFilter && filteredCount !== allUsersCount && (
+            <span style={{ color: "var(--a-brand-ink)", marginLeft: 4 }}>
+              (lọc: <span style={{ fontWeight: 600 }}>{filteredCount}</span>)
+            </span>
+          )}
+        </p>
+      </div>
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", width: isMobile ? "100%" : "auto" }}>
+        <button
+          onClick={onExportCSV}
+          style={{
+            ...SECONDARY_BUTTON,
+            flex: isMobile ? "1 1 0" : "0 0 auto",
+            minWidth: isMobile ? 0 : "auto",
+            justifyContent: "center",
+          }}
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
+            file_download
+          </span>
+          Xuất báo cáo
+        </button>
+        <button
+          onClick={onOpenAdd}
+          style={{
+            ...PRIMARY_BUTTON,
+            flex: isMobile ? "1 1 0" : "0 0 auto",
+            minWidth: isMobile ? 0 : "auto",
+            justifyContent: "center",
+          }}
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
+            person_add
+          </span>
+          Thêm người dùng
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export function UserListFilters({
+  topSearch,
+  onSearch,
+  roles,
+  filters,
+  setFilters,
+  onClearFilters,
+}) {
+  return (
+    <section
+      style={{
+        background: "var(--a-surface)",
+        borderRadius: 16,
+        padding: 24,
+        marginBottom: 24,
+        boxShadow: "var(--a-shadow-sm)",
+        border: "1px solid var(--a-border)",
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 16,
+        alignItems: "flex-end",
+      }}
+    >
+      <div style={{ flex: 1, minWidth: 300 }}>
+        <label
+          style={{
+            display: "block",
+            fontSize: 11,
+            fontWeight: 700,
+            letterSpacing: "0.15em",
+            textTransform: "uppercase",
+            color: "var(--a-text-muted)",
+            marginBottom: 8,
+          }}
+        >
+          Họ tên, Email, SĐT
+        </label>
+        <div style={{ position: "relative" }}>
+          <span
+            className="material-symbols-outlined"
+            style={{
+              position: "absolute",
+              left: 12,
+              top: "50%",
+              transform: "translateY(-50%)",
+              color: "var(--a-text-soft)",
+              fontSize: 20,
+            }}
+          >
+            search
+          </span>
+          <input
+            value={topSearch}
+            onChange={(e) => onSearch(e.target.value)}
+            style={{
+              ...INPUT_STYLE,
+              padding: "10px 16px 10px 40px",
+            }}
+            placeholder="Gõ từ khóa..."
+          />
+        </div>
+      </div>
+      <div style={{ width: 224 }}>
+        <label
+          style={{
+            display: "block",
+            fontSize: 11,
+            fontWeight: 700,
+            letterSpacing: "0.15em",
+            textTransform: "uppercase",
+            color: "var(--a-text-muted)",
+            marginBottom: 8,
+          }}
+        >
+          Lọc theo Vai trò
+        </label>
+        <select
+          value={filters.roleId}
+          onChange={(e) => setFilters((f) => ({ ...f, roleId: e.target.value }))}
+          style={INPUT_STYLE}
+        >
+          <option value="">Chọn vai trò</option>
+          {roles.map((r) => (
+            <option key={r.id} value={r.id}>
+              {r.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div style={{ width: 224 }}>
+        <label
+          style={{
+            display: "block",
+            fontSize: 11,
+            fontWeight: 700,
+            letterSpacing: "0.15em",
+            textTransform: "uppercase",
+            color: "var(--a-text-muted)",
+            marginBottom: 8,
+          }}
+        >
+          Lọc theo Trạng thái
+        </label>
+        <select
+          value={filters.status}
+          onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))}
+          style={INPUT_STYLE}
+        >
+          <option value="">Chọn trạng thái</option>
+          <option value="active">Hoạt động</option>
+          <option value="locked">Đã khóa</option>
+        </select>
+      </div>
+      <button
+        onClick={onClearFilters}
+        style={{
+          ...SECONDARY_BUTTON,
+          padding: 10,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+        title="Xóa bộ lọc"
+      >
+        <span className="material-symbols-outlined">tune</span>
+      </button>
+    </section>
+  );
+}
+
+export function UserListTable({
+  loading,
+  paginatedUsers,
+  togglingIds,
+  pageSize,
+  filteredCount,
+  start,
+  end,
+  page,
+  setPage,
+  setPageSize,
+  openDetail,
+  handleToggle,
+  renderPagination,
+  ROLE_BADGE,
+  SkeletonRows,
+}) {
+  const { isMobile } = useResponsiveAdmin();
+  return (
+    <div
+      style={{
+        background: "var(--a-surface)",
+        borderRadius: 16,
+        boxShadow: "var(--a-shadow-sm)",
+        border: "1px solid var(--a-border)",
+        overflow: "hidden",
+      }}
+    >
+      {isMobile ? (
+        <div style={{ display: "grid", gap: 12, padding: 14 }}>
+          {loading ? (
+            Array.from({ length: 4 }).map((_, index) => (
+              <div key={index} className="skeleton" style={{ height: 132, borderRadius: 16 }} />
+            ))
+          ) : paginatedUsers.length === 0 ? null : (
+            paginatedUsers.map((u) => {
+              const active = u.status === true || u.status === 1;
+              const initial = (u.fullName || "?")[0].toUpperCase();
+              const roleClass = ROLE_BADGE[u.roleName] || "bg-stone-100 text-stone-500";
+              return (
+                <article key={u.id} className="fade-row" style={{ border: "1px solid var(--a-border)", borderRadius: 16, padding: 14, display: "grid", gap: 12, background: "var(--a-surface)" }}>
+                  <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                    {u.avatarUrl ? (
+                      <img alt="" src={u.avatarUrl} style={{ width: 44, height: 44, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />
+                    ) : (
+                      <div style={{ width: 44, height: 44, borderRadius: "50%", background: "var(--a-primary-soft)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--a-primary)", fontWeight: 900, fontSize: 15, flexShrink: 0 }}>
+                        {initial}
+                      </div>
+                    )}
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ fontWeight: 900, color: "#292524", fontSize: 16 }}>{u.fullName || "-"}</div>
+                      <div style={{ fontSize: 12, color: "#9ca3af" }}>#{u.id}</div>
+                      <div style={{ marginTop: 6, overflowWrap: "anywhere", fontSize: 13, color: "#4b5563" }}>{u.email || "-"}</div>
+                      <div style={{ fontSize: 13, color: "var(--a-text-muted)" }}>{u.phone || "-"}</div>
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                    <span className={`px-3 py-1 ${roleClass} text-[10px] font-extrabold rounded-full uppercase`}>
+                      {u.roleName || "-"}
+                    </span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 12, fontWeight: 800, color: active ? "#059669" : "#9ca3af" }}>
+                        {active ? "Hoạt động" : "Đã khóa"}
+                      </span>
+                      <label className="toggle-switch">
+                        <input type="checkbox" checked={active} disabled={togglingIds.has(u.id)} onChange={() => handleToggle(u.id)} />
+                        <span className="slider" />
+                      </label>
+                    </div>
+                  </div>
+                  <button type="button" onClick={() => openDetail(u.id)} style={{ height: 40, borderRadius: 12, border: "none", background: "var(--a-emphasis-bg)", color: "var(--a-emphasis-text)", fontWeight: 900, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 18 }}>visibility</span>
+                    Xem chi tiết
+                  </button>
+                </article>
+              );
+            })
+          )}
+        </div>
+      ) : (
+      <div style={{ overflowX: "auto" }}>
+        <table
+          style={{
+            width: "100%",
+            borderCollapse: "collapse",
+            textAlign: "left",
+          }}
+        >
+          <thead>
+            <tr
+              style={{
+                background: "var(--a-surface-raised)",
+                borderBottom: "1px solid var(--a-border)",
+              }}
+            >
+              {["Họ và tên", "Email", "Số điện thoại", "Vai trò", "Trạng thái", "Thao tác"].map((h, i) => (
+                <th
+                  key={h}
+                  style={{
+                    padding: "16px 24px",
+                    fontSize: 11,
+                    fontWeight: 700,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.08em",
+                    color: "var(--a-text-muted)",
+                    textAlign: i === 5 ? "right" : "left",
+                  }}
+                >
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody style={{ borderTop: "1px solid var(--a-border)" }}>
+            {loading ? (
+              <SkeletonRows />
+            ) : paginatedUsers.length === 0 ? null : (
+              paginatedUsers.map((u, i) => {
+                const active = u.status === true || u.status === 1;
+                const initial = (u.fullName || "?")[0].toUpperCase();
+                const roleClass = ROLE_BADGE[u.roleName] || "bg-stone-100 text-stone-500";
+                return (
+                  <tr
+                    key={u.id}
+                    className="fade-row"
+                    style={{
+                      borderBottom: "1px solid var(--a-divider)",
+                      animationDelay: `${Math.min(i * 25, 200)}ms`,
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = "color-mix(in srgb, var(--a-primary) 6%, var(--a-surface))")}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = "")}
+                  >
+                    <td style={{ padding: "16px 24px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                        {u.avatarUrl ? (
+                          <img
+                            alt=""
+                            src={u.avatarUrl}
+                            style={{
+                              width: 36,
+                              height: 36,
+                              borderRadius: "50%",
+                              objectFit: "cover",
+                            }}
+                          />
+                        ) : (
+                          <div
+                            style={{
+                              width: 36,
+                              height: 36,
+                              borderRadius: "50%",
+                              background: "var(--a-primary-soft)",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              color: "var(--a-primary)",
+                              fontWeight: 700,
+                              fontSize: 14,
+                            }}
+                          >
+                            {initial}
+                          </div>
+                        )}
+                        <div>
+                          <span style={{ fontWeight: 500, color: "var(--a-text)", fontSize: 14 }}>
+                            {u.fullName || "—"}
+                          </span>
+                          <p style={{ fontSize: 12, color: "var(--a-text-soft)", margin: 0 }}>#{u.id}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td style={{ padding: "16px 24px", fontSize: 14, color: "var(--a-text-muted)" }}>
+                      {u.email || "—"}
+                    </td>
+                    <td style={{ padding: "16px 24px", fontSize: 14, color: "var(--a-text-muted)" }}>
+                      {u.phone || "—"}
+                    </td>
+                    <td style={{ padding: "16px 24px" }}>
+                      <span className={`px-3 py-1 ${roleClass} text-[10px] font-extrabold rounded-full uppercase`}>
+                        {u.roleName || "—"}
+                      </span>
+                    </td>
+                    <td style={{ padding: "16px 24px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span
+                          style={{
+                            fontSize: 12,
+                            fontWeight: 500,
+                            color: active ? "var(--a-success)" : "var(--a-text-soft)",
+                          }}
+                        >
+                          {active ? "Hoạt động" : "Đã khóa"}
+                        </span>
+                        <label className="toggle-switch">
+                          <input
+                            type="checkbox"
+                            checked={active}
+                            disabled={togglingIds.has(u.id)}
+                            onChange={() => handleToggle(u.id)}
+                          />
+                          <span className="slider" />
+                        </label>
+                      </div>
+                    </td>
+                    <td style={{ padding: "16px 24px", textAlign: "right" }}>
+                      <div style={{ display: "flex", justifyContent: "flex-end", gap: 4 }}>
+                        <button
+                          onClick={() => openDetail(u.id)}
+                          style={{
+                            padding: 8,
+                            color: "var(--a-text-soft)",
+                            background: "none",
+                            border: "none",
+                            cursor: "pointer",
+                            borderRadius: 8,
+                            transition: "all .15s",
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.background = "var(--a-surface-raised)";
+                            e.currentTarget.style.color = "var(--a-primary)";
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = "";
+                            e.currentTarget.style.color = "var(--a-text-soft)";
+                          }}
+                          title="Xem chi tiết"
+                        >
+                          <span className="material-symbols-outlined" style={{ fontSize: 22 }}>
+                            visibility
+                          </span>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+      )}
+
+      {!loading && paginatedUsers.length === 0 && (
+        <div style={{ padding: "64px 0", textAlign: "center" }}>
+          <span
+            className="material-symbols-outlined"
+            style={{
+              fontSize: 48,
+              color: "var(--a-text-soft)",
+              display: "block",
+              marginBottom: 12,
+            }}
+          >
+            group_off
+          </span>
+          <p style={{ color: "var(--a-text-soft)", fontWeight: 500 }}>Không tìm thấy người dùng nào</p>
+        </div>
+      )}
+
+      <div
+        style={{
+          padding: "16px 24px",
+          borderTop: "1px solid var(--a-border)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          flexWrap: "wrap",
+          gap: 12,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 14, color: "var(--a-text-muted)" }}>Hiển thị</span>
+          <select
+            value={pageSize}
+            onChange={(e) => {
+              setPageSize(parseInt(e.target.value, 10));
+              setPage(1);
+            }}
+            style={{
+              background: "var(--a-surface-raised)",
+              border: "1px solid var(--a-border-strong)",
+              color: "var(--a-text)",
+              borderRadius: 8,
+              padding: "4px 8px",
+              fontSize: 12,
+              outline: "none",
+            }}
+          >
+            <option value="10">10/trang</option>
+            <option value="20">20/trang</option>
+            <option value="50">50/trang</option>
+          </select>
+          {filteredCount > 0 && (
+            <span style={{ fontSize: 12, color: "var(--a-text-soft)" }}>
+              {start}–{end} / {filteredCount}
+            </span>
+          )}
+        </div>
+
+        {renderPagination()}
+      </div>
+    </div>
+  );
+}
+
+

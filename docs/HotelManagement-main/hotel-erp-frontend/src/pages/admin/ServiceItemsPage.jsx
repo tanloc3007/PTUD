@@ -1,0 +1,718 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  createService,
+  deleteService,
+  getServiceCategories,
+  getServices,
+  toggleService,
+  updateService,
+  uploadServiceImage,
+} from "../../api/servicesApi";
+import { formatCurrency } from "../../utils";
+import { formatMoneyInput, parseMoneyInput } from "../../utils/moneyInput";
+import {
+  EmptyState,
+  FormFooter,
+  IconButton,
+  Modal,
+  ServiceAdminShell,
+  ServicePagination,
+  SERVICE_VIEW_STORAGE_KEY,
+  StatusChip,
+  ServiceToastContainer,
+  VisibilitySwitch,
+  inputStyle,
+  labelStyle,
+  panelStyle,
+  primaryButton,
+  statusFilterOptions,
+} from "./ServiceAdminShared";
+import { useResponsiveAdmin } from "../../hooks/useResponsiveAdmin";
+
+export default function ServiceItemsPage() {
+  const { isMobile } = useResponsiveAdmin();
+  const [serviceRows, setServiceRows] = useState([]);
+  const [categoryRows, setCategoryRows] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [serviceKeyword, setServiceKeyword] = useState("");
+  const [selectedCategoryId, setSelectedCategoryId] = useState("");
+  const [serviceModalOpen, setServiceModalOpen] = useState(false);
+  const [editingService, setEditingService] = useState(null);
+  const [serviceForm, setServiceForm] = useState({
+    categoryId: "",
+    name: "",
+    description: "",
+    price: "",
+    unit: "",
+    imageUrl: "",
+  });
+  const [errorMessage, setErrorMessage] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [serviceImageFile, setServiceImageFile] = useState(null);
+  const [serviceImagePreview, setServiceImagePreview] = useState("");
+  const [togglingIds, setTogglingIds] = useState([]);
+  const [toasts, setToasts] = useState([]);
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
+  const [pagination, setPagination] = useState({
+    currentPage: 1,
+    pageSize,
+    totalItems: 0,
+    totalPages: 1,
+  });
+  const [summary, setSummary] = useState({
+    totalItems: 0,
+    activeItems: 0,
+    inactiveItems: 0,
+    usedCategories: 0,
+  });
+
+  const dismissToast = useCallback((id) => {
+    setToasts((prev) => prev.filter((toast) => toast.id !== id));
+  }, []);
+
+  const pushToast = useCallback(
+    ({ msg, type = "success", dur = 4000 }) => {
+      const id = Date.now() + Math.random();
+      setToasts((prev) => [...prev, { id, msg, type, dur }]);
+      window.setTimeout(() => {
+        dismissToast(id);
+      }, dur);
+    },
+    [dismissToast],
+  );
+
+  useEffect(() => {
+    sessionStorage.setItem(SERVICE_VIEW_STORAGE_KEY, "items");
+  }, []);
+
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const serviceParams = {
+        page,
+        pageSize,
+        keyword: serviceKeyword,
+        categoryId: selectedCategoryId || null,
+      };
+
+      if (statusFilter === "all") {
+        serviceParams.includeInactive = true;
+      } else if (statusFilter === "inactive") {
+        serviceParams.includeInactive = true;
+        serviceParams.isActive = false;
+      } else {
+        serviceParams.includeInactive = false;
+      }
+
+      const [serviceRes, categoryRes] = await Promise.all([
+        getServices(serviceParams),
+        getServiceCategories({
+          page: 1,
+          pageSize: 100,
+          includeInactive: true,
+        }),
+      ]);
+
+      setServiceRows(serviceRes.data?.data || []);
+      setPagination(
+        serviceRes.data?.pagination || {
+          currentPage: 1,
+          pageSize,
+          totalItems: 0,
+          totalPages: 1,
+        },
+      );
+      setSummary(
+        serviceRes.data?.summary || {
+          totalItems: 0,
+          activeItems: 0,
+          inactiveItems: 0,
+          usedCategories: 0,
+        },
+      );
+      setCategoryRows(categoryRes.data?.data || []);
+    } catch (error) {
+      setErrorMessage(
+        error?.response?.data?.message || "Không thể tải dữ liệu dịch vụ.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [page, pageSize, selectedCategoryId, serviceKeyword, statusFilter]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [serviceKeyword, selectedCategoryId, statusFilter]);
+
+  useEffect(() => {
+    const maxPage = Math.max(1, pagination.totalPages || 1);
+    if (page > maxPage) {
+      setPage(maxPage);
+    }
+  }, [page, pagination.totalPages]);
+
+  const activeCategories = useMemo(
+    () => categoryRows.filter((item) => item.isActive),
+    [categoryRows],
+  );
+
+  const stats = useMemo(
+    () => [
+      {
+        label: "Tổng dịch vụ",
+        value: summary.totalItems || 0,
+        description: "Số dịch vụ theo bộ lọc hiện tại",
+        icon: "room_service",
+      },
+      {
+        label: "Đang hiển thị",
+        value: summary.activeItems || 0,
+        description: "Dịch vụ đang mở bán",
+        icon: "visibility",
+      },
+      {
+        label: "Nhóm đang dùng",
+        value: summary.usedCategories || 0,
+        description: "Số nhóm có ít nhất một dịch vụ",
+        icon: "category",
+      },
+    ],
+    [summary],
+  );
+
+  const resetServiceForm = () => {
+    setEditingService(null);
+    setServiceImageFile(null);
+    setServiceImagePreview("");
+    setServiceForm({
+      categoryId: "",
+      name: "",
+      description: "",
+      price: "",
+      unit: "",
+      imageUrl: "",
+    });
+    setErrorMessage("");
+  };
+
+  const openServiceModal = (service = null) => {
+    setEditingService(service);
+    setServiceForm({
+      categoryId: service?.categoryId?.toString() || "",
+      name: service?.name || "",
+      description: service?.description || "",
+      price: formatMoneyInput(service?.price || ""),
+      unit: service?.unit || "",
+      imageUrl: service?.imageUrl || "",
+    });
+    setServiceImageFile(null);
+    setServiceImagePreview(service?.imageUrl || "");
+    setErrorMessage("");
+    setServiceModalOpen(true);
+  };
+
+  const handleServiceImageChange = (file) => {
+    setServiceImageFile(file || null);
+    setServiceImagePreview(file ? URL.createObjectURL(file) : serviceForm.imageUrl || "");
+  };
+
+  const removeServiceImage = () => {
+    setServiceImageFile(null);
+    setServiceImagePreview("");
+    setServiceForm((prev) => ({ ...prev, imageUrl: "" }));
+  };
+
+  const submitService = async (e) => {
+    e.preventDefault();
+    setSubmitting(true);
+    setErrorMessage("");
+
+    let imageUrl = serviceForm.imageUrl || null;
+    try {
+      if (serviceImageFile) {
+        const uploadRes = await uploadServiceImage(serviceImageFile);
+        imageUrl = uploadRes.data?.url || null;
+      }
+    } catch (error) {
+      setSubmitting(false);
+      setErrorMessage(error?.response?.data?.message || "Không thể upload ảnh dịch vụ.");
+      return;
+    }
+
+    const payload = {
+      categoryId: serviceForm.categoryId ? Number(serviceForm.categoryId) : null,
+      name: serviceForm.name,
+      description: serviceForm.description || null,
+      price: parseMoneyInput(serviceForm.price),
+      unit: serviceForm.unit || null,
+      imageUrl,
+    };
+
+    try {
+      if (editingService) {
+        await updateService(editingService.id, payload);
+      } else {
+        await createService(payload);
+      }
+      setServiceModalOpen(false);
+      resetServiceForm();
+      await loadData();
+    } catch (error) {
+      setErrorMessage(
+        error?.response?.data?.message || "Không thể lưu dịch vụ.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDelete = async (id, serviceName) => {
+    if (!window.confirm(`Xóa mềm dịch vụ "${serviceName}"?`)) return;
+    try {
+      await deleteService(id);
+      await loadData();
+    } catch (error) {
+      setErrorMessage(
+        error?.response?.data?.message || "Không thể xóa mềm dịch vụ.",
+      );
+    }
+  };
+
+  const handleToggle = async (id) => {
+    const targetService = serviceRows.find((item) => item.id === id);
+    setTogglingIds((prev) => [...prev, id]);
+    try {
+      await toggleService(id);
+      pushToast({
+        msg: `${targetService?.name || "Dịch vụ"} đã được ${
+          targetService?.isActive ? "ẩn" : "hiện"
+        }.`,
+        type: targetService?.isActive ? "warning" : "success",
+      });
+      await loadData();
+    } catch (error) {
+      setErrorMessage(
+        error?.response?.data?.message || "Không thể cập nhật trạng thái dịch vụ.",
+      );
+      pushToast({
+        msg:
+          error?.response?.data?.message ||
+          `Không thể cập nhật hiển thị cho ${targetService?.name || "dịch vụ"}.`,
+        type: "error",
+      });
+    } finally {
+      setTogglingIds((prev) => prev.filter((item) => item !== id));
+    }
+  };
+
+  return (
+    <>
+      <ServiceToastContainer
+        toasts={toasts}
+        onDismiss={dismissToast}
+      />
+      <ServiceAdminShell
+        view="items"
+        title="Quản lý dịch vụ"
+        subtitle="Tập trung thao tác trên danh mục dịch vụ với route và bộ lọc rõ ràng hơn."
+        stats={stats}
+        primaryAction={
+          <button onClick={() => openServiceModal()} style={primaryButton(false)}>
+            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
+              room_service
+            </span>
+            Thêm dịch vụ
+          </button>
+        }
+        filterContent={
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 items-end">
+            <div>
+              <label style={labelStyle}>Tìm dịch vụ</label>
+              <input
+                value={serviceKeyword}
+                onChange={(e) => setServiceKeyword(e.target.value)}
+                style={inputStyle}
+                placeholder="Buffet, giặt ủi, đưa đón..."
+              />
+            </div>
+            <div>
+              <label style={labelStyle}>Lọc theo nhóm</label>
+              <select
+                value={selectedCategoryId}
+                onChange={(e) => setSelectedCategoryId(e.target.value)}
+                style={inputStyle}
+              >
+                <option value="">Tất cả nhóm</option>
+                {activeCategories.map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {category.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label style={labelStyle}>Trạng thái hiển thị</label>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                style={inputStyle}
+              >
+                {statusFilterOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        }
+      >
+        {errorMessage ? (
+          <div
+            style={{
+              ...panelStyle,
+              marginBottom: 20,
+              padding: 16,
+              color: "var(--a-error)",
+              background: "var(--a-error-bg)",
+              borderColor: "var(--a-error-border)",
+            }}
+          >
+            {errorMessage}
+          </div>
+        ) : null}
+
+        <section style={{ ...panelStyle, overflow: "hidden" }}>
+          <div
+            style={{
+              padding: "18px 20px",
+              borderBottom: "1px solid var(--a-border)",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: 16,
+            }}
+          >
+            <div>
+              <div style={{ fontWeight: 700, color: "var(--a-text)" }}>Danh sách dịch vụ</div>
+              <div style={{ fontSize: 12, color: "var(--a-text-muted)", marginTop: 2 }}>
+                {pagination.totalItems || 0} dịch vụ theo bộ lọc hiện tại
+              </div>
+            </div>
+          </div>
+
+          {isMobile ? (
+            <div style={{ display: "grid", gap: 12, padding: 14 }}>
+              {loading ? (
+                <EmptyState label="Đang tải dịch vụ..." icon="hourglass_top" />
+              ) : serviceRows.length === 0 ? (
+                <EmptyState label="Chưa có dịch vụ phù hợp bộ lọc." icon="search_off" />
+              ) : serviceRows.map((service) => (
+                <article key={service.id} style={{ border: "1px solid var(--a-border)", borderRadius: 16, padding: 14, display: "grid", gap: 12, background: "var(--a-surface-raised)" }}>
+                  <ServiceImage imageUrl={service.imageUrl} name={service.name} height={150} />
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start" }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 900, color: "var(--a-text)", fontSize: 16 }}>{service.name}</div>
+                      <div style={{ color: "var(--a-text-muted)", fontSize: 12, marginTop: 4 }}>{service.description || "Chưa có mô tả"}</div>
+                    </div>
+                    <StatusChip active={service.isActive} label={service.isActive ? "Đang bán" : "Đã ẩn"} />
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                    <div style={{ background: "var(--a-bg)", borderRadius: 12, padding: 10, border: "1px solid var(--a-border)" }}>
+                      <div style={{ fontSize: 10, color: "var(--a-text-muted)", fontWeight: 900 }}>Nhóm</div>
+                      <div style={{ fontSize: 13, color: "var(--a-text)", fontWeight: 800 }}>{service.categoryName || "Chưa gán"}</div>
+                    </div>
+                    <div style={{ background: "var(--a-bg)", borderRadius: 12, padding: 10, border: "1px solid var(--a-border)" }}>
+                      <div style={{ fontSize: 10, color: "var(--a-text-muted)", fontWeight: 900 }}>Giá</div>
+                      <div style={{ fontSize: 13, color: "var(--a-text)", fontWeight: 900 }}>{formatCurrency(service.price)}</div>
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                    <VisibilitySwitch checked={service.isActive} disabled={togglingIds.includes(service.id)} onChange={() => handleToggle(service.id)} />
+                    <div style={{ display: "inline-flex", gap: 8 }}>
+                      <IconButton icon="edit" title="Sua" onClick={() => openServiceModal(service)} />
+                      <IconButton icon="delete" title="Xoa mem" danger onClick={() => handleDelete(service.id, service.name)} />
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr
+                  style={{
+                    background: "var(--a-surface-raised)",
+                    borderBottom: "1px solid var(--a-border)",
+                  }}
+                >
+                  {[
+                    "Dịch vụ",
+                    "Nhóm",
+                    "Giá",
+                    "Đơn vị",
+                    "Trạng thái",
+                    "Ẩn / Hiện",
+                    "Thao tác",
+                  ].map((heading, idx) => (
+                    <th
+                      key={heading}
+                      style={{
+                        padding: "16px 18px",
+                        textAlign: idx === 6 ? "right" : "left",
+                        fontSize: 11,
+                        textTransform: "uppercase",
+                        letterSpacing: ".08em",
+                        color: "var(--a-text-muted)",
+                      }}
+                    >
+                      {heading}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr>
+                    <td colSpan={7} style={{ padding: 48 }}>
+                      <EmptyState label="Đang tải dịch vụ..." icon="hourglass_top" />
+                    </td>
+                  </tr>
+                ) : serviceRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} style={{ padding: 48 }}>
+                      <EmptyState
+                        label="Chưa có dịch vụ phù hợp bộ lọc."
+                        icon="search_off"
+                      />
+                    </td>
+                  </tr>
+                ) : (
+                  serviceRows.map((service) => (
+                    <tr key={service.id} style={{ borderBottom: "1px solid var(--a-border)" }}>
+                      <td style={{ padding: "16px 18px" }}>
+                        <div>
+                          <div
+                            style={{
+                              fontWeight: 700,
+                              color: "var(--a-text)",
+                              fontSize: 14,
+                            }}
+                          >
+                            {service.name}
+                          </div>
+                          <div
+                            style={{
+                              color: "var(--a-text-muted)",
+                              fontSize: 12,
+                              marginTop: 4,
+                            }}
+                          >
+                            {service.description || "Chưa có mô tả"}
+                          </div>
+                        </div>
+                      </td>
+                      <td
+                        style={{
+                          padding: "16px 18px",
+                          color: "var(--a-text-muted)",
+                          fontSize: 14,
+                        }}
+                      >
+                        {service.categoryName || "Chưa gán nhóm"}
+                      </td>
+                      <td
+                        style={{
+                          padding: "16px 18px",
+                          color: "var(--a-text)",
+                          fontWeight: 700,
+                        }}
+                      >
+                        {formatCurrency(service.price)}
+                      </td>
+                      <td style={{ padding: "16px 18px", color: "var(--a-text-muted)" }}>
+                        {service.unit || "—"}
+                      </td>
+                      <td style={{ padding: "16px 18px" }}>
+                        <StatusChip
+                          active={service.isActive}
+                          label={service.isActive ? "Đang bán" : "Đã ẩn"}
+                        />
+                      </td>
+                      <td style={{ padding: "16px 18px" }}>
+                        <VisibilitySwitch
+                          checked={service.isActive}
+                          disabled={togglingIds.includes(service.id)}
+                          onChange={() => handleToggle(service.id)}
+                        />
+                      </td>
+                      <td style={{ padding: "16px 18px", textAlign: "right" }}>
+                        <div style={{ display: "inline-flex", gap: 8 }}>
+                          <IconButton
+                            icon="edit"
+                            title="Sửa"
+                            onClick={() => openServiceModal(service)}
+                          />
+                          <IconButton
+                            icon="delete"
+                            title="Xóa mềm"
+                            danger
+                            onClick={() => handleDelete(service.id, service.name)}
+                          />
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+          )}
+          <ServicePagination
+            page={page}
+            pageSize={pageSize}
+            totalItems={pagination.totalItems || 0}
+            totalPages={Math.max(1, pagination.totalPages || 1)}
+            onPageChange={setPage}
+          />
+        </section>
+      </ServiceAdminShell>
+
+      <Modal
+        open={serviceModalOpen}
+        title={editingService ? "Cập nhật dịch vụ" : "Tạo dịch vụ"}
+        onClose={() => {
+          setServiceModalOpen(false);
+          resetServiceForm();
+        }}
+      >
+        <form onSubmit={submitService}>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label style={labelStyle}>Tên dịch vụ</label>
+              <input
+                value={serviceForm.name}
+                onChange={(e) =>
+                  setServiceForm((prev) => ({ ...prev, name: e.target.value }))
+                }
+                style={inputStyle}
+              />
+            </div>
+            <div>
+              <label style={labelStyle}>Nhóm dịch vụ</label>
+              <select
+                value={serviceForm.categoryId}
+                onChange={(e) =>
+                  setServiceForm((prev) => ({
+                    ...prev,
+                    categoryId: e.target.value,
+                  }))
+                }
+                style={inputStyle}
+              >
+                <option value="">Chưa gán nhóm</option>
+                {activeCategories.map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {category.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label style={labelStyle}>Giá</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={serviceForm.price}
+                onChange={(e) =>
+                  setServiceForm((prev) => ({ ...prev, price: formatMoneyInput(e.target.value) }))
+                }
+                style={inputStyle}
+              />
+            </div>
+            <div>
+              <label style={labelStyle}>Đơn vị</label>
+              <input
+                value={serviceForm.unit}
+                onChange={(e) =>
+                  setServiceForm((prev) => ({ ...prev, unit: e.target.value }))
+                }
+                style={inputStyle}
+                placeholder="Suất, lượt, kg..."
+              />
+            </div>
+            <div style={{ gridColumn: "1 / -1" }}>
+              <label style={labelStyle}>Mô tả</label>
+              <textarea
+                value={serviceForm.description}
+                onChange={(e) =>
+                  setServiceForm((prev) => ({
+                    ...prev,
+                    description: e.target.value,
+                  }))
+                }
+                style={{ ...inputStyle, minHeight: 100, resize: "vertical" }}
+              />
+            </div>
+            <div style={{ gridColumn: "1 / -1" }}>
+              <label style={labelStyle}>Ảnh dịch vụ</label>
+              <ImagePicker
+                preview={serviceImagePreview || serviceForm.imageUrl}
+                fileName={serviceImageFile?.name}
+                onPick={handleServiceImageChange}
+                onRemove={removeServiceImage}
+              />
+            </div>
+          </div>
+          {errorMessage ? (
+            <p style={{ color: "var(--a-error)", marginTop: 12 }}>{errorMessage}</p>
+          ) : null}
+          <FormFooter
+            submitting={submitting}
+            onClose={() => setServiceModalOpen(false)}
+          />
+        </form>
+      </Modal>
+    </>
+  );
+}
+
+function ServiceImage({ imageUrl, name, height = 120, width = "100%" }) {
+  return (
+    <div style={{ width, height, borderRadius: 14, overflow: "hidden", background: "linear-gradient(135deg, color-mix(in srgb, var(--a-primary) 14%, var(--a-surface)) 0%, color-mix(in srgb, var(--a-warning-bg) 36%, var(--a-surface-raised)) 100%)", border: "1px solid var(--a-border)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--a-primary)", flexShrink: 0 }}>
+      {imageUrl ? (
+        <img src={imageUrl} alt={name || "Dịch vụ"} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+      ) : (
+        <span className="material-symbols-outlined" style={{ fontSize: 34 }}>room_service</span>
+      )}
+    </div>
+  );
+}
+
+function ImagePicker({ preview, fileName, onPick, onRemove }) {
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      <ServiceImage imageUrl={preview} name="Preview dịch vụ" height={160} />
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <label style={{ ...primaryButton(true), justifyContent: "center" }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 18 }}>upload</span>
+          {preview ? "Đổi ảnh dịch vụ" : "Chọn ảnh dịch vụ"}
+          <input type="file" accept="image/*" onChange={(e) => onPick(e.target.files?.[0] || null)} style={{ display: "none" }} />
+        </label>
+        {preview ? (
+          <button type="button" onClick={onRemove} style={{ padding: "10px 14px", borderRadius: 12, border: "1px solid var(--a-error-border)", background: "var(--a-error-bg)", color: "var(--a-error)", fontWeight: 800, cursor: "pointer" }}>
+            Gỡ ảnh
+          </button>
+        ) : null}
+      </div>
+      {fileName ? <div style={{ fontSize: 12, color: "var(--a-text-muted)", fontWeight: 700, wordBreak: "break-word" }}>{fileName}</div> : null}
+    </div>
+  );
+}

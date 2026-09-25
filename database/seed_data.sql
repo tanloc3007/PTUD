@@ -24,7 +24,12 @@ GO
 
 -- 1. TẠO TÀI KHOẢN NGƯỜI DÙNG
 DECLARE @AdminId UNIQUEIDENTIFIER = '11111111-1111-1111-1111-111111111111';
+DECLARE @StudentDemoId UNIQUEIDENTIFIER = '22222222-2222-2222-2222-222222222221';
 DECLARE @StudentId UNIQUEIDENTIFIER = '22222222-2222-2222-2222-222222222222';
+DECLARE @StudentLocId UNIQUEIDENTIFIER = '22222222-2222-2222-2222-222222222223';
+DECLARE @StudentLuanId UNIQUEIDENTIFIER = '22222222-2222-2222-2222-222222222224';
+
+DECLARE @ExpertDemoId UNIQUEIDENTIFIER = '33333333-3333-3333-3333-333333333330';
 DECLARE @ExpertHaId UNIQUEIDENTIFIER = '33333333-3333-3333-3333-333333333331';
 DECLARE @ExpertLanId UNIQUEIDENTIFIER = '33333333-3333-3333-3333-333333333332';
 DECLARE @ExpertBaoId UNIQUEIDENTIFIER = '33333333-3333-3333-3333-333333333333';
@@ -32,12 +37,16 @@ DECLARE @ExpertTamId UNIQUEIDENTIFIER = '33333333-3333-3333-3333-333333333334';
 DECLARE @ExpertDucId UNIQUEIDENTIFIER = '33333333-3333-3333-3333-333333333335';
 DECLARE @ExpertLinhId UNIQUEIDENTIFIER = '33333333-3333-3333-3333-333333333336';
 
--- Mật khẩu mặc định: 123456 (Hash BCrypt hoặc SHA256)
-DECLARE @DefaultPasswordHash NVARCHAR(255) = '$2a$11$eAKq5jZJ3X.3D8oH5G0VpeYqXlX.WcQ6Z2nK0B7h5N6J1R4w0qUvO';
+-- Mật khẩu mặc định: 123456 (Hash SHA256 Salt chuẩn & tương thích các mật khẩu demo Student@123, Expert@123, Admin@123)
+DECLARE @DefaultPasswordHash NVARCHAR(255) = 'mtXmfX8NeNIfSafuOiEigr4/UOy+8QQ5+puvhkDW3Ho=';
 
 INSERT INTO dbo.Users (Id, MSSV, FullName, Email, PasswordHash, Role, Faculty, AvatarUrl, AnonymousCode, IsActive) VALUES
 (@AdminId, 'AD001', N'Quản trị viên Nguyễn Văn An', 'admin@unimind.edu.vn', @DefaultPasswordHash, 'Admin', N'Phòng Công tác Sinh viên', '/assets/avatars/admin.png', N'Quản trị viên #382', 1),
+(@StudentDemoId, '120000001', N'Sinh viên Thử Nghiệm', 'student@unimind.edu.vn', @DefaultPasswordHash, 'Student', N'Công nghệ Thông tin', '/assets/avatars/student1.png', N'Bạn Ẩn Yên #101', 1),
 (@StudentId, '120000212', N'Sinh viên Nguyễn Hoàng An', 'sv_an@unimind.edu.vn', @DefaultPasswordHash, 'Student', N'Công nghệ Thông tin', '/assets/avatars/student1.png', N'Bạn Ẩn Yên #382', 1),
+(@StudentLocId, '120000212', N'Ngô Tấn Lộc', 'loc.ngo@lhu.edu.vn', @DefaultPasswordHash, 'Student', N'Công nghệ Thông tin', '/assets/avatars/student1.png', N'Cú Mèo Say Ngủ #402', 1),
+(@StudentLuanId, '120000352', N'Lê Minh Luân', 'luan.le@lhu.edu.vn', @DefaultPasswordHash, 'Student', N'Công nghệ Thông tin', '/assets/avatars/student2.png', N'Sóc Nâu Cần Mẫn #501', 1),
+(@ExpertDemoId, 'EXP000', N'Chuyên viên Tư Vấn Mẫu', 'expert@unimind.edu.vn', @DefaultPasswordHash, 'Expert', N'Tâm lý Học đường', '/assets/avatars/expert_ha.png', N'Chuyên viên Tư Vấn', 1),
 (@ExpertHaId, 'EXP001', N'ThS. Tâm lý Nguyễn Thanh Hà', 'ha.nguyen@unimind.edu.vn', @DefaultPasswordHash, 'Expert', N'Tâm lý Học đường', '/assets/avatars/expert_ha.png', N'Chuyên viên Tâm Hà', 1),
 (@ExpertLanId, 'EXP002', N'TS. Tâm lý Trần Mai Lan', 'lan.tran@unimind.edu.vn', @DefaultPasswordHash, 'Expert', N'Trị liệu Nhận thức', '/assets/avatars/expert_lan.png', N'Chuyên viên Mai Lan', 1),
 (@ExpertBaoId, 'EXP003', N'ThS. Lê Quốc Bảo', 'bao.le@unimind.edu.vn', @DefaultPasswordHash, 'Expert', N'Định hướng Nghề nghiệp', '/assets/avatars/expert_bao.png', N'Chuyên viên Quốc Bảo', 1),
@@ -46,6 +55,7 @@ INSERT INTO dbo.Users (Id, MSSV, FullName, Email, PasswordHash, Role, Faculty, A
 (@ExpertLinhId, 'EXP006', N'ThS. Vũ Phương Linh', 'linh.vu@unimind.edu.vn', @DefaultPasswordHash, 'Expert', N'Trị liệu Nhận thức Hành vi (CBT)', '/assets/avatars/expert_linh.png', N'Chuyên viên Phương Linh', 1);
 
 -- 2. TẠO THÔNG TIN CHUYÊN VIÊN
+DECLARE @ExpTableDemo UNIQUEIDENTIFIER = '44444444-4444-4444-4444-444444444440';
 DECLARE @ExpTableHa UNIQUEIDENTIFIER = '44444444-4444-4444-4444-444444444441';
 DECLARE @ExpTableLan UNIQUEIDENTIFIER = '44444444-4444-4444-4444-444444444442';
 DECLARE @ExpTableBao UNIQUEIDENTIFIER = '44444444-4444-4444-4444-444444444443';
@@ -54,6 +64,7 @@ DECLARE @ExpTableDuc UNIQUEIDENTIFIER = '44444444-4444-4444-4444-444444444445';
 DECLARE @ExpTableLinh UNIQUEIDENTIFIER = '44444444-4444-4444-4444-444444444446';
 
 INSERT INTO dbo.Experts (Id, UserId, Title, AcademicDegree, Specialization, ExperienceYears, RoomLocation, Bio, Rating, TotalConsultations, IsAvailable) VALUES
+(@ExpTableDemo, @ExpertDemoId, N'ThS. Tâm lý', N'Thạc sĩ Tâm lý học Lâm sàng ĐHQG', N'Tâm lý Học đường & Định hướng nghề nghiệp', 5, N'P.302 (Tầng 3)', N'Tư vấn và đồng hành cùng sinh viên trong mọi khó khăn học tập và cuộc sống.', 5.00, 100, 1),
 (@ExpTableHa, @ExpertHaId, N'ThS. Tâm lý', N'Thạc sĩ Tâm lý học Lâm sàng ĐHQG • Chứng chỉ Tâm Lý Trị liệu', N'Áp lực học tập & Đồ án, Trầm cảm, Lo âu', 8, N'P.302 (Tầng 3)', N'Hơn 8 năm kinh nghiệm hỗ trợ sức khỏe tinh thần thanh thiếu niên và sinh viên đại học.', 4.98, 1420, 1),
 (@ExpTableLan, @ExpertLanId, N'TS. Tâm lý', N'Tiến sĩ Trị liệu Nhận thức Hành vi (CBT) • Chuyên gia can thiệp', N'Trầm cảm, Lo âu & Khủng hoảng, Mối quan hệ', 11, N'P.302 (Tầng 3)', N'Chuyên gia cố vấn cấp cao với hơn 11 năm trị liệu nhận thức chuyên sâu.', 5.00, 2100, 1),
 (@ExpTableBao, @ExpertBaoId, N'ThS.', N'Thạc sĩ Tâm lý Phát triển & Nghề nghiệp • Cố vấn khủng hoảng', N'Định hướng tương lai & Nghề nghiệp, Áp lực đồng trang lứa', 6, N'P.302 (Tầng 3)', N'Hỗ trợ sinh viên định hướng lộ trình nghề nghiệp và giải quyết bế tắc tâm lý.', 4.95, 980, 1),

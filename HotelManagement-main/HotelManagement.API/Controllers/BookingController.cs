@@ -1,0 +1,1954 @@
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using StackExchange.Redis;
+using System.Security.Claims;
+using HotelManagement.Core.Entities;
+using HotelManagement.Infrastructure.Data;
+using HotelManagement.Core.Authorization;
+using HotelManagement.Core.Constants;
+using HotelManagement.API.Services;
+using HotelManagement.Core.DTOs;
+using HotelManagement.Core.Helpers;
+namespace HotelManagement.API.Controllers;
+
+[ApiController]
+[Route("api/[controller]")]
+public class BookingsController : ControllerBase
+{
+    private static readonly string[] ReservationBlockingStatuses =
+    [
+        BookingStatuses.Pending,
+        BookingStatuses.Confirmed,
+        BookingStatuses.CheckedIn,
+        BookingStatuses.CheckedOutPendingSettlement
+    ];
+
+    private readonly AppDbContext _context;
+    private readonly IConnectionMultiplexer _redis;
+    private readonly IEmailService _email;
+    private readonly IBookingService _bookingService;
+    private readonly IBookingStatusFlowService _statusFlowService;
+    private readonly IVoucherValidationService _voucherValidationService;
+    private readonly IVoucherAudienceService _voucherAudienceService;
+    private readonly IPaymentService _paymentService;
+    private readonly IInvoiceService _invoiceService;
+    private readonly IAuditTrailService _auditTrail;
+    private readonly IConfiguration _config;
+    private readonly ISystemSettingsService _settingsService;
+    private readonly IRoleDashboardPeriodService _dashboardService;
+
+    public BookingsController(
+        AppDbContext context,
+        IConnectionMultiplexer redis,
+        IEmailService email,
+        IBookingService bookingService,
+        IBookingStatusFlowService statusFlowService,
+        IVoucherValidationService voucherValidationService,
+        IVoucherAudienceService voucherAudienceService,
+        IPaymentService paymentService,
+        IInvoiceService invoiceService,
+        IAuditTrailService auditTrail,
+        IConfiguration config,
+        ISystemSettingsService settingsService,
+        IRoleDashboardPeriodService dashboardService)
+    {
+        _context = context;
+        _redis = redis;
+        _email = email;
+        _bookingService = bookingService;
+        _statusFlowService = statusFlowService;
+        _voucherValidationService = voucherValidationService;
+        _voucherAudienceService = voucherAudienceService;
+        _paymentService = paymentService;
+        _invoiceService = invoiceService;
+        _auditTrail = auditTrail;
+        _config = config;
+        _settingsService = settingsService;
+        _dashboardService = dashboardService;
+    }
+
+    private IDatabase RedisDb => _redis.GetDatabase();
+
+    private Task RebuildDashboardSnapshotAsync(string eventType, int? eventRefId, CancellationToken cancellationToken = default)
+    {
+        var currentUserId = JwtHelper.GetUserId(User);
+        return _dashboardService.RebuildAffectedDashboardsAsync(
+            eventType,
+            DateTime.UtcNow,
+            currentUserId > 0 ? currentUserId : null,
+            eventRefId,
+            cancellationToken);
+    }
+
+    private static (DateTime CheckInDate, DateTime CheckOutDate) NormalizeStayDates(DateTime checkInDate, DateTime checkOutDate)
+    {
+        // Giữ lại thời gian (giờ:phút:giây) để hỗ trợ đặt nhiều booking cùng ngày khác giờ.
+        // Nếu checkout <= checkin, tự động đặt checkout = checkin + 1 ngày (giữ cùng giờ).
+        var normalizedCheckOut = checkOutDate <= checkInDate
+            ? checkInDate.AddDays(1)
+            : checkOutDate;
+
+        return (checkInDate, normalizedCheckOut);
+    }
+
+    private static int CalculateNights(DateTime checkInDate, DateTime checkOutDate)
+    {
+        // Tính số đêm dựa trên ngày (không tính giờ) để đảm bảo tính phí đúng.
+        var checkInDay = checkInDate.Date;
+        var checkOutDay = checkOutDate.Date <= checkInDay
+            ? checkInDay.AddDays(1)
+            : checkOutDate.Date;
+        return Math.Max(1, (checkOutDay - checkInDay).Days);
+    }
+
+    private static string BuildRoomLiveStatusLabel(Room room)
+    {
+        if (string.Equals(room.BusinessStatus, "Disabled", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Bảo trì";
+        }
+
+        if (string.Equals(room.BusinessStatus, "Occupied", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Đang có khách";
+        }
+
+        if (!string.Equals(room.CleaningStatus, "Clean", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Đang dọn";
+        }
+
+        return "Sẵn sàng";
+    }
+
+    private static string BuildRoomBookingStatusLabel(Room room, bool hasReservationConflict)
+    {
+        if (string.Equals(room.BusinessStatus, "Disabled", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Bảo trì";
+        }
+
+        if (hasReservationConflict)
+        {
+            return "Trùng lịch";
+        }
+
+        return "Có thể book";
+    }
+
+    private static string ComputeRoomStatus(string businessStatus, string cleaningStatus)
+        => businessStatus switch
+        {
+            RoomBusinessStatuses.Occupied => "Occupied",
+            RoomBusinessStatuses.Disabled => "Maintenance",
+            RoomBusinessStatuses.Available when cleaningStatus is CleaningStatuses.Dirty or CleaningStatuses.PendingLoss => "Cleaning",
+            _ => "Available"
+        };
+
+    private static BookingPaymentSummaryResponse BuildPaymentSummary(Booking booking)
+    {
+        var estimatedTotal = booking.TotalEstimatedAmount;
+        var paidBeforeCheckout = Math.Max(0m, booking.DepositAmount ?? 0m);
+        var requiredBookingDepositAmount = Math.Max(0m, booking.RequiredBookingDepositAmount);
+        var requiredCheckInAmount = Math.Max(0m, booking.RequiredCheckInAmount);
+
+        var latestInvoice = booking.Invoices
+            .OrderByDescending(i => i.CreatedAt)
+            .FirstOrDefault();
+
+        decimal? remainingToCheckout = null;
+        if (latestInvoice != null)
+        {
+            var invoicePaid = latestInvoice.Payments
+                .Where(p => string.Equals(p.Status, PaymentStatuses.Success, StringComparison.OrdinalIgnoreCase))
+                .Sum(p => string.Equals(p.PaymentType, PaymentTypes.Refund, StringComparison.OrdinalIgnoreCase)
+                    ? -p.AmountPaid
+                    : p.AmountPaid);
+
+            remainingToCheckout = Math.Max(0m, (latestInvoice.FinalTotal ?? 0m) - paidBeforeCheckout - invoicePaid);
+        }
+
+        return new BookingPaymentSummaryResponse
+        {
+            EstimatedTotal = estimatedTotal,
+            PaidBeforeCheckout = paidBeforeCheckout,
+            RequiredBookingDepositAmount = requiredBookingDepositAmount,
+            RequiredCheckInAmount = requiredCheckInAmount,
+            RemainingToConfirm = Math.Max(0m, requiredBookingDepositAmount - paidBeforeCheckout),
+            RemainingToCheckIn = Math.Max(0m, requiredCheckInAmount - paidBeforeCheckout),
+            RemainingToCheckout = remainingToCheckout,
+            CanConfirm = paidBeforeCheckout >= requiredBookingDepositAmount,
+            CanCheckIn = paidBeforeCheckout >= requiredCheckInAmount
+        };
+    }
+
+    private static BookingResponse MapToResponse(Booking b) => new()
+    {
+        Id = b.Id,
+        UserId = b.UserId,
+        GuestName = b.GuestName,
+        GuestPhone = b.GuestPhone,
+        GuestEmail = b.GuestEmail,
+        NationalId = b.User?.NationalId,
+        NumAdults = b.NumAdults,
+        NumChildren = b.NumChildren,
+        BookingCode = b.BookingCode,
+        VoucherId = b.VoucherId,
+        TotalEstimatedAmount = b.TotalEstimatedAmount,
+        DepositAmount = b.DepositAmount,
+        LoyaltyPointsRedeemed = b.LoyaltyPointsRedeemed,
+        LoyaltyDiscountAmount = b.LoyaltyDiscountAmount,
+        CheckInTime = b.CheckInTime,
+        CheckOutTime = b.CheckOutTime,
+        Status = b.Status,
+        Source = b.Source,
+        Note = b.Note,
+        CancellationReason = b.CancellationReason,
+        CancelledAt = b.CancelledAt,
+        ExpiresAt = b.ExpiresAt,
+        RefundPolicy = b.RefundPolicy,
+        RefundableUntil = b.RefundableUntil,
+        RefundAmount = b.RefundAmount,
+        PaymentSummary = BuildPaymentSummary(b),
+        BookingDetails = b.BookingDetails.Select(d => new BookingDetailResponse
+        {
+            Id = d.Id,
+            BookingId = d.BookingId ?? b.Id,
+            RoomId = d.RoomId,
+            RoomTypeId = d.RoomTypeId,
+            CheckInDate = d.CheckInDate,
+            CheckOutDate = d.CheckOutDate,
+            PricePerNight = d.PricePerNight,
+            TotalPrice = CalculateNights(d.CheckInDate, d.CheckOutDate) * d.PricePerNight,
+            Note = d.Note,
+            RoomName = d.Room?.RoomNumber,
+            RoomTypeName = d.RoomType?.Name,
+            CleaningStatus = d.Room?.CleaningStatus
+        }).ToList()
+    };
+
+    private static IEnumerable<BookingTimelineEventResponse> BuildTimeline(Booking booking)
+    {
+        var createdAt = booking.BookingDetails
+            .OrderBy(d => d.CheckInDate)
+            .Select(d => (DateTime?)d.CheckInDate)
+            .FirstOrDefault();
+
+        var events = new List<BookingTimelineEventResponse>
+        {
+            new()
+            {
+                Type = "CREATED",
+                Label = "Tạo booking",
+                At = createdAt,
+                Note = booking.Note
+            }
+        };
+
+        if (booking.CheckInTime.HasValue)
+        {
+            events.Add(new BookingTimelineEventResponse
+            {
+                Type = "CHECKED_IN",
+                Label = "Khách đã check-in",
+                At = booking.CheckInTime
+            });
+        }
+
+        if (booking.CheckOutTime.HasValue)
+        {
+            events.Add(new BookingTimelineEventResponse
+            {
+                Type = "CHECKED_OUT",
+                Label = string.Equals(booking.Status, BookingStatuses.Completed, StringComparison.OrdinalIgnoreCase)
+                    ? "Khách đã check-out và hoàn tất quyết toán"
+                    : "Khách đã check-out, chờ quyết toán",
+                At = booking.CheckOutTime
+            });
+        }
+
+        if (booking.CancelledAt.HasValue)
+        {
+            events.Add(new BookingTimelineEventResponse
+            {
+                Type = "CANCELLED",
+                Label = "Booking đã bị hủy",
+                At = booking.CancelledAt,
+                Note = booking.CancellationReason
+            });
+        }
+
+        return events
+            .Where(e => e.At.HasValue)
+            .OrderBy(e => e.At)
+            .ToList();
+    }
+
+    private IActionResult BookingActionSuccess(string message, Booking booking)
+    {
+        return Ok(new
+        {
+            success = true,
+            message,
+            data = MapToResponse(booking),
+            timeline = BuildTimeline(booking)
+        });
+    }
+
+    private IActionResult BookingActionError(int statusCode, string message, object? extra = null)
+    {
+        return StatusCode(statusCode, new
+        {
+            success = false,
+            message,
+            errors = new[] { message },
+            data = extra
+        });
+    }
+
+    private async Task<string> GenerateBookingCodeAsync(CancellationToken cancellationToken = default)
+    {
+        var baseCode = DateTime.Now.ToString("yyyyMMddHHmmss");
+        var generatedCode = baseCode;
+        var suffix = 0;
+
+        while (await _context.Bookings.AnyAsync(b => b.BookingCode == generatedCode, cancellationToken))
+        {
+            suffix += 1;
+            generatedCode = $"{baseCode}{suffix:00}";
+        }
+
+        return generatedCode;
+    }
+
+    private async Task RecalculateBookingTotalsAsync(Booking booking, CancellationToken cancellationToken = default)
+    {
+        await _context.Entry(booking)
+            .Collection(b => b.BookingDetails)
+            .LoadAsync(cancellationToken);
+
+        var subtotal = booking.BookingDetails.Sum(d => CalculateNights(d.CheckInDate, d.CheckOutDate) * d.PricePerNight);
+        var finalTotal = subtotal;
+
+        if (booking.VoucherId.HasValue)
+        {
+            var voucher = await _context.Vouchers.FirstOrDefaultAsync(v => v.Id == booking.VoucherId.Value, cancellationToken);
+            if (voucher != null && _voucherValidationService.ValidateUsage(voucher, subtotal, DateTime.Now, out _))
+            {
+                finalTotal -= _voucherValidationService.CalculateDiscount(voucher, subtotal);
+            }
+        }
+
+        finalTotal -= Math.Max(0m, booking.LoyaltyDiscountAmount);
+        booking.TotalEstimatedAmount = Math.Max(0m, finalTotal);
+        await ApplyBookingFinancialTargetsAsync(booking, cancellationToken);
+        ApplyBookingStatusFromDeposit(booking);
+    }
+
+    private async Task ApplyBookingFinancialTargetsAsync(Booking booking, CancellationToken cancellationToken = default)
+    {
+        var setting = await _settingsService.GetCurrentAsync(cancellationToken);
+        var estimatedTotal = Math.Max(0m, booking.TotalEstimatedAmount);
+        booking.RequiredBookingDepositAmount = decimal.Round(
+            estimatedTotal * (setting.BookingDepositPercent / 100m),
+            2,
+            MidpointRounding.AwayFromZero);
+        booking.RequiredCheckInAmount = decimal.Round(
+            estimatedTotal * (setting.CheckInRequiredPercent / 100m),
+            2,
+            MidpointRounding.AwayFromZero);
+    }
+
+    private void ApplyBookingStatusFromDeposit(Booking booking)
+    {
+        var paidBeforeCheckout = Math.Max(0m, booking.DepositAmount ?? 0m);
+
+        if (string.Equals(booking.Status, BookingStatuses.Pending, StringComparison.OrdinalIgnoreCase)
+            && paidBeforeCheckout >= booking.RequiredBookingDepositAmount)
+        {
+            booking.Status = BookingStatuses.Confirmed;
+        }
+    }
+
+    private async Task RecalculateBookingDepositAmountAsync(Booking booking, CancellationToken cancellationToken = default)
+    {
+        var total = await _context.Payments
+            .Where(p => p.BookingId == booking.Id && p.Status == PaymentStatuses.Success)
+            .SumAsync(p => string.Equals(p.PaymentType, PaymentTypes.Refund, StringComparison.OrdinalIgnoreCase)
+                ? -p.AmountPaid
+                : p.AmountPaid, cancellationToken);
+
+        booking.DepositAmount = Math.Max(0m, total);
+        ApplyBookingStatusFromDeposit(booking);
+    }
+
+    private async Task<int> CountBookedRoomsAsync(int roomTypeId, DateTime checkInDate, DateTime checkOutDate, int? excludeBookingId = null, CancellationToken cancellationToken = default)
+    {
+        var (normalizedCheckIn, normalizedCheckOut) = NormalizeStayDates(checkInDate, checkOutDate);
+
+        return await _context.BookingDetails
+            .AsNoTracking()
+            .Where(bd => bd.RoomTypeId == roomTypeId
+                && bd.BookingId != null
+                && ReservationBlockingStatuses.Contains(bd.Booking!.Status!)
+                && (!excludeBookingId.HasValue || bd.BookingId != excludeBookingId.Value)
+                && !(bd.CheckOutDate <= normalizedCheckIn || bd.CheckInDate >= normalizedCheckOut))
+            .CountAsync(cancellationToken);
+    }
+
+    private async Task<int> CountTotalRoomsByTypeAsync(int roomTypeId, CancellationToken cancellationToken = default)
+    {
+        return await _context.Rooms
+            .AsNoTracking()
+            .Where(r => r.RoomTypeId == roomTypeId && r.BusinessStatus != "Disabled")
+            .CountAsync(cancellationToken);
+    }
+
+    private async Task<bool> HasCapacityForDetailAsync(int roomTypeId, DateTime checkInDate, DateTime checkOutDate, int? excludeBookingId = null, CancellationToken cancellationToken = default)
+    {
+        var totalRooms = await CountTotalRoomsByTypeAsync(roomTypeId, cancellationToken);
+        if (totalRooms <= 0)
+        {
+            return false;
+        }
+
+        var bookedRooms = await CountBookedRoomsAsync(roomTypeId, checkInDate, checkOutDate, excludeBookingId, cancellationToken);
+        return bookedRooms < totalRooms;
+    }
+
+    private async Task<Room?> FindAvailableRoomAsync(BookingDetail detail, int? requestedRoomId = null, HashSet<int>? assignedRoomIds = null, CancellationToken cancellationToken = default)
+    {
+        var (normalizedCheckIn, normalizedCheckOut) = NormalizeStayDates(detail.CheckInDate, detail.CheckOutDate);
+
+        var roomQuery = _context.Rooms
+            .Include(r => r.RoomType)
+            .Where(r => r.RoomTypeId == detail.RoomTypeId && r.BusinessStatus == "Available" && r.CleaningStatus == "Clean");
+
+        if (requestedRoomId.HasValue)
+        {
+            roomQuery = roomQuery.Where(r => r.Id == requestedRoomId.Value);
+        }
+
+        var candidateRooms = await roomQuery
+            .OrderBy(r => r.RoomNumber)
+            .ToListAsync(cancellationToken);
+
+        foreach (var room in candidateRooms)
+        {
+            if (assignedRoomIds != null && assignedRoomIds.Contains(room.Id))
+            {
+                continue;
+            }
+
+            var hasConflict = await _context.BookingDetails
+                .AsNoTracking()
+                .AnyAsync(bd => bd.Id != detail.Id
+                    && bd.RoomId == room.Id
+                    && bd.BookingId != null
+                    && ReservationBlockingStatuses.Contains(bd.Booking!.Status!)
+                    && !(bd.CheckOutDate <= normalizedCheckIn || bd.CheckInDate >= normalizedCheckOut), cancellationToken);
+
+            if (!hasConflict)
+            {
+                return room;
+            }
+        }
+
+        return null;
+    }
+
+    private async Task<List<object>> BuildAlternativeRoomSuggestionsAsync(Booking booking, BookingDetail detail, DateTime newCheckOutDate, CancellationToken cancellationToken = default)
+    {
+        var extensionStartDate = detail.CheckOutDate.Date;
+        var extensionEndDate = newCheckOutDate.Date <= extensionStartDate
+            ? extensionStartDate.AddDays(1)
+            : newCheckOutDate.Date;
+        var roomTypes = await _context.RoomTypes
+            .AsNoTracking()
+            .Where(rt => rt.IsActive && rt.CapacityAdults >= booking.NumAdults && rt.CapacityChildren >= booking.NumChildren)
+            .OrderBy(rt => rt.Id == detail.RoomTypeId ? 0 : 1)
+            .ThenBy(rt => rt.BasePrice)
+            .ToListAsync(cancellationToken);
+
+        var suggestions = new List<object>();
+
+        foreach (var roomType in roomTypes)
+        {
+            var candidateRooms = await _context.Rooms
+                .AsNoTracking()
+                .Where(r => r.RoomTypeId == roomType.Id && r.BusinessStatus != "Disabled")
+                .OrderBy(r => r.RoomNumber)
+                .ToListAsync(cancellationToken);
+
+            foreach (var room in candidateRooms)
+            {
+                var hasConflict = await _context.BookingDetails
+                    .AsNoTracking()
+                    .AnyAsync(bd => bd.Id != detail.Id
+                        && bd.RoomId == room.Id
+                        && bd.BookingId != null
+                        && ReservationBlockingStatuses.Contains(bd.Booking!.Status!)
+                        && !(bd.CheckOutDate <= extensionStartDate || bd.CheckInDate >= extensionEndDate), cancellationToken);
+
+                if (!hasConflict)
+                {
+                    suggestions.Add(new
+                    {
+                        room.Id,
+                        room.RoomNumber,
+                        room.Floor,
+                        RoomTypeId = roomType.Id,
+                        RoomTypeName = roomType.Name,
+                        roomType.BasePrice,
+                        SameRoomType = roomType.Id == detail.RoomTypeId,
+                        ExtensionStartDate = extensionStartDate,
+                        NewCheckOutDate = extensionEndDate
+                    });
+                }
+            }
+
+            if (suggestions.Count >= 6)
+            {
+                break;
+            }
+        }
+
+        return suggestions;
+    }
+
+    private async Task ApplyCheckInToDetailAsync(Booking booking, BookingDetail detail, int? requestedRoomId, HashSet<int>? assignedRoomIds = null, CancellationToken cancellationToken = default)
+    {
+        if (detail.RoomTypeId == null)
+        {
+            throw new InvalidOperationException("Booking detail chưa có loại phòng.");
+        }
+
+        if (detail.RoomId.HasValue)
+        {
+            var assignedRoom = await _context.Rooms.FirstOrDefaultAsync(r => r.Id == detail.RoomId.Value, cancellationToken);
+            if (assignedRoom != null)
+            {
+                await EnsureRoomCanCheckInAsync(booking, detail, assignedRoom.Id, assignedRoom.RoomNumber, cancellationToken);
+                assignedRoom.BusinessStatus = RoomBusinessStatuses.Occupied;
+                assignedRoom.Status = ComputeRoomStatus(assignedRoom.BusinessStatus, assignedRoom.CleaningStatus);
+                detail.Room = assignedRoom;
+                assignedRoomIds?.Add(assignedRoom.Id);
+            }
+        }
+        else
+        {
+            var room = await FindAvailableRoomAsync(detail, requestedRoomId, assignedRoomIds, cancellationToken);
+            if (room == null)
+            {
+                throw new InvalidOperationException(requestedRoomId.HasValue
+                    ? "Phòng được chọn không còn khả dụng cho booking detail này."
+                    : "Không còn phòng trống sạch phù hợp cho loại phòng này.");
+            }
+
+            await EnsureRoomCanCheckInAsync(booking, detail, room.Id, room.RoomNumber, cancellationToken);
+            detail.RoomId = room.Id;
+            detail.Room = room;
+            room.BusinessStatus = RoomBusinessStatuses.Occupied;
+            room.Status = ComputeRoomStatus(room.BusinessStatus, room.CleaningStatus);
+            assignedRoomIds?.Add(room.Id);
+        }
+
+        booking.Status = BookingStatuses.CheckedIn;
+        booking.CheckInTime ??= DateTime.UtcNow;
+    }
+
+    private async Task EnsureRoomCanCheckInAsync(
+        Booking booking,
+        BookingDetail detail,
+        int roomId,
+        string? roomNumber,
+        CancellationToken cancellationToken = default)
+    {
+        var activeConflict = await _context.BookingDetails
+            .AsNoTracking()
+            .Where(bd =>
+                bd.RoomId == roomId &&
+                bd.Id != detail.Id &&
+                bd.BookingId != booking.Id &&
+                bd.Booking != null &&
+                bd.Booking.Status == BookingStatuses.CheckedIn)
+            .Select(bd => new
+            {
+                bd.BookingId,
+                BookingCode = bd.Booking != null ? bd.Booking.BookingCode : null,
+                GuestName = bd.Booking != null ? bd.Booking.GuestName : null
+            })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (activeConflict != null)
+        {
+            var occupant = !string.IsNullOrWhiteSpace(activeConflict.GuestName)
+                ? activeConflict.GuestName
+                : activeConflict.BookingCode ?? $"booking #{activeConflict.BookingId}";
+            throw new InvalidOperationException($"Phòng {roomNumber ?? roomId.ToString()} hiện còn khách {occupant} chưa checkout.");
+        }
+    }
+
+    private static string? NormalizeGuestEmail(string? email)
+        => string.IsNullOrWhiteSpace(email) ? null : email.Trim().ToLowerInvariant();
+
+    private static string? NormalizeGuestPhone(string? phone)
+        => string.IsNullOrWhiteSpace(phone) ? null : phone.Trim();
+
+    private string? GetFrontendBaseUrl()
+        => string.IsNullOrWhiteSpace(_config["Frontend:BaseUrl"])
+            ? null
+            : _config["Frontend:BaseUrl"]!.Trim().TrimEnd('/');
+
+    private async Task<bool> EnsureGuestAccountLinkedAsync(
+        Booking booking,
+        string? guestName,
+        string? guestPhone,
+        string? guestEmail,
+        string? nationalId,
+        bool requireNationalId = false,
+        bool sendNewAccountEmail = false,
+        CancellationToken cancellationToken = default)
+    {
+        booking.GuestName = string.IsNullOrWhiteSpace(guestName) ? booking.GuestName?.Trim() : guestName.Trim();
+        booking.GuestPhone = NormalizeGuestPhone(guestPhone) ?? NormalizeGuestPhone(booking.GuestPhone);
+        booking.GuestEmail = NormalizeGuestEmail(guestEmail) ?? NormalizeGuestEmail(booking.GuestEmail);
+        var normalizedNationalId = string.IsNullOrWhiteSpace(nationalId) ? null : nationalId.Trim();
+
+        if (booking.UserId.HasValue)
+        {
+            var linkedUser = await _context.Users.FirstOrDefaultAsync(u => u.Id == booking.UserId.Value, cancellationToken);
+            if (linkedUser != null)
+            {
+                if (requireNationalId && string.IsNullOrWhiteSpace(linkedUser.NationalId) && string.IsNullOrWhiteSpace(normalizedNationalId))
+                    throw new InvalidOperationException("Khách này chưa có thông tin CCCD/Hộ chiếu. Vui lòng bổ sung trước khi check-in.");
+
+                linkedUser.FullName = string.IsNullOrWhiteSpace(linkedUser.FullName) ? booking.GuestName ?? linkedUser.FullName : linkedUser.FullName;
+                linkedUser.Phone ??= booking.GuestPhone;
+                linkedUser.Email = NormalizeGuestEmail(linkedUser.Email) ?? booking.GuestEmail ?? linkedUser.Email;
+                linkedUser.NationalId ??= normalizedNationalId;
+                linkedUser.UpdatedAt = DateTime.UtcNow;
+                booking.User = linkedUser;
+            }
+            else if (requireNationalId && string.IsNullOrWhiteSpace(normalizedNationalId))
+            {
+                throw new InvalidOperationException("Khách này chưa có thông tin CCCD/Hộ chiếu. Vui lòng bổ sung trước khi check-in.");
+            }
+
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(booking.GuestName) ||
+            string.IsNullOrWhiteSpace(booking.GuestPhone) ||
+            string.IsNullOrWhiteSpace(booking.GuestEmail))
+        {
+            throw new InvalidOperationException("Khách chưa có hồ sơ cần nhập đủ họ tên, số điện thoại và email để tạo/liên kết tài khoản.");
+        }
+
+        var normalizedEmail = booking.GuestEmail!;
+        var existingUser = await _context.Users
+            .FirstOrDefaultAsync(u => u.Email == normalizedEmail, cancellationToken);
+
+        if (existingUser != null)
+        {
+            if (requireNationalId && string.IsNullOrWhiteSpace(existingUser.NationalId) && string.IsNullOrWhiteSpace(normalizedNationalId))
+                throw new InvalidOperationException("Khách này chưa có thông tin CCCD/Hộ chiếu. Vui lòng bổ sung trước khi check-in.");
+
+            booking.UserId = existingUser.Id;
+            booking.User = existingUser;
+            booking.GuestName = existingUser.FullName ?? booking.GuestName;
+            booking.GuestEmail = existingUser.Email;
+            booking.GuestPhone = existingUser.Phone ?? booking.GuestPhone;
+            existingUser.FullName = string.IsNullOrWhiteSpace(existingUser.FullName) ? booking.GuestName! : existingUser.FullName;
+            existingUser.Phone ??= booking.GuestPhone;
+            existingUser.NationalId ??= normalizedNationalId;
+            existingUser.UpdatedAt = DateTime.UtcNow;
+            return false;
+        }
+
+        var guestRole = await _context.Roles.FirstOrDefaultAsync(r => r.Name == "Guest", cancellationToken);
+        var defaultMembership = await _context.Memberships
+            .FirstOrDefaultAsync(m => m.MinPoints == 0 && m.IsActive, cancellationToken);
+
+        if (guestRole == null)
+            throw new InvalidOperationException("Hệ thống chưa cấu hình vai trò Guest để tạo tài khoản khách lưu trú.");
+
+        if (requireNationalId && string.IsNullOrWhiteSpace(normalizedNationalId))
+            throw new InvalidOperationException("Khách này chưa có thông tin CCCD/Hộ chiếu. Vui lòng bổ sung trước khi check-in.");
+
+        var plainPassword = PasswordGenerator.GenerateRandomPassword(10);
+        var guestUser = new User
+        {
+            FullName = booking.GuestName!,
+            Email = normalizedEmail,
+            Phone = booking.GuestPhone,
+            NationalId = normalizedNationalId,
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(plainPassword),
+            RoleId = guestRole?.Id,
+            MembershipId = defaultMembership?.Id,
+            Status = true,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        _context.Users.Add(guestUser);
+        await _context.SaveChangesAsync(cancellationToken);
+
+        booking.UserId = guestUser.Id;
+        booking.User = guestUser;
+        if (sendNewAccountEmail)
+        {
+            _ = _email.SendGuestAccountCreatedAsync(guestUser.Email, guestUser.FullName, plainPassword);
+        }
+
+        return true;
+    }
+
+    [RequirePermission(PermissionCodes.ManageBookings)]
+    [HttpGet]
+    public async Task<IActionResult> GetAll(
+        [FromQuery] ListQueryRequest queryRequest,
+        [FromQuery] int? userId)
+    {
+        var payload = await _bookingService.GetAllAsync(queryRequest, userId);
+        return Ok(new
+        {
+            success = true,
+            message = "Lấy danh sách booking thành công.",
+            data = payload
+        });
+    }
+
+    [RequirePermission(PermissionCodes.ManageBookings)]
+    [HttpGet("receptionist/dashboard")]
+    public async Task<IActionResult> GetReceptionDashboard([FromQuery] DateTime? date = null)
+    {
+        var targetDate = (date ?? DateTime.Today).Date;
+
+        var bookings = await _context.Bookings
+            .AsNoTracking()
+            .Include(b => b.User)
+            .Include(b => b.BookingDetails)
+                .ThenInclude(d => d.Room)
+            .Include(b => b.BookingDetails)
+                .ThenInclude(d => d.RoomType)
+            .Include(b => b.Invoices)
+                .ThenInclude(i => i.Payments)
+            .Where(b => b.Status != BookingStatuses.Cancelled)
+            .OrderByDescending(b => b.Id)
+            .ToListAsync();
+
+        var arrivals = bookings
+            .Where(b => (b.Status == BookingStatuses.Pending || b.Status == BookingStatuses.Confirmed)
+                && b.BookingDetails.Any(d => d.CheckInDate.Date == targetDate))
+            .ToList();
+
+        var staying = bookings
+            .Where(b => b.Status == BookingStatuses.CheckedIn)
+            .ToList();
+
+        var pendingCheckouts = bookings
+            .Where(b =>
+                (b.Status == BookingStatuses.CheckedIn && b.BookingDetails.Any(d => d.CheckOutDate.Date == targetDate)) ||
+                b.Status == BookingStatuses.CheckedOutPendingSettlement)
+            .ToList();
+
+        var response = new ReceptionDashboardResponse
+        {
+            Date = targetDate,
+            TodayArrivals = arrivals.Select(MapToResponse).ToList(),
+            StayingGuests = staying.Select(MapToResponse).ToList(),
+            PendingCheckouts = pendingCheckouts.Select(MapToResponse).ToList(),
+            Summary = new
+            {
+                arrivals = arrivals.Count,
+                staying = staying.Count,
+                pendingCheckouts = pendingCheckouts.Count
+            }
+        };
+
+        return Ok(new
+        {
+            success = true,
+            message = "Lấy dữ liệu lễ tân thành công.",
+            data = response
+        });
+    }
+
+    [RequirePermission(PermissionCodes.ManageBookings)]
+    [HttpGet("receptionist/member-suggestions")]
+    public async Task<IActionResult> GetReceptionMemberSuggestions([FromQuery] string? keyword = null)
+    {
+        var query = _context.Users
+            .AsNoTracking()
+            .Where(u => (u.MembershipId != null || u.LoyaltyPoints > 0 || u.LoyaltyPointsUsable > 0) && u.Status == true);
+
+        if (!string.IsNullOrWhiteSpace(keyword))
+        {
+            var normalizedKeyword = keyword.Trim().ToLower();
+            query = query.Where(u =>
+                (u.FullName != null && u.FullName.ToLower().Contains(normalizedKeyword)) ||
+                (u.Email != null && u.Email.ToLower().Contains(normalizedKeyword)) ||
+                (u.Phone != null && u.Phone.ToLower().Contains(normalizedKeyword)));
+        }
+
+        var data = await query
+            .OrderBy(u => u.FullName)
+            .Take(8)
+            .Select(u => new
+            {
+                u.Id,
+                FullName = u.FullName,
+                u.Phone,
+                u.Email,
+                MembershipTier = u.Membership != null ? u.Membership.TierName : null,
+                u.LoyaltyPointsUsable
+            })
+            .ToListAsync();
+
+        return Ok(new
+        {
+            success = true,
+            message = "Lấy danh sách gợi ý khách thành viên thành công.",
+            data
+        });
+    }
+
+    [RequirePermission(PermissionCodes.ManageBookings)]
+    [HttpGet("receptionist/availability")]
+    public async Task<IActionResult> GetAvailability(
+        [FromQuery] DateTime checkInDate,
+        [FromQuery] DateTime checkOutDate,
+        [FromQuery] int numAdults,
+        [FromQuery] int numChildren)
+    {
+        var (normalizedCheckIn, normalizedCheckOut) = NormalizeStayDates(checkInDate, checkOutDate);
+
+        var roomTypes = await _context.RoomTypes
+            .AsNoTracking()
+            .Where(rt => rt.IsActive && rt.CapacityAdults >= numAdults && rt.CapacityChildren >= numChildren)
+            .OrderBy(rt => rt.BasePrice)
+            .ToListAsync();
+
+        var result = new List<object>();
+
+        foreach (var roomType in roomTypes)
+        {
+            var rooms = await _context.Rooms
+                .AsNoTracking()
+                .Where(r => r.RoomTypeId == roomType.Id)
+                .OrderBy(r => r.RoomNumber)
+                .ToListAsync();
+
+            var roomItems = new List<object>();
+            var availableRooms = 0;
+
+            foreach (var room in rooms)
+            {
+                var hasReservationConflict = await _context.BookingDetails
+                    .AsNoTracking()
+                    .AnyAsync(bd => bd.RoomId == room.Id
+                        && bd.BookingId != null
+                        && ReservationBlockingStatuses.Contains(bd.Booking!.Status!)
+                        && !(bd.CheckOutDate <= normalizedCheckIn || bd.CheckInDate >= normalizedCheckOut));
+
+                var liveStatusLabel = BuildRoomLiveStatusLabel(room);
+                var bookingStatusLabel = BuildRoomBookingStatusLabel(room, hasReservationConflict);
+                var selectable = !string.Equals(room.BusinessStatus, "Disabled", StringComparison.OrdinalIgnoreCase) && !hasReservationConflict;
+
+                if (selectable)
+                {
+                    availableRooms += 1;
+                }
+
+                roomItems.Add(new
+                {
+                    room.Id,
+                    room.RoomNumber,
+                    room.Floor,
+                    room.BusinessStatus,
+                    room.CleaningStatus,
+                    LiveStatusLabel = liveStatusLabel,
+                    BookingStatusLabel = bookingStatusLabel,
+                    Selectable = selectable
+                });
+            }
+
+            result.Add(new
+            {
+                roomType.Id,
+                roomType.Name,
+                roomType.BasePrice,
+                roomType.CapacityAdults,
+                roomType.CapacityChildren,
+                roomType.BedType,
+                roomType.AreaSqm,
+                AvailableRooms = availableRooms,
+                SuggestedTotal = CalculateNights(normalizedCheckIn, normalizedCheckOut) * roomType.BasePrice,
+                Rooms = roomItems
+            });
+        }
+
+        return Ok(new
+        {
+            success = true,
+            message = "Lấy danh sách phòng phù hợp thành công.",
+            data = result,
+            meta = new
+            {
+                checkInDate = normalizedCheckIn,
+                checkOutDate = normalizedCheckOut,
+                numAdults,
+                numChildren
+            }
+        });
+    }
+
+    [RequirePermission(PermissionCodes.ManageBookings)]
+    [HttpGet("{id}")]
+    public async Task<IActionResult> GetById(int id)
+    {
+        var booking = await _context.Bookings
+            .AsNoTracking()
+            .Include(b => b.User)
+            .Include(b => b.BookingDetails)
+                .ThenInclude(d => d.Room)
+            .Include(b => b.BookingDetails)
+                .ThenInclude(d => d.RoomType)
+            .Include(b => b.Invoices)
+                .ThenInclude(i => i.Payments)
+            .FirstOrDefaultAsync(b => b.Id == id);
+
+        if (booking == null)
+            return BookingActionError(StatusCodes.Status404NotFound, $"Không tìm thấy booking #{id}.");
+
+        return Ok(new
+        {
+            success = true,
+            message = "Lấy thông tin booking thành công.",
+            data = MapToResponse(booking)
+        });
+    }
+
+    [RequirePermission(PermissionCodes.ManageBookings)]
+    [HttpGet("{id}/detail")]
+    public async Task<IActionResult> GetDetail(int id)
+    {
+        var booking = await _context.Bookings
+            .AsNoTracking()
+            .Include(b => b.User)
+            .Include(b => b.BookingDetails)
+                .ThenInclude(d => d.Room)
+            .Include(b => b.BookingDetails)
+                .ThenInclude(d => d.RoomType)
+            .Include(b => b.Invoices)
+                .ThenInclude(i => i.Payments)
+            .FirstOrDefaultAsync(b => b.Id == id);
+
+        if (booking == null)
+            return BookingActionError(StatusCodes.Status404NotFound, $"Không tìm thấy booking #{id}.");
+
+        return Ok(new
+        {
+            success = true,
+            message = "Lấy chi tiết booking thành công.",
+            data = MapToResponse(booking),
+            timeline = BuildTimeline(booking)
+        });
+    }
+
+    [Authorize]
+    [HttpGet("my-bookings")]
+    public async Task<IActionResult> GetMyBookings()
+    {
+        var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+
+        var bookings = await _context.Bookings
+            .AsNoTracking()
+            .Where(b => b.UserId == userId)
+            .Include(b => b.User)
+            .Include(b => b.BookingDetails)
+                .ThenInclude(d => d.Room)
+            .Include(b => b.BookingDetails)
+                .ThenInclude(d => d.RoomType)
+            .Include(b => b.Invoices)
+                .ThenInclude(i => i.Payments)
+            .OrderByDescending(b => b.Id)
+            .ToListAsync();
+
+        return Ok(new
+        {
+            success = true,
+            message = "Lấy danh sách booking của bạn thành công.",
+            data = bookings.Select(MapToResponse)
+        });
+    }
+
+    [AllowAnonymous]
+    [HttpPost]
+    public async Task<IActionResult> Create(CreateBookingRequest request)
+    {
+        var locks = new List<string>();
+
+        try
+        {
+            if (request.Details == null || request.Details.Count == 0)
+                return BookingActionError(StatusCodes.Status400BadRequest, "Booking phải có ít nhất một chặng phòng.");
+
+            var normalizedSource = string.IsNullOrWhiteSpace(request.Source)
+                ? BookingSources.Online
+                : request.Source.Trim().ToLowerInvariant();
+
+            if (!BookingSources.All.Contains(normalizedSource))
+                return BookingActionError(StatusCodes.Status400BadRequest, "Nguồn booking không hợp lệ.");
+
+            int? currentUserId = null;
+            if (User.Identity?.IsAuthenticated == true)
+            {
+                var roleName = User.FindFirst("role")?.Value;
+                if (string.Equals(roleName, "Guest", StringComparison.OrdinalIgnoreCase))
+                {
+                    currentUserId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+                }
+            }
+
+            foreach (var d in request.Details)
+            {
+                var normalized = NormalizeStayDates(d.CheckInDate, d.CheckOutDate);
+                d.CheckInDate = normalized.CheckInDate;
+                d.CheckOutDate = normalized.CheckOutDate;
+            }
+
+            try
+            {
+                foreach (var d in request.Details)
+                {
+                    var key = $"lock:{d.RoomTypeId}:{d.CheckInDate:yyyyMMddHHmm}:{d.CheckOutDate:yyyyMMddHHmm}";
+                    var ok = await RedisDb.StringSetAsync(key, "1", TimeSpan.FromSeconds(30), When.NotExists);
+                    if (!ok)
+                        return BookingActionError(StatusCodes.Status400BadRequest, "Đang có người đặt cùng loại phòng, vui lòng thử lại.");
+                    locks.Add(key);
+                }
+            }
+            catch (RedisConnectionException)
+            {
+            }
+
+            var booking = new Booking
+            {
+                UserId = request.UserId ?? currentUserId,
+                GuestName = request.GuestName,
+                GuestPhone = request.GuestPhone,
+                GuestEmail = request.GuestEmail,
+                NumAdults = request.NumAdults,
+                NumChildren = request.NumChildren,
+                Status = BookingStatuses.Pending,
+                Source = normalizedSource,
+                Note = request.Note,
+                BookingCode = await GenerateBookingCodeAsync()
+            };
+            if (!booking.UserId.HasValue && (normalizedSource == BookingSources.WalkIn || normalizedSource == BookingSources.Online))
+            {
+                await EnsureGuestAccountLinkedAsync(
+                    booking,
+                    request.GuestName,
+                    request.GuestPhone,
+                    request.GuestEmail,
+                    nationalId: null,
+                    sendNewAccountEmail: true);
+            }
+
+            if (normalizedSource == BookingSources.Online)
+            {
+                booking.ExpiresAt = DateTime.UtcNow.AddHours(24);
+                booking.RefundPolicy = "refundable";
+            }
+            if (request.Details.Any())
+            {
+                booking.RefundableUntil = DateTime.UtcNow.AddHours(12);
+            }
+
+            var roomTypeIds = request.Details.Select(d => d.RoomTypeId).Distinct().ToList();
+            var roomTypesDict = await _context.RoomTypes
+                .Where(rt => roomTypeIds.Contains(rt.Id))
+                .ToDictionaryAsync(rt => rt.Id);
+            var voucher = request.VoucherId.HasValue
+                ? await _context.Vouchers.FindAsync(request.VoucherId.Value)
+                : null;
+
+            decimal subtotal = 0m;
+            decimal voucherDiscount = 0m;
+
+            foreach (var d in request.Details)
+            {
+                if (!roomTypesDict.TryGetValue(d.RoomTypeId, out var rt))
+                    return BookingActionError(StatusCodes.Status400BadRequest, $"Loại phòng #{d.RoomTypeId} không tồn tại.");
+
+                if (d.RoomId.HasValue)
+                {
+                    var selectedRoom = await _context.Rooms
+                        .AsNoTracking()
+                        .FirstOrDefaultAsync(r => r.Id == d.RoomId.Value);
+
+                    if (selectedRoom == null || selectedRoom.RoomTypeId != d.RoomTypeId)
+                        return BookingActionError(StatusCodes.Status400BadRequest, "Phòng được chọn không thuộc hạng phòng đã chọn.");
+
+                    var hasReservationConflict = await _context.BookingDetails
+                        .AsNoTracking()
+                        .AnyAsync(bd => bd.RoomId == d.RoomId.Value
+                            && bd.BookingId != null
+                            && ReservationBlockingStatuses.Contains(bd.Booking!.Status!)
+                            && !(bd.CheckOutDate <= d.CheckInDate || bd.CheckInDate >= d.CheckOutDate));
+
+                    var selectable = !string.Equals(selectedRoom.BusinessStatus, "Disabled", StringComparison.OrdinalIgnoreCase)
+                        && !hasReservationConflict;
+
+                    if (!selectable)
+                        return BookingActionError(StatusCodes.Status400BadRequest, $"Phòng {selectedRoom.RoomNumber} không khả dụng trong khoảng ngày đã chọn.");
+                }
+                else if (!await HasCapacityForDetailAsync(d.RoomTypeId, d.CheckInDate, d.CheckOutDate))
+                {
+                    return BookingActionError(StatusCodes.Status400BadRequest, "Không còn đủ số lượng phòng trống cho loại phòng này trong khoảng thời gian đã chọn.");
+                }
+
+                var nights = CalculateNights(d.CheckInDate, d.CheckOutDate);
+                subtotal += nights * rt.BasePrice;
+
+                booking.BookingDetails.Add(new BookingDetail
+                {
+                    RoomTypeId = d.RoomTypeId,
+                    RoomId = d.RoomId,
+                    CheckInDate = d.CheckInDate,
+                    CheckOutDate = d.CheckOutDate,
+                    PricePerNight = rt.BasePrice
+                });
+            }
+
+            if (request.VoucherId.HasValue)
+            {
+                if (voucher == null)
+                    return BookingActionError(StatusCodes.Status400BadRequest, "Voucher không hợp lệ.");
+
+                if (!booking.UserId.HasValue)
+                    return BookingActionError(StatusCodes.Status401Unauthorized, "Vui lòng đăng nhập để sử dụng voucher.");
+
+                var audienceUnavailableReason = await _voucherAudienceService.GetUnavailableReasonAsync(voucher, booking.UserId.Value);
+                if (audienceUnavailableReason != null)
+                    return BookingActionError(StatusCodes.Status400BadRequest, audienceUnavailableReason);
+
+                if (voucher.ApplicableRoomTypeId.HasValue
+                    && !request.Details.Any(d => d.RoomTypeId == voucher.ApplicableRoomTypeId.Value))
+                {
+                    return BookingActionError(StatusCodes.Status400BadRequest, "Voucher này không áp dụng cho hạng phòng đã chọn.");
+                }
+
+                if (!_voucherValidationService.ValidateUsage(voucher, subtotal, DateTime.Now, out var voucherError))
+                    return BookingActionError(StatusCodes.Status400BadRequest, voucherError);
+
+                var userUsedCount = await _context.VoucherUsages
+                    .CountAsync(vu => vu.VoucherId == voucher.Id && vu.UserId == booking.UserId.Value);
+
+                if (userUsedCount >= voucher.MaxUsesPerUser)
+                    return BookingActionError(StatusCodes.Status400BadRequest, $"Bạn đã dùng voucher này tối đa {voucher.MaxUsesPerUser} lần.");
+
+                var discount = _voucherValidationService.CalculateDiscount(voucher, subtotal);
+                voucherDiscount = discount;
+                booking.VoucherId = voucher.Id;
+                voucher.UsedCount += 1;
+            }
+
+            var redeemPoints = request.LoyaltyPointsToRedeem;
+            if (redeemPoints > 0)
+            {
+                if (!booking.UserId.HasValue)
+                    return BookingActionError(StatusCodes.Status401Unauthorized, "Vui lòng đăng nhập để dùng điểm tích lũy.");
+
+                if (redeemPoints % 100 != 0)
+                    return BookingActionError(StatusCodes.Status400BadRequest, "Số điểm quy đổi phải là bội số của 100.");
+
+                var userForRedeem = await _context.Users.FirstOrDefaultAsync(u => u.Id == booking.UserId.Value);
+                if (userForRedeem == null)
+                    return BookingActionError(StatusCodes.Status400BadRequest, "Không tìm thấy tài khoản khách hàng để dùng điểm.");
+
+                if (redeemPoints > userForRedeem.LoyaltyPointsUsable)
+                    return BookingActionError(StatusCodes.Status400BadRequest, "Số điểm dùng vượt quá điểm khả dụng.");
+
+                var remainingAfterVoucher = Math.Max(0m, subtotal - voucherDiscount);
+                var loyaltyDiscount = redeemPoints * 100m;
+                if (loyaltyDiscount > remainingAfterVoucher)
+                    return BookingActionError(StatusCodes.Status400BadRequest, "Số điểm dùng vượt quá giá trị còn lại của booking.");
+
+                userForRedeem.LoyaltyPointsUsable -= redeemPoints;
+                userForRedeem.UpdatedAt = DateTime.UtcNow;
+                booking.LoyaltyPointsRedeemed = redeemPoints;
+                booking.LoyaltyDiscountAmount = loyaltyDiscount;
+
+                _context.LoyaltyTransactions.Add(new LoyaltyTransaction
+                {
+                    UserId = userForRedeem.Id,
+                    Booking = booking,
+                    TransactionType = "redeemed",
+                    Points = -redeemPoints,
+                    BalanceAfter = userForRedeem.LoyaltyPointsUsable,
+                    Note = $"Đổi {redeemPoints} điểm giảm {loyaltyDiscount:N0}đ cho booking {booking.BookingCode}.",
+                    CreatedAt = DateTime.UtcNow
+                });
+            }
+
+            booking.TotalEstimatedAmount = Math.Max(0m, subtotal - voucherDiscount - booking.LoyaltyDiscountAmount);
+
+            booking.DepositAmount = 0m;
+            await ApplyBookingFinancialTargetsAsync(booking);
+
+            _context.Bookings.Add(booking);
+            if (booking.VoucherId.HasValue && booking.UserId.HasValue)
+            {
+                _context.VoucherUsages.Add(new VoucherUsage
+                {
+                    VoucherId = booking.VoucherId.Value,
+                    UserId = booking.UserId.Value,
+                    Booking = booking,
+                    UsedAt = DateTime.UtcNow
+                });
+            }
+            await _context.SaveChangesAsync();
+
+            await _auditTrail.WriteAsync(_context, User, Request, new AuditTrailEntry
+            {
+                ActionCode = "CREATE_BOOKING",
+                ActionLabel = "Đặt phòng mới",
+                Message = $"Khách hàng {booking.GuestName} đã đặt phòng thành công ({booking.BookingCode}). Tổng: {booking.TotalEstimatedAmount:N0}đ",
+                EntityType = "Booking",
+                EntityId = booking.Id,
+                EntityLabel = booking.BookingCode,
+                Severity = "Success",
+                TableName = "Bookings",
+                RecordId = booking.Id,
+                OldValue = null,
+                NewValue = $"{{\"bookingCode\": \"{booking.BookingCode}\", \"total\": {booking.TotalEstimatedAmount}}}"
+            });
+
+            if (normalizedSource == BookingSources.WalkIn || normalizedSource == BookingSources.Online)
+            {
+                var toEmail = booking.GuestEmail ?? request.GuestEmail;
+                var firstDetail = booking.BookingDetails.OrderBy(d => d.CheckInDate).FirstOrDefault();
+                if (!string.IsNullOrWhiteSpace(toEmail) && firstDetail != null)
+                {
+                    _ = _email.SendBookingConfirmationAsync(
+                        toEmail,
+                        booking.GuestName ?? "Quy khach",
+                        booking.BookingCode,
+                        firstDetail.CheckInDate,
+                        firstDetail.CheckOutDate,
+                        booking.TotalEstimatedAmount,
+                        GetFrontendBaseUrl());
+                }
+            }
+
+            await RebuildDashboardSnapshotAsync("BOOKING_CREATED", booking.Id);
+            return BookingActionSuccess("Tạo booking thành công.", booking);
+        }
+        finally
+        {
+            foreach (var key in locks)
+                await RedisDb.KeyDeleteAsync(key);
+        }
+    }
+
+    [RequirePermission(PermissionCodes.ManageBookings)]
+    [HttpPost("{id}/details")]
+    public async Task<IActionResult> AddRoomToBooking(int id, AddBookingDetailRequest request, CancellationToken cancellationToken)
+    {
+        var booking = await _context.Bookings
+            .Include(b => b.BookingDetails)
+            .FirstOrDefaultAsync(b => b.Id == id, cancellationToken);
+
+        if (booking == null)
+            return BookingActionError(StatusCodes.Status404NotFound, $"Không tìm thấy booking #{id}.");
+
+        if (booking.Status is BookingStatuses.Completed or BookingStatuses.Cancelled or BookingStatuses.CheckedOutPendingSettlement)
+            return BookingActionError(StatusCodes.Status400BadRequest, "Booking hiện tại không thể thêm phòng mới.");
+
+        var roomType = await _context.RoomTypes.FirstOrDefaultAsync(rt => rt.Id == request.RoomTypeId && rt.IsActive, cancellationToken);
+        if (roomType == null)
+            return BookingActionError(StatusCodes.Status400BadRequest, $"Loại phòng #{request.RoomTypeId} không tồn tại hoặc đã ngưng hoạt động.");
+
+        var normalized = NormalizeStayDates(request.CheckInDate, request.CheckOutDate);
+        if (!await HasCapacityForDetailAsync(request.RoomTypeId, normalized.CheckInDate, normalized.CheckOutDate, booking.Id, cancellationToken))
+            return BookingActionError(StatusCodes.Status400BadRequest, "Không còn đủ số lượng phòng trống để thêm vào booking này.");
+
+        booking.BookingDetails.Add(new BookingDetail
+        {
+            RoomTypeId = request.RoomTypeId,
+            CheckInDate = normalized.CheckInDate,
+            CheckOutDate = normalized.CheckOutDate,
+            PricePerNight = roomType.BasePrice,
+            Note = request.Note
+        });
+
+        await RecalculateBookingTotalsAsync(booking, cancellationToken);
+        await _context.SaveChangesAsync(cancellationToken);
+
+        await _auditTrail.WriteAsync(_context, User, Request, new AuditTrailEntry
+        {
+            ActionCode = "ADD_BOOKING_ROOM",
+            ActionLabel = "Thêm phòng vào booking",
+            Message = $"Đã thêm phòng loại {roomType.Name} vào booking {booking.BookingCode}.",
+            EntityType = "Booking",
+            EntityId = booking.Id,
+            EntityLabel = booking.BookingCode,
+            Severity = "Success",
+            TableName = "Booking_Details",
+            RecordId = booking.BookingDetails.OrderByDescending(x => x.Id).First().Id,
+            OldValue = null,
+            NewValue = $"{{\"roomTypeId\": {roomType.Id}, \"checkInDate\": \"{normalized.CheckInDate:O}\", \"checkOutDate\": \"{normalized.CheckOutDate:O}\"}}"
+        });
+
+        await RebuildDashboardSnapshotAsync("BOOKING_UPDATED", booking.Id, cancellationToken);
+        return BookingActionSuccess("Đã thêm phòng vào booking thành công.", booking);
+    }
+
+    [RequirePermission(PermissionCodes.ManageBookings)]
+    [HttpPatch("{id}/confirm")]
+    public async Task<IActionResult> Confirm(int id)
+    {
+        var b = await _context.Bookings
+            .Include(x => x.BookingDetails)
+            .FirstOrDefaultAsync(x => x.Id == id);
+
+        if (b == null)
+            return BookingActionError(StatusCodes.Status404NotFound, $"Không tìm thấy booking #{id}.");
+
+        if ((b.DepositAmount ?? 0m) < b.RequiredBookingDepositAmount)
+            return BookingActionError(StatusCodes.Status400BadRequest, $"Booking chưa đủ tiền cọc tối thiểu để xác nhận. Còn thiếu {(b.RequiredBookingDepositAmount - (b.DepositAmount ?? 0m)):N0}đ.");
+
+        if (!_statusFlowService.CanTransition(b.Status, BookingStatuses.Confirmed, out var confirmError))
+            return BookingActionError(StatusCodes.Status400BadRequest, confirmError);
+
+        b.Status = BookingStatuses.Confirmed;
+
+        await _auditTrail.WriteAsync(_context, User, Request, new AuditTrailEntry
+        {
+            ActionCode = "CONFIRM_BOOKING",
+            ActionLabel = "Xác nhận booking",
+            Message = $"{(User.FindFirst("full_name")?.Value ?? "Hệ thống")} đã xác nhận booking {b.BookingCode} cho khách {b.GuestName}.",
+            EntityType = "Booking",
+            EntityId = id,
+            EntityLabel = b.BookingCode,
+            Severity = "Success",
+            TableName = "Bookings",
+            RecordId = id,
+            OldValue = $"{{\"status\": \"{BookingStatuses.Pending}\"}}",
+            NewValue = $"{{\"status\": \"{BookingStatuses.Confirmed}\"}}"
+        });
+
+        var toEmail = b.GuestEmail ?? b.User?.Email;
+        if (!string.IsNullOrEmpty(toEmail))
+        {
+            var detail = b.BookingDetails.FirstOrDefault();
+            _ = _email.SendBookingConfirmationAsync(
+                toEmail,
+                b.GuestName ?? b.User?.FullName ?? "Quý khách",
+                b.BookingCode,
+                detail?.CheckInDate ?? DateTime.Now,
+                detail?.CheckOutDate ?? DateTime.Now.AddDays(1),
+                b.TotalEstimatedAmount,
+                GetFrontendBaseUrl()
+            );
+        }
+
+        await _context.SaveChangesAsync();
+        await RebuildDashboardSnapshotAsync("BOOKING_CONFIRMED", b.Id);
+        return BookingActionSuccess("Xác nhận booking thành công.", b);
+    }
+
+    [Authorize]
+    [HttpPatch("{id}/cancel")]
+    public async Task<IActionResult> Cancel(int id, string reason)
+    {
+        var b = await _context.Bookings
+            .Include(x => x.BookingDetails)
+                .ThenInclude(d => d.Room)
+            .FirstOrDefaultAsync(x => x.Id == id);
+
+        if (b == null)
+            return BookingActionError(StatusCodes.Status404NotFound, $"Không tìm thấy booking #{id}.");
+
+        var currentUserId = JwtHelper.GetUserId(User);
+        var role = User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? User.FindFirst("role")?.Value;
+
+        if (role != "Admin" && role != "Manager" && role != "Receptionist" && b.UserId != currentUserId)
+        {
+            return BookingActionError(StatusCodes.Status403Forbidden, "Bạn không có quyền hủy booking của người khác.");
+        }
+
+        if (!_statusFlowService.CanTransition(b.Status, BookingStatuses.Cancelled, out var cancelError))
+            return BookingActionError(StatusCodes.Status400BadRequest, cancelError);
+
+        var previousStatus = b.Status;
+        b.Status = BookingStatuses.Cancelled;
+        b.CancellationReason = reason;
+        b.CancelledAt = DateTime.UtcNow;
+
+        // Xử lý chính sách hoàn cọc (Cancel Policy)
+        if (previousStatus == BookingStatuses.Pending)
+        {
+            b.RefundAmount = b.DepositAmount; // Hoàn toàn bộ (dù Pending thường chưa cọc, nhưng đề phòng có)
+        }
+        else if (previousStatus == BookingStatuses.Confirmed)
+        {
+            if (b.RefundPolicy == "refundable" && b.RefundableUntil.HasValue && DateTime.UtcNow <= b.RefundableUntil.Value)
+            {
+                b.RefundAmount = b.DepositAmount ?? 0m; // Hủy trong vòng 12h sau khi đặt -> hoàn 100%
+            }
+            else
+            {
+                b.RefundAmount = 0m; // Quá hạn 12h -> mất cọc
+            }
+        }
+
+        foreach (var d in b.BookingDetails)
+        {
+            if (d.Room != null)
+            {
+                d.Room.BusinessStatus = RoomBusinessStatuses.Available;
+                d.Room.CleaningStatus = CleaningStatuses.Clean;
+                d.Room.Status = ComputeRoomStatus(d.Room.BusinessStatus, d.Room.CleaningStatus);
+            }
+        }
+
+        await _auditTrail.WriteAsync(_context, User, Request, new AuditTrailEntry
+        {
+            ActionCode = "CANCEL_BOOKING",
+            ActionLabel = "Hủy đặt phòng",
+            Message = $"{(User.FindFirst("full_name")?.Value ?? "Hệ thống")} đã hủy booking {b.BookingCode} của khách {b.GuestName}. Lý do: {reason}",
+            EntityType = "Booking",
+            EntityId = id,
+            EntityLabel = b.BookingCode,
+            Severity = "Warning",
+            TableName = "Bookings",
+            RecordId = id,
+            OldValue = null,
+            NewValue = $"{{\"status\": \"{BookingStatuses.Cancelled}\", \"reason\": \"{reason}\"}}"
+        });
+
+        await _context.SaveChangesAsync();
+        await RebuildDashboardSnapshotAsync("BOOKING_CANCELLED", b.Id);
+        return BookingActionSuccess("Hủy booking thành công.", b);
+    }
+
+    [RequirePermission(PermissionCodes.ManageBookings)]
+    [HttpPatch("{id}/check-in-room")]
+    public async Task<IActionResult> CheckInRoom(int id, CheckInBookingDetailRequest request, CancellationToken cancellationToken)
+    {
+        var booking = await _context.Bookings
+            .Include(x => x.User)
+            .Include(x => x.BookingDetails)
+                .ThenInclude(d => d.Room)
+            .Include(x => x.BookingDetails)
+                .ThenInclude(d => d.RoomType)
+            .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+
+        if (booking == null)
+            return BookingActionError(StatusCodes.Status404NotFound, $"Không tìm thấy booking #{id}.");
+
+        if (booking.Status != BookingStatuses.Confirmed && booking.Status != BookingStatuses.CheckedIn)
+            return BookingActionError(StatusCodes.Status400BadRequest, "Chỉ booking đã xác nhận hoặc đang lưu trú mới được check-in theo phòng.");
+
+        if ((booking.DepositAmount ?? 0m) < booking.RequiredCheckInAmount)
+            return BookingActionError(StatusCodes.Status400BadRequest, $"Booking chưa đủ tiền để nhận phòng. Cần thu thêm {(booking.RequiredCheckInAmount - (booking.DepositAmount ?? 0m)):N0}đ.");
+
+        var detail = booking.BookingDetails.FirstOrDefault(d => d.Id == request.BookingDetailId);
+        if (detail == null)
+            return BookingActionError(StatusCodes.Status404NotFound, $"Không tìm thấy booking detail #{request.BookingDetailId}.");
+
+        try
+        {
+            await EnsureGuestAccountLinkedAsync(booking, request.GuestName, request.GuestPhone, request.GuestEmail, request.NationalId, requireNationalId: true, sendNewAccountEmail: true, cancellationToken: cancellationToken);
+            await ApplyCheckInToDetailAsync(booking, detail, request.RoomId, null, cancellationToken);
+            await _context.SaveChangesAsync(cancellationToken);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BookingActionError(StatusCodes.Status400BadRequest, ex.Message);
+        }
+
+        await _auditTrail.WriteAsync(_context, User, Request, new AuditTrailEntry
+        {
+            ActionCode = "CHECKIN_BOOKING_DETAIL",
+            ActionLabel = "Check-in từng phòng",
+            Message = $"Đã check-in booking detail #{detail.Id} cho booking {booking.BookingCode}.",
+            EntityType = "Booking",
+            EntityId = booking.Id,
+            EntityLabel = booking.BookingCode,
+            Severity = "Success",
+            TableName = "Booking_Details",
+            RecordId = detail.Id,
+            OldValue = null,
+            NewValue = $"{{\"roomId\": {detail.RoomId?.ToString() ?? "null"}, \"status\": \"{booking.Status}\"}}"
+        });
+
+        await RebuildDashboardSnapshotAsync("BOOKING_CHECKED_IN", booking.Id, cancellationToken);
+        return BookingActionSuccess("Check-in từng phòng thành công.", booking);
+    }
+
+    [RequirePermission(PermissionCodes.ManageBookings)]
+    [HttpPatch("{id}/check-in-bulk")]
+    public async Task<IActionResult> CheckInBulk(int id, BulkCheckInBookingRequest? request, CancellationToken cancellationToken)
+    {
+        var booking = await _context.Bookings
+            .Include(x => x.User)
+            .Include(x => x.BookingDetails)
+                .ThenInclude(d => d.Room)
+            .Include(x => x.BookingDetails)
+                .ThenInclude(d => d.RoomType)
+            .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+
+        if (booking == null)
+            return BookingActionError(StatusCodes.Status404NotFound, $"Không tìm thấy booking #{id}.");
+
+        if (booking.Status != BookingStatuses.Confirmed && booking.Status != BookingStatuses.CheckedIn)
+            return BookingActionError(StatusCodes.Status400BadRequest, "Chỉ booking đã xác nhận hoặc đang lưu trú mới được check-in hàng loạt.");
+
+        if ((booking.DepositAmount ?? 0m) < booking.RequiredCheckInAmount)
+            return BookingActionError(StatusCodes.Status400BadRequest, $"Booking chưa đủ tiền để nhận phòng. Cần thu thêm {(booking.RequiredCheckInAmount - (booking.DepositAmount ?? 0m)):N0}đ.");
+
+        var requestedDetails = request?.Details ?? [];
+        var detailsToCheckIn = requestedDetails.Count > 0
+            ? booking.BookingDetails.Where(d => requestedDetails.Any(x => x.BookingDetailId == d.Id)).ToList()
+            : booking.BookingDetails.ToList();
+
+        if (detailsToCheckIn.Count == 0)
+            return BookingActionError(StatusCodes.Status400BadRequest, "Không có booking detail nào để check-in.");
+
+        try
+        {
+            await EnsureGuestAccountLinkedAsync(booking, request?.GuestName, request?.GuestPhone, request?.GuestEmail, request?.NationalId, requireNationalId: true, sendNewAccountEmail: true, cancellationToken: cancellationToken);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BookingActionError(StatusCodes.Status400BadRequest, ex.Message);
+        }
+
+        var detailIdsToCheckIn = new HashSet<int>(detailsToCheckIn.Select(d => d.Id));
+        var assignedRoomIds = new HashSet<int>(
+            booking.BookingDetails
+                .Where(d => d.RoomId.HasValue && !detailIdsToCheckIn.Contains(d.Id))
+                .Select(d => d.RoomId!.Value));
+
+        foreach (var detail in detailsToCheckIn)
+        {
+            var itemRequest = requestedDetails.FirstOrDefault(x => x.BookingDetailId == detail.Id);
+            try
+            {
+                await ApplyCheckInToDetailAsync(booking, detail, itemRequest?.RoomId, assignedRoomIds, cancellationToken);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BookingActionError(StatusCodes.Status400BadRequest, ex.Message);
+            }
+        }
+
+        await _context.SaveChangesAsync(cancellationToken);
+
+        await _auditTrail.WriteAsync(_context, User, Request, new AuditTrailEntry
+        {
+            ActionCode = "CHECKIN_BOOKING_BULK",
+            ActionLabel = "Check-in hàng loạt",
+            Message = $"Đã check-in {detailsToCheckIn.Count} phòng cho booking {booking.BookingCode}.",
+            EntityType = "Booking",
+            EntityId = booking.Id,
+            EntityLabel = booking.BookingCode,
+            Severity = "Success",
+            TableName = "Bookings",
+            RecordId = booking.Id,
+            OldValue = null,
+            NewValue = $"{{\"checkedInCount\": {detailsToCheckIn.Count}, \"status\": \"{booking.Status}\"}}"
+        });
+
+        await RebuildDashboardSnapshotAsync("BOOKING_CHECKED_IN", booking.Id, cancellationToken);
+        return BookingActionSuccess("Check-in hàng loạt thành công.", booking);
+    }
+
+    [RequirePermission(PermissionCodes.ManageBookings)]
+    [HttpPatch("{id}/check-in")]
+    public async Task<IActionResult> CheckIn(int id, [FromBody] BulkCheckInBookingRequest? request, CancellationToken cancellationToken)
+        => await CheckInBulk(id, request, cancellationToken);
+
+    [RequirePermission(PermissionCodes.ManageBookings)]
+    [HttpPatch("{id}/extend-stay")]
+    public async Task<IActionResult> ExtendStay(int id, ExtendStayRequest request, CancellationToken cancellationToken)
+    {
+        var booking = await _context.Bookings
+            .Include(b => b.BookingDetails)
+                .ThenInclude(d => d.Room)
+            .Include(b => b.BookingDetails)
+                .ThenInclude(d => d.RoomType)
+            .FirstOrDefaultAsync(b => b.Id == id, cancellationToken);
+
+        if (booking == null)
+            return BookingActionError(StatusCodes.Status404NotFound, $"Không tìm thấy booking #{id}.");
+
+        if (booking.Status != BookingStatuses.Confirmed && booking.Status != BookingStatuses.CheckedIn)
+            return BookingActionError(StatusCodes.Status400BadRequest, "Chỉ booking đã xác nhận hoặc đang lưu trú mới được ở thêm ngày.");
+
+        var detail = booking.BookingDetails.FirstOrDefault(d => d.Id == request.BookingDetailId);
+        if (detail == null)
+            return BookingActionError(StatusCodes.Status404NotFound, $"Không tìm thấy booking detail #{request.BookingDetailId}.");
+
+        var oldCheckOutDate = detail.CheckOutDate;
+        var (_, normalizedNewCheckOut) = NormalizeStayDates(detail.CheckInDate, request.NewCheckOutDate);
+
+        if (normalizedNewCheckOut <= detail.CheckOutDate.Date)
+            return BookingActionError(StatusCodes.Status400BadRequest, "Ngày check-out mới phải lớn hơn ngày check-out hiện tại để ở thêm ngày.");
+
+        if (detail.RoomId.HasValue)
+        {
+            var roomConflict = await _context.BookingDetails
+                .AsNoTracking()
+                .AnyAsync(bd => bd.Id != detail.Id
+                    && bd.RoomId == detail.RoomId
+                    && bd.BookingId != null
+                    && ReservationBlockingStatuses.Contains(bd.Booking!.Status!)
+                    && !(bd.CheckOutDate <= detail.CheckOutDate.Date || bd.CheckInDate >= normalizedNewCheckOut), cancellationToken);
+
+            if (!roomConflict)
+            {
+                detail.CheckOutDate = normalizedNewCheckOut;
+                await RecalculateBookingTotalsAsync(booking, cancellationToken);
+                await _context.SaveChangesAsync(cancellationToken);
+                await _auditTrail.WriteAsync(_context, User, Request, new AuditTrailEntry
+                {
+                    ActionCode = "EXTEND_STAY",
+                    ActionLabel = "Gia hạn lưu trú",
+                    Message = $"{(User.FindFirst("full_name")?.Value ?? "Hệ thống")} đã gia hạn booking {booking.BookingCode}.",
+                    EntityType = "Booking",
+                    EntityId = booking.Id,
+                    EntityLabel = booking.BookingCode,
+                    Severity = "Info",
+                    TableName = "Bookings",
+                    RecordId = booking.Id,
+                    NewValue = $"{{\"bookingDetailId\":{detail.Id},\"newCheckOutDate\":\"{normalizedNewCheckOut:yyyy-MM-dd}\"}}"
+                });
+
+                await RebuildDashboardSnapshotAsync("BOOKING_UPDATED", booking.Id, cancellationToken);
+                return BookingActionSuccess("Đã cập nhật ở thêm ngày cho booking thành công.", booking);
+            }
+        }
+        else if (await HasCapacityForDetailAsync(detail.RoomTypeId ?? 0, detail.CheckInDate, normalizedNewCheckOut, booking.Id, cancellationToken))
+        {
+            detail.CheckOutDate = normalizedNewCheckOut;
+            await RecalculateBookingTotalsAsync(booking, cancellationToken);
+            await _context.SaveChangesAsync(cancellationToken);
+            await _auditTrail.WriteAsync(_context, User, Request, new AuditTrailEntry
+            {
+                ActionCode = "EXTEND_STAY",
+                ActionLabel = "Gia hạn lưu trú",
+                Message = $"{(User.FindFirst("full_name")?.Value ?? "Hệ thống")} đã gia hạn booking {booking.BookingCode}.",
+                EntityType = "Booking",
+                EntityId = booking.Id,
+                EntityLabel = booking.BookingCode,
+                Severity = "Info",
+                TableName = "Bookings",
+                RecordId = booking.Id,
+                NewValue = $"{{\"bookingDetailId\":{detail.Id},\"newCheckOutDate\":\"{normalizedNewCheckOut:yyyy-MM-dd}\"}}"
+            });
+
+            await RebuildDashboardSnapshotAsync("BOOKING_UPDATED", booking.Id, cancellationToken);
+            return BookingActionSuccess("Đã cập nhật ở thêm ngày cho booking thành công.", booking);
+        }
+
+        if (request.TargetRoomId.HasValue)
+        {
+            var targetRoom = await _context.Rooms
+                .Include(r => r.RoomType)
+                .FirstOrDefaultAsync(r => r.Id == request.TargetRoomId.Value, cancellationToken);
+
+            if (targetRoom == null || string.Equals(targetRoom.BusinessStatus, "Disabled", StringComparison.OrdinalIgnoreCase))
+                return BookingActionError(StatusCodes.Status400BadRequest, "Phòng thay thế không khả dụng.");
+
+            var targetConflict = await _context.BookingDetails
+                .AsNoTracking()
+                .AnyAsync(bd => bd.Id != detail.Id
+                    && bd.RoomId == targetRoom.Id
+                    && bd.BookingId != null
+                    && ReservationBlockingStatuses.Contains(bd.Booking!.Status!)
+                    && !(bd.CheckOutDate <= detail.CheckOutDate.Date || bd.CheckInDate >= normalizedNewCheckOut), cancellationToken);
+
+            if (targetConflict)
+                return BookingActionError(StatusCodes.Status400BadRequest, "Phòng thay thế đã có booking trong khoảng thời gian ở thêm.");
+
+            var transferStartDate = detail.CheckOutDate.Date;
+            var transferNote = string.IsNullOrWhiteSpace(detail.Note)
+                ? $"Chuyển phòng để ở thêm từ phòng #{detail.RoomId?.ToString() ?? "N/A"}"
+                : $"{detail.Note} | Chuyển phòng để ở thêm từ phòng #{detail.RoomId?.ToString() ?? "N/A"}";
+
+            booking.BookingDetails.Add(new BookingDetail
+            {
+                RoomTypeId = targetRoom.RoomTypeId,
+                RoomId = targetRoom.Id,
+                CheckInDate = transferStartDate,
+                CheckOutDate = normalizedNewCheckOut,
+                PricePerNight = targetRoom.RoomType?.BasePrice ?? detail.PricePerNight,
+                Note = transferNote
+            });
+
+            await RecalculateBookingTotalsAsync(booking, cancellationToken);
+            await _context.SaveChangesAsync(cancellationToken);
+            await _auditTrail.WriteAsync(_context, User, Request, new AuditTrailEntry
+            {
+                ActionCode = "EXTEND_STAY_TRANSFER_ROOM",
+                ActionLabel = "Gia hạn lưu trú và chuyển phòng",
+                Message = $"{(User.FindFirst("full_name")?.Value ?? "Hệ thống")} đã gia hạn booking {booking.BookingCode} và chuyển phòng.",
+                EntityType = "Booking",
+                EntityId = booking.Id,
+                EntityLabel = booking.BookingCode,
+                Severity = "Info",
+                TableName = "Bookings",
+                RecordId = booking.Id,
+                NewValue = $"{{\"bookingDetailId\":{detail.Id},\"newCheckOutDate\":\"{normalizedNewCheckOut:yyyy-MM-dd}\",\"targetRoomId\":{request.TargetRoomId.Value}}}"
+            });
+
+            await RebuildDashboardSnapshotAsync("BOOKING_UPDATED", booking.Id, cancellationToken);
+            return BookingActionSuccess("Đã thêm chặng phòng mới để ở thêm ngày thành công.", booking);
+        }
+
+        var suggestions = await BuildAlternativeRoomSuggestionsAsync(booking, detail, normalizedNewCheckOut, cancellationToken);
+        return BookingActionError(
+            StatusCodes.Status409Conflict,
+            "Phòng hiện tại đã có booking khác trong khoảng thời gian ở thêm. Vui lòng chọn phòng thay thế.",
+            new
+            {
+                bookingId = booking.Id,
+                bookingCode = booking.BookingCode,
+                bookingDetailId = detail.Id,
+                currentRoomId = detail.RoomId,
+                currentRoomTypeId = detail.RoomTypeId,
+                oldCheckOutDate,
+                newCheckOutDate = normalizedNewCheckOut,
+                suggestions
+            });
+    }
+
+    [RequirePermission(PermissionCodes.ManageBookings)]
+    [HttpPatch("{id}/early-checkout")]
+    public async Task<IActionResult> EarlyCheckOut(int id, EarlyCheckOutRequest request, CancellationToken cancellationToken)
+    {
+        var booking = await _context.Bookings
+            .Include(b => b.BookingDetails)
+                .ThenInclude(d => d.Room)
+            .Include(b => b.BookingDetails)
+                .ThenInclude(d => d.RoomType)
+            .FirstOrDefaultAsync(b => b.Id == id, cancellationToken);
+
+        if (booking == null)
+            return BookingActionError(StatusCodes.Status404NotFound, $"Không tìm thấy booking #{id}.");
+
+        if (booking.Status != BookingStatuses.Confirmed && booking.Status != BookingStatuses.CheckedIn)
+            return BookingActionError(StatusCodes.Status400BadRequest, "Chỉ booking đã xác nhận hoặc đang lưu trú mới được out sớm.");
+
+        var detail = booking.BookingDetails.FirstOrDefault(d => d.Id == request.BookingDetailId);
+        if (detail == null)
+            return BookingActionError(StatusCodes.Status404NotFound, $"Không tìm thấy booking detail #{request.BookingDetailId}.");
+
+        var normalizedDate = request.NewCheckOutDate.Date <= detail.CheckInDate.Date
+            ? detail.CheckInDate.Date.AddDays(1)
+            : request.NewCheckOutDate.Date;
+
+        if (normalizedDate > detail.CheckOutDate.Date)
+            return BookingActionError(StatusCodes.Status400BadRequest, "Ngày check-out mới phải nhỏ hơn hoặc bằng ngày check-out hiện tại.");
+
+        detail.CheckOutDate = normalizedDate;
+        await RecalculateBookingTotalsAsync(booking, cancellationToken);
+        await _context.SaveChangesAsync(cancellationToken);
+
+        await _auditTrail.WriteAsync(_context, User, Request, new AuditTrailEntry
+        {
+            ActionCode = "EARLY_CHECKOUT_ADJUSTMENT",
+            ActionLabel = "Điều chỉnh out sớm",
+            Message = $"Đã điều chỉnh ngày check-out sớm cho booking {booking.BookingCode}.",
+            EntityType = "Booking",
+            EntityId = booking.Id,
+            EntityLabel = booking.BookingCode,
+            Severity = "Warning",
+            TableName = "Booking_Details",
+            RecordId = detail.Id,
+            OldValue = null,
+            NewValue = $"{{\"bookingDetailId\": {detail.Id}, \"newCheckOutDate\": \"{normalizedDate:O}\"}}"
+        });
+
+        await RebuildDashboardSnapshotAsync("BOOKING_UPDATED", booking.Id, cancellationToken);
+        return BookingActionSuccess("Đã cập nhật out sớm và tính lại booking thành công.", booking);
+    }
+
+    [RequirePermission(PermissionCodes.ManageBookings)]
+    [HttpPatch("{id}/check-out")]
+    public async Task<IActionResult> CheckOut(int id)
+    {
+        var b = await _context.Bookings
+            .Include(x => x.BookingDetails)
+                .ThenInclude(d => d.Room)
+            .FirstOrDefaultAsync(x => x.Id == id);
+
+        if (b == null)
+            return BookingActionError(StatusCodes.Status404NotFound, $"Không tìm thấy booking #{id}.");
+
+        if (!_statusFlowService.CanTransition(b.Status, BookingStatuses.CheckedOutPendingSettlement, out var checkOutError))
+            return BookingActionError(StatusCodes.Status400BadRequest, checkOutError);
+
+        foreach (var d in b.BookingDetails)
+        {
+            if (d.Room != null)
+            {
+                d.Room.BusinessStatus = RoomBusinessStatuses.Available;
+                d.Room.CleaningStatus = CleaningStatuses.Dirty;
+                d.Room.Status = ComputeRoomStatus(d.Room.BusinessStatus, d.Room.CleaningStatus);
+            }
+        }
+
+        b.Status = BookingStatuses.CheckedOutPendingSettlement;
+        b.CheckOutTime = DateTime.UtcNow;
+
+        await _auditTrail.WriteAsync(_context, User, Request, new AuditTrailEntry
+        {
+            ActionCode = "CHECKOUT_BOOKING",
+            ActionLabel = "Check-out khách",
+            Message = $"{(User.FindFirst("full_name")?.Value ?? "Hệ thống")} đã thực hiện check-out cho khách {b.GuestName} ({b.BookingCode}) và chuyển booking sang trạng thái chờ quyết toán.",
+            EntityType = "Booking",
+            EntityId = id,
+            EntityLabel = b.BookingCode,
+            Severity = "Success",
+            TableName = "Bookings",
+            RecordId = id,
+            OldValue = null,
+            NewValue = $"{{\"status\": \"{BookingStatuses.CheckedOutPendingSettlement}\"}}"
+        });
+
+        await _context.SaveChangesAsync();
+        await _invoiceService.CreateFromBookingAsync(b.Id);
+        await RebuildDashboardSnapshotAsync("BOOKING_CHECKED_OUT", b.Id);
+
+        return BookingActionSuccess("Check-out booking thành công. Booking đang chờ quyết toán hóa đơn.", b);
+    }
+
+    /// <summary>
+    /// GET /api/Bookings/guest/availability
+    /// [AllowAnonymous] — Kiểm tra số phòng còn trống theo loại phòng cho khoảng ngày đặt.
+    /// Dùng cho trang đặt phòng guest, không cần đăng nhập.
+    /// Params: checkInDate, checkOutDate, numAdults, numChildren
+    /// </summary>
+    [AllowAnonymous]
+    [HttpGet("guest/availability")]
+    public async Task<IActionResult> GetGuestAvailability(
+        [FromQuery] DateTime checkInDate,
+        [FromQuery] DateTime checkOutDate,
+        [FromQuery] int numAdults = 1,
+        [FromQuery] int numChildren = 0,
+        CancellationToken cancellationToken = default)
+    {
+        if (checkInDate == default || checkOutDate == default)
+            return BookingActionError(StatusCodes.Status400BadRequest, "Vui lòng cung cấp ngày nhận phòng và trả phòng.");
+
+        var (normalizedCheckIn, normalizedCheckOut) = NormalizeStayDates(checkInDate, checkOutDate);
+
+        if (normalizedCheckOut <= normalizedCheckIn)
+            return BookingActionError(StatusCodes.Status400BadRequest, "Ngày trả phòng phải sau ngày nhận phòng.");
+
+        var roomTypes = await _context.RoomTypes
+            .Include(rt => rt.RoomImages)
+            .AsNoTracking()
+            .Where(rt => rt.IsActive)
+            .OrderBy(rt => rt.BasePrice)
+            .ToListAsync(cancellationToken);
+
+        var result = new List<object>();
+        var nights = CalculateNights(normalizedCheckIn, normalizedCheckOut);
+
+        foreach (var roomType in roomTypes)
+        {
+            var totalRooms = await CountTotalRoomsByTypeAsync(roomType.Id, cancellationToken);
+            var bookedRooms = await CountBookedRoomsAsync(roomType.Id, normalizedCheckIn, normalizedCheckOut, cancellationToken: cancellationToken);
+            var availableRooms = Math.Max(0, totalRooms - bookedRooms);
+            var meetsCapacity = roomType.CapacityAdults >= numAdults && (roomType.CapacityAdults + roomType.CapacityChildren >= numAdults + numChildren);
+
+            var primaryImage = roomType.RoomImages
+                .Where(img => img.IsActive)
+                .OrderByDescending(img => img.IsPrimary)
+                .ThenBy(img => img.SortOrder)
+                .FirstOrDefault()?.ImageUrl;
+
+            result.Add(new
+            {
+                roomType.Id,
+                roomType.Name,
+                roomType.BasePrice,
+                roomType.CapacityAdults,
+                roomType.CapacityChildren,
+                roomType.BedType,
+                roomType.AreaSqm,
+                roomType.Description,
+                roomType.IsActive,
+                PrimaryImageUrl = primaryImage,
+                TotalRooms = totalRooms,
+                AvailableRooms = availableRooms,
+                IsAvailable = availableRooms > 0,
+                MeetsCapacity = meetsCapacity,
+                SuggestedTotal = nights * roomType.BasePrice,
+                Nights = nights
+            });
+        }
+
+        return Ok(new
+        {
+            success = true,
+            message = "Lấy danh sách phòng khả dụng thành công.",
+            data = result,
+            meta = new
+            {
+                checkInDate = normalizedCheckIn,
+                checkOutDate = normalizedCheckOut,
+                nights,
+                numAdults,
+                numChildren
+            }
+        });
+    }
+
+    [RequirePermission(PermissionCodes.ManageBookings)]
+    [HttpPost("expire-pending")]
+    public async Task<IActionResult> ExpirePendingBookings(CancellationToken ct)
+    {
+        var now = DateTime.UtcNow;
+        var expired = await _context.Bookings
+            .Where(b => b.Status == "Pending" 
+                     && b.ExpiresAt != null 
+                     && b.ExpiresAt <= now)
+            .ToListAsync(ct);
+        
+        foreach (var b in expired)
+        {
+            b.Status = "Cancelled";
+            b.CancellationReason = "Hết thời gian chờ thanh toán cọc.";
+            b.CancelledAt = now;
+        }
+        
+        await _context.SaveChangesAsync(ct);
+        if (expired.Count > 0)
+        {
+            await _auditTrail.WriteAsync(_context, User, Request, new AuditTrailEntry
+            {
+                ActionCode = "EXPIRE_PENDING_BOOKINGS",
+                ActionLabel = "Hủy booking hết hạn đặt cọc",
+                Message = $"{(User.FindFirst("full_name")?.Value ?? "Hệ thống")} đã hủy {expired.Count} booking pending hết hạn đặt cọc.",
+                EntityType = "Booking",
+                EntityLabel = "Expired pending bookings",
+                Severity = "Warning",
+                TableName = "Bookings",
+                NewValue = $"{{\"expiredCount\":{expired.Count}}}"
+            });
+
+            await RebuildDashboardSnapshotAsync("BOOKING_EXPIRED", null, ct);
+        }
+        return Ok(new { success = true, expired = expired.Count });
+    }
+}

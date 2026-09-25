@@ -1,6 +1,6 @@
 # ============================================================================
 # UNIMIND SYSTEM STARTUP SCRIPT
-# Tự động kiểm tra Database, khởi chạy Backend Web API và mở Frontend
+# Tự động kiểm tra Database, khởi chạy Backend Web API và Frontend Vite
 # ============================================================================
 
 Write-Host "==========================================================" -ForegroundColor Cyan
@@ -24,18 +24,30 @@ if ($sqlService) {
 Write-Host "[2/3] Khởi chạy Backend Web API trên cổng http://localhost:5080..." -ForegroundColor Yellow
 $backendProcess = Start-Process -FilePath "dotnet" -ArgumentList "run --project backend/src/Presentation/WebAPI/WebAPI.csproj" -PassThru -NoNewWindow
 
-Start-Sleep -Seconds 4
+Start-Sleep -Seconds 3
 
-# 3. Mở Frontend
-Write-Host "[3/3] Khởi chạy Giao diện Frontend..." -ForegroundColor Yellow
-$frontendPath = Resolve-Path "frontend/index.html"
-Start-Process $frontendPath
+# 3. Khởi chạy Frontend Vite Dev Server
+Write-Host "[3/3] Khởi chạy Giao diện Frontend Vite trên cổng http://localhost:5173..." -ForegroundColor Yellow
+$frontendProcess = Start-Process -FilePath "cmd.exe" -ArgumentList "/c npm --prefix frontend run dev" -PassThru -NoNewWindow
+
+Start-Sleep -Seconds 2
+
+# Mở trình duyệt vào Frontend và Swagger
+Start-Process "http://localhost:5173"
 
 Write-Host "==========================================================" -ForegroundColor Green
 Write-Host " -> Backend API:  http://localhost:5080" -ForegroundColor Green
 Write-Host " -> Swagger Docs: http://localhost:5080/swagger" -ForegroundColor Green
-Write-Host " -> Frontend:     $frontendPath" -ForegroundColor Green
+Write-Host " -> Frontend Web: http://localhost:5173" -ForegroundColor Green
 Write-Host "==========================================================" -ForegroundColor Green
-Write-Host "Nhấn Enter để dừng hệ thống khi hoàn tất thử nghiệm..." -ForegroundColor Gray
+Write-Host "Nhấn Enter để dừng toàn bộ hệ thống khi hoàn tất..." -ForegroundColor Gray
 Read-Host
-Stop-Process -Id $backendProcess.Id -Force -ErrorAction SilentlyContinue
+
+# Dọn dẹp tiến trình
+if ($backendProcess) {
+    taskkill /F /T /PID $backendProcess.Id 2>$null
+}
+if ($frontendProcess) {
+    taskkill /F /T /PID $frontendProcess.Id 2>$null
+}
+Write-Host "Đã dừng toàn bộ dịch vụ UniMind." -ForegroundColor Cyan

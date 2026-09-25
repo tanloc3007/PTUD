@@ -1,0 +1,29 @@
+namespace HotelManagement.Core.Authorization;
+
+/// <summary>
+/// Danh sách permission_code khớp chính xác với cột permission_code trong bảng Permissions.
+/// Dùng làm tham số cho [RequirePermission] attribute và PermissionRequirement.
+/// </summary>
+public static class PermissionCodes
+{
+    public const string ViewDashboard   = "VIEW_DASHBOARD";
+    public const string ManageUsers     = "MANAGE_USERS";
+    public const string ManageRoles     = "MANAGE_ROLES";
+    public const string ManageRooms     = "MANAGE_ROOMS";
+    public const string ManageBookings  = "MANAGE_BOOKINGS";
+    public const string ManageInvoices  = "MANAGE_INVOICES";
+    public const string ManageServices  = "MANAGE_SERVICES";
+    public const string ViewReports     = "VIEW_REPORTS";
+    public const string ManageContent   = "MANAGE_CONTENT";
+    public const string ManageInventory = "MANAGE_INVENTORY";
+    public const string ViewUsers       = "VIEW_USERS";
+    public const string ViewRoles       = "VIEW_ROLES";
+    public const string ViewAuditLogs   = "VIEW_AUDIT_LOGS";
+    public const string EditRoles       = "EDIT_ROLES";
+    public const string CreateUsers     = "CREATE_USERS";
+    public const string ManageSystemSettings = "MANAGE_SYSTEM_SETTINGS";
+    public const string ManageVouchers       = "MANAGE_VOUCHERS";
+    public const string ChangeUserRole       = "CHANGE_USER_ROLE";
+    public const string EditRolePermissions  = "EDIT_ROLE_PERMISSIONS";
+    public const string ViewSystemSettings   = "VIEW_SYSTEM_SETTINGS";
+}

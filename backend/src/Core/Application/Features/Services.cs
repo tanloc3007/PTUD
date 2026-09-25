@@ -53,17 +53,26 @@ public interface IExpertWorkspaceService
     Task<Result<List<SensitiveKeywordDto>>> GetSensitiveKeywordsAsync();
     Task<Result<SensitiveKeywordDto>> AddSensitiveKeywordAsync(AddSensitiveKeywordRequest request, string addedByRole);
     Task<Result> RemoveSensitiveKeywordAsync(Guid keywordId);
+    Task<Result<ExpertAnalyticsDto>> GetAnalyticsAsync(Guid? expertId = null);
+    Task<Result<ExpertProfileDto>> GetExpertProfileAsync(Guid userId);
+    Task<Result<ExpertProfileDto>> UpdateExpertProfileAsync(Guid userId, UpdateExpertProfileRequest request);
 }
 
 public interface IAdminService
 {
     Task<Result<DashboardStatsDto>> GetSystemDashboardAsync();
+    Task<Result<AdminReportsDto>> GetReportsAsync();
+    Task<Result<List<AuditLogDto>>> GetAuditLogsAsync();
+    Task<Result<AuditLogHistoryResponseDto>> GetAuditLogHistoryAsync(Guid? userId, string? date, int? month, int? year, int page, int pageSize);
+    Task<Result<List<AuditLogEmployeeOptionDto>>> GetAuditLogFilterOptionsAsync();
     Task<Result<List<PostDto>>> GetModerationQueueAsync();
     Task<Result> ModeratePostAsync(Guid postId, ModeratePostRequest request, Guid adminUserId);
     Task<Result<List<UserDto>>> GetAllUsersAsync();
     Task<Result> ToggleUserStatusAsync(Guid userId);
+    Task<Result<UserDto>> UpdateUserRoleAsync(Guid userId, string newRole);
     Task<Result<ExpertDto>> CreateExpertAsync(CreateExpertRequest request);
     Task<Result<List<SensitiveKeywordDto>>> GetSensitiveKeywordsAsync();
     Task<Result<SensitiveKeywordDto>> AddSensitiveKeywordAsync(AddSensitiveKeywordRequest request);
     Task<Result> DeleteSensitiveKeywordAsync(Guid keywordId);
 }
+

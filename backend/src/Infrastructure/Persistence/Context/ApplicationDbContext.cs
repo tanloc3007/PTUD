@@ -684,10 +684,19 @@ public class ApplicationDbContext : IApplicationDbContext
         var expBaoId = Guid.Parse("33333333-3333-3333-3333-333333333333");
         var expTamId = Guid.Parse("33333333-3333-3333-3333-333333333334");
 
+        var studentDemoId = Guid.Parse("22222222-2222-2222-2222-222222222221");
+        var expDemoId = Guid.Parse("33333333-3333-3333-3333-333333333330");
+        var studentLocId = Guid.Parse("22222222-2222-2222-2222-222222222223");
+        var studentLuanId = Guid.Parse("22222222-2222-2222-2222-222222222224");
+
         Users.AddRange(new[]
         {
             new User { Id = adminId, MSSV = "AD001", FullName = "Quản trị viên Nguyễn Văn An", Email = "admin@unimind.edu.vn", Role = UserRole.Admin, Faculty = "Phòng Công tác Sinh viên", AnonymousCode = "Quản trị viên #382", PasswordHash = "123456" },
+            new User { Id = studentDemoId, MSSV = "120000001", FullName = "Sinh viên Nguyễn Thử Nghiệm", Email = "student@unimind.edu.vn", Role = UserRole.Student, Faculty = "Khoa Công nghệ Thông tin", AnonymousCode = "Bạn Ẩn Yên #101", PasswordHash = "123456" },
             new User { Id = studentId, MSSV = "120000212", FullName = "Sinh viên Nguyễn Hoàng An", Email = "sv_an@unimind.edu.vn", Role = UserRole.Student, Faculty = "Khoa Công nghệ Thông tin", AnonymousCode = "Bạn Ẩn Yên #382", PasswordHash = "123456" },
+            new User { Id = studentLocId, MSSV = "120000212", FullName = "Ngô Tấn Lộc", Email = "loc.ngo@lhu.edu.vn", Role = UserRole.Student, Faculty = "Khoa Công nghệ Thông tin", AnonymousCode = "Cú Mèo Say Ngủ #402", PasswordHash = "123456" },
+            new User { Id = studentLuanId, MSSV = "120000352", FullName = "Lê Minh Luân", Email = "luan.le@lhu.edu.vn", Role = UserRole.Student, Faculty = "Khoa Công nghệ Thông tin", AnonymousCode = "Sóc Nâu Cần Mẫn #501", PasswordHash = "123456" },
+            new User { Id = expDemoId, MSSV = "EXP000", FullName = "Chuyên viên Tư Vấn Mẫu", Email = "expert@unimind.edu.vn", Role = UserRole.Expert, Faculty = "Tâm lý Học đường", AnonymousCode = "Chuyên viên Tâm An", PasswordHash = "123456" },
             new User { Id = expHaId, MSSV = "EXP001", FullName = "ThS. Tâm lý Nguyễn Thanh Hà", Email = "ha.nguyen@unimind.edu.vn", Role = UserRole.Expert, Faculty = "Tâm lý Học đường", AnonymousCode = "Chuyên viên Thanh Hà", PasswordHash = "123456" },
             new User { Id = expLanId, MSSV = "EXP002", FullName = "TS. Tâm lý Trần Mai Lan", Email = "lan.tran@unimind.edu.vn", Role = UserRole.Expert, Faculty = "Trị liệu Nhận thức Hành vi", AnonymousCode = "Chuyên viên Mai Lan", PasswordHash = "123456" },
             new User { Id = expBaoId, MSSV = "EXP003", FullName = "ThS. Lê Quốc Bảo", Email = "bao.le@unimind.edu.vn", Role = UserRole.Expert, Faculty = "Định hướng Nghề nghiệp", AnonymousCode = "Chuyên viên Quốc Bảo", PasswordHash = "123456" },
@@ -699,8 +708,10 @@ public class ApplicationDbContext : IApplicationDbContext
         var expBaoTableId = Guid.Parse("44444444-4444-4444-4444-444444444443");
         var expTamTableId = Guid.Parse("44444444-4444-4444-4444-444444444444");
 
+        var expDemoTableId = Guid.Parse("44444444-4444-4444-4444-444444444440");
         Experts.AddRange(new[]
         {
+            new Expert { Id = expDemoTableId, UserId = expDemoId, Title = "ThS. Tâm lý", AcademicDegree = "Thạc sĩ Tâm lý học Lâm sàng", Specialization = "Tâm lý Học đường & Hướng nghiệp", ExperienceYears = 5, RoomLocation = "P.302 (Tầng 3)", Rating = 5.0, TotalConsultations = 100 },
             new Expert { Id = expHaTableId, UserId = expHaId, Title = "ThS. Tâm lý", AcademicDegree = "Thạc sĩ Tâm lý học Lâm sàng ĐHQG • Chứng chỉ Tâm Lý Trị liệu", Specialization = "Áp lực học tập & Đồ án, Trầm cảm", ExperienceYears = 8, RoomLocation = "P.302 (Tầng 3)", Rating = 4.98, TotalConsultations = 1420 },
             new Expert { Id = expLanTableId, UserId = expLanId, Title = "TS. Tâm lý", AcademicDegree = "Tiến sĩ Trị liệu Nhận thức Hành vi (CBT) • Chuyên gia can thiệp", Specialization = "Trầm cảm, Lo âu & Khủng hoảng", ExperienceYears = 11, RoomLocation = "P.302 (Tầng 3)", Rating = 5.0, TotalConsultations = 2100 },
             new Expert { Id = expBaoTableId, UserId = expBaoId, Title = "ThS.", AcademicDegree = "Thạc sĩ Tâm lý Phát triển & Nghề nghiệp", Specialization = "Định hướng tương lai & Nghề nghiệp", ExperienceYears = 6, RoomLocation = "P.302 (Tầng 3)", Rating = 4.95, TotalConsultations = 980 },
