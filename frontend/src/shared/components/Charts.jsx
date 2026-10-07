@@ -144,6 +144,20 @@ export function ModernBarChart({
   );
 }
 
+const MOOD_VI_MAP = {
+  great:     { label: 'Vui vẻ / Hạnh phúc', color: '#10b981' },
+  happy:     { label: 'Vui vẻ / Hạnh phúc', color: '#10b981' },
+  peaceful:  { label: 'Bình tĩnh / Ổn định', color: '#3b82f6' },
+  calm:      { label: 'Bình tĩnh / Ổn định', color: '#3b82f6' },
+  stressed:  { label: 'Căng thẳng / Lo âu',  color: '#f59e0b' },
+  anxious:   { label: 'Căng thẳng / Lo âu',  color: '#f59e0b' },
+  sad:       { label: 'Buồn bã / Chán nản',  color: '#8b5cf6' },
+  exhausted: { label: 'Kiệt sức / Mệt mỏi',  color: '#ef4444' },
+  tired:     { label: 'Kiệt sức / Mệt mỏi',  color: '#ef4444' },
+};
+
+const DISTINCT_PALETTE = ['#10b981', '#3b82f6', '#f59e0b', '#8b5cf6', '#ef4444', '#ec4899', '#06b6d4'];
+
 /**
  * Modern SVG Donut / Pie Chart with hover highlights & detailed legend
  */
@@ -158,7 +172,7 @@ export function ModernDonutPieChart({
   const [hoveredSlice, setHoveredSlice] = useState(null);
 
   // Fallback if data is empty or all counts are 0
-  const validData = Array.isArray(data) && data.length > 0
+  const rawData = Array.isArray(data) && data.length > 0
     ? data
     : [
         { label: 'Vui vẻ / Hạnh phúc', count: 48, percentage: 32, color: '#10b981' },
@@ -167,6 +181,21 @@ export function ModernDonutPieChart({
         { label: 'Buồn bã / Chán nản', count: 18, percentage: 12, color: '#8b5cf6' },
         { label: 'Kiệt sức / Mệt mỏi', count: 9, percentage: 6, color: '#ef4444' },
       ];
+
+  // Map any English mood key or unformatted string to 100% Vietnamese and assign vibrant distinct colors
+  const validData = rawData.map((d, i) => {
+    const rawKey = String(d.label || d.moodKey || '').toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+    const mapped = MOOD_VI_MAP[rawKey];
+    const finalLabel = mapped ? mapped.label : d.label;
+    const finalColor = mapped
+      ? mapped.color
+      : (d.color && d.color !== '#10b981' ? d.color : DISTINCT_PALETTE[i % DISTINCT_PALETTE.length]);
+    return {
+      ...d,
+      label: finalLabel,
+      color: finalColor,
+    };
+  });
 
   const total = validData.reduce((acc, curr) => acc + (Number(curr.count) || 0), 0);
   const effectiveTotal = total > 0 ? total : 100;
@@ -182,7 +211,6 @@ export function ModernDonutPieChart({
     const startAngle = cumAngle;
     const sweep = pct * 360;
     cumAngle += sweep;
-    const sliceColor = d.color || ['#10b981', '#3b82f6', '#f59e0b', '#8b5cf6', '#ef4444'][i % 5];
     return {
       ...d,
       count,
@@ -190,7 +218,6 @@ export function ModernDonutPieChart({
       pctDisplay: (pct * 100).toFixed(1),
       startAngle,
       sweep,
-      color: sliceColor,
     };
   });
 

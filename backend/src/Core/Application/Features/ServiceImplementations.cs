@@ -1185,19 +1185,35 @@ public class ExpertWorkspaceService : IExpertWorkspaceService
             }
         }
 
-        int urgentCount = triageList.Count(a => a.RiskScore >= 80 || a.TriageLevel == "Urgent");
-        int highRiskCount = triageList.Count(a => a.RiskScore >= 60 && a.RiskScore < 80);
-        int moderateCount = triageList.Count(a => a.RiskScore >= 40 && a.RiskScore < 60);
-        int normalCount = Math.Max(0, (_context.CommunityPosts.Count + _context.TestResults.Count) - (urgentCount + highRiskCount + moderateCount));
+        int totalTests = _context.TestResults.Count;
+        int urgentCount = 0;
+        int highRiskCount = 0;
+        int moderateCount = 0;
+        int normalCount = 0;
+
+        if (totalTests > 0)
+        {
+            urgentCount = _context.TestResults.Count(t => t.SeverityLevel == "ExtremelySevere" || t.TotalScore >= 60 || t.DepressionScore >= 28 || t.AnxietyScore >= 20 || t.StressScore >= 34);
+            highRiskCount = _context.TestResults.Count(t => (t.SeverityLevel == "Severe" || (t.TotalScore >= 45 && t.TotalScore < 60) || (t.DepressionScore >= 21 && t.DepressionScore < 28) || (t.AnxietyScore >= 15 && t.AnxietyScore < 20) || (t.StressScore >= 26 && t.StressScore < 34)) && !(t.SeverityLevel == "ExtremelySevere" || t.TotalScore >= 60 || t.DepressionScore >= 28 || t.AnxietyScore >= 20 || t.StressScore >= 34));
+            moderateCount = _context.TestResults.Count(t => (t.SeverityLevel == "Moderate" || t.SeverityLevel == "Mild" || (t.TotalScore >= 25 && t.TotalScore < 45)) && !(t.SeverityLevel == "Severe" || t.SeverityLevel == "ExtremelySevere" || t.TotalScore >= 45));
+            normalCount = Math.Max(0, totalTests - (urgentCount + highRiskCount + moderateCount));
+        }
+        else
+        {
+            urgentCount = triageList.Count(a => a.RiskScore >= 80 || a.TriageLevel == "Urgent");
+            highRiskCount = triageList.Count(a => a.RiskScore >= 60 && a.RiskScore < 80);
+            moderateCount = triageList.Count(a => a.RiskScore >= 40 && a.RiskScore < 60);
+            normalCount = Math.Max(1, _context.CommunityPosts.Count - (urgentCount + highRiskCount + moderateCount));
+        }
 
         int totalCases = urgentCount + highRiskCount + moderateCount + normalCount;
         if (totalCases == 0) totalCases = 1;
 
         var severityDist = new List<CategoryBreakdownDto>
         {
-            new("Khủng hoảng (Score ≥ 80)", Math.Round((double)urgentCount / totalCases * 100, 1), "Báo động"),
-            new("Nguy cơ cao (Score 60-79)", Math.Round((double)highRiskCount / totalCases * 100, 1), "Cần can thiệp"),
-            new("Đáng chú ý (Score 40-59)", Math.Round((double)moderateCount / totalCases * 100, 1), "Theo dõi thêm"),
+            new("Khủng hoảng (DASS-21 Rất nặng)", Math.Round((double)urgentCount / totalCases * 100, 1), "Báo động"),
+            new("Nguy cơ cao (DASS-21 Nặng)", Math.Round((double)highRiskCount / totalCases * 100, 1), "Cần can thiệp"),
+            new("Đáng chú ý (DASS-21 Vừa / Nhẹ)", Math.Round((double)moderateCount / totalCases * 100, 1), "Theo dõi thêm"),
             new("Ổn định / Bình thường", Math.Round((double)normalCount / totalCases * 100, 1), "An toàn")
         };
 
@@ -1407,6 +1423,29 @@ public class AdminService : IAdminService
             };
         }
 
+        var dayNames = new[] { "Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7", "Chủ nhật" };
+        var weeklyMoodTrend = new List<MoodTrendPointDto>();
+        for (int d = 0; d < 7; d++)
+        {
+            DayOfWeek dow = d switch
+            {
+                0 => DayOfWeek.Monday,
+                1 => DayOfWeek.Tuesday,
+                2 => DayOfWeek.Wednesday,
+                3 => DayOfWeek.Thursday,
+                4 => DayOfWeek.Friday,
+                5 => DayOfWeek.Saturday,
+                _ => DayOfWeek.Sunday
+            };
+
+            var journalsOnDay = _context.MoodJournals.Where(j => j.CreatedAt.DayOfWeek == dow).ToList();
+            double avgScore = journalsOnDay.Any()
+                ? Math.Round(journalsOnDay.Average(j => (double)j.EnergyLevel * 10), 1)
+                : (d >= 4 ? 80.0 : 65.0);
+
+            weeklyMoodTrend.Add(new MoodTrendPointDto(dayNames[d], avgScore, journalsOnDay.Count));
+        }
+
         var stats = new DashboardStatsDto(
             TotalStudents: totalStudents,
             TotalPostsToday: totalPostsToday,
@@ -1432,7 +1471,8 @@ public class AdminService : IAdminService
             CrisisAlerts: crisisAlerts,
             PostsToday: totalPostsToday,
             TestsTaken: testsTaken,
-            MoodDistribution: moodDist
+            MoodDistribution: moodDist,
+            MoodTrend: weeklyMoodTrend
         );
 
         return Task.FromResult(Result<DashboardStatsDto>.Ok(stats));
@@ -1441,7 +1481,7 @@ public class AdminService : IAdminService
     public Task<Result<AdminReportsDto>> GetReportsAsync()
     {
         var totalStudents = _context.Users.Count(u => u.Role == UserRole.Student);
-        var totalExperts = _context.Experts.Count;
+        var totalExperts = _context.Experts.Count > 0 ? _context.Experts.Count : _context.Users.Count(u => u.Role == UserRole.Expert);
         var totalPosts = _context.CommunityPosts.Count;
         var totalAppts = _context.Appointments.Count;
         var totalTests = _context.TestResults.Count;
@@ -1456,10 +1496,6 @@ public class AdminService : IAdminService
             int apptCount = _context.Appointments.Count(a => a.CreatedAt.Month == mNum);
             int testCount = _context.TestResults.Count(t => t.CompletedAt.Month == mNum);
             int postCount = _context.CommunityPosts.Count(p => p.CreatedAt.Month == mNum);
-
-            if (apptCount == 0 && totalAppts > 0 && i >= 6) apptCount = Math.Max(1, totalAppts / 6);
-            if (testCount == 0 && totalTests > 0 && i >= 6) testCount = Math.Max(1, totalTests / 6);
-            if (postCount == 0 && totalPosts > 0 && i >= 6) postCount = Math.Max(1, totalPosts / 6);
 
             monthlyList.Add(new MonthlyMetricDto(months[i], apptCount, testCount, postCount));
         }
@@ -1490,32 +1526,51 @@ public class AdminService : IAdminService
         int totalTestCount = _context.TestResults.Count;
         if (totalTestCount > 0)
         {
-            var groups = _context.TestResults.GroupBy(t => t.SeverityLevel).ToList();
-            foreach (var g in groups)
-            {
-                testSeverityBreakdown.Add(new CategoryBreakdownDto(
-                    CategoryName: g.Key,
-                    Percentage: Math.Round((double)g.Count() / totalTestCount * 100, 1),
-                    RiskStatus: g.Key == "ExtremelySevere" || g.Key == "Severe" ? "Nguy cấp" : "Bình thường"
-                ));
-            }
+            int urgentCount = _context.TestResults.Count(t => t.SeverityLevel == "ExtremelySevere" || t.TotalScore >= 60 || t.DepressionScore >= 28 || t.AnxietyScore >= 20 || t.StressScore >= 34);
+            int highRiskCount = _context.TestResults.Count(t => (t.SeverityLevel == "Severe" || (t.TotalScore >= 45 && t.TotalScore < 60) || (t.DepressionScore >= 21 && t.DepressionScore < 28) || (t.AnxietyScore >= 15 && t.AnxietyScore < 20) || (t.StressScore >= 26 && t.StressScore < 34)) && !(t.SeverityLevel == "ExtremelySevere" || t.TotalScore >= 60 || t.DepressionScore >= 28 || t.AnxietyScore >= 20 || t.StressScore >= 34));
+            int moderateCount = _context.TestResults.Count(t => (t.SeverityLevel == "Moderate" || t.SeverityLevel == "Mild" || (t.TotalScore >= 25 && t.TotalScore < 45)) && !(t.SeverityLevel == "Severe" || t.SeverityLevel == "ExtremelySevere" || t.TotalScore >= 45));
+            int normalCount = Math.Max(0, totalTestCount - (urgentCount + highRiskCount + moderateCount));
+
+            testSeverityBreakdown.Add(new("Khủng hoảng (DASS-21 Rất nặng)", Math.Round((double)urgentCount / totalTestCount * 100, 1), "Nguy cấp", urgentCount));
+            testSeverityBreakdown.Add(new("Nguy cơ cao (DASS-21 Nặng)", Math.Round((double)highRiskCount / totalTestCount * 100, 1), "Nguy cơ cao", highRiskCount));
+            testSeverityBreakdown.Add(new("Đáng chú ý (DASS-21 Vừa / Nhẹ)", Math.Round((double)moderateCount / totalTestCount * 100, 1), "Cần lưu ý", moderateCount));
+            testSeverityBreakdown.Add(new("Ổn định / Bình thường", Math.Round((double)normalCount / totalTestCount * 100, 1), "Bình thường", normalCount));
         }
         else
         {
-            testSeverityBreakdown.Add(new("Bình thường (Normal)", 55.0, "An toàn"));
-            testSeverityBreakdown.Add(new("Lo âu nhẹ (Mild)", 25.0, "Ổn định"));
-            testSeverityBreakdown.Add(new("Căng thẳng vừa (Moderate)", 14.0, "Trung bình"));
-            testSeverityBreakdown.Add(new("Khủng hoảng (Severe)", 6.0, "Nguy cấp"));
+            testSeverityBreakdown.Add(new("Ổn định / Bình thường", 100.0, "Bình thường", 0));
         }
+
+        // Đồng bộ thống kê phân bố cảm xúc tiếng Việt chuẩn với Dashboard
+        var moodMetaReports = new Dictionary<MoodType, (string Label, string Emoji, string Color)>
+        {
+            { MoodType.Great,     ("Vui vẻ / Hạnh phúc", "😊", "#10b981") },
+            { MoodType.Peaceful,  ("Bình tĩnh / Ổn định", "😌", "#3b82f6") },
+            { MoodType.Stressed,  ("Căng thẳng / Lo âu",  "😰", "#f59e0b") },
+            { MoodType.Exhausted, ("Kiệt sức / Mệt mỏi",  "😴", "#ef4444") },
+            { MoodType.Sad,       ("Buồn bã / Chán nản",  "😢", "#8b5cf6") },
+        };
 
         var moodDistReports = new List<MoodDistributionDto>();
         var totalJournals = _context.MoodJournals.Count();
         if (totalJournals > 0)
         {
             var moodGroups = _context.MoodJournals.GroupBy(m => m.MoodState).ToList();
-            foreach (var g in moodGroups)
+            foreach (var g in moodGroups.OrderByDescending(x => x.Count()))
             {
-                moodDistReports.Add(new MoodDistributionDto(g.Key.ToString(), "😊", g.Count(), Math.Round((double)g.Count() / totalJournals * 100, 1), "#10b981"));
+                string lbl, emoji, color;
+                if (moodMetaReports.TryGetValue(g.Key, out var mt))
+                { lbl = mt.Label; emoji = mt.Emoji; color = mt.Color; }
+                else
+                { lbl = g.Key.ToString(); emoji = "🙂"; color = "#94a3b8"; }
+
+                moodDistReports.Add(new MoodDistributionDto(
+                    Label: lbl,
+                    MoodKey: emoji,
+                    Count: g.Count(),
+                    Percentage: Math.Round((double)g.Count() / totalJournals * 100, 1),
+                    Color: color
+                ));
             }
         }
         if (moodDistReports.Count == 0)

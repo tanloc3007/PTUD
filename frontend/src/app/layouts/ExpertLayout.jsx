@@ -77,13 +77,16 @@ export default function ExpertLayout() {
           }}
         >
           {/* Brand */}
-          <div style={{ marginBottom: 24, paddingLeft: 8 }}>
-            <h1 className="expert-brand-title" style={{ fontSize: 18, fontWeight: 900, margin: 0, color: 'var(--e-text)' }}>
-              UniMind
-            </h1>
-            <p className="expert-brand-subtitle" style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', margin: '2px 0 0', color: 'var(--e-text-muted)' }}>
-              Cổng Chuyên Viên
-            </p>
+          <div style={{ marginBottom: 24, paddingLeft: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
+            <img src="/logo.svg" alt="UniMind Logo" style={{ width: 36, height: 36, borderRadius: 10, flexShrink: 0 }} />
+            <div>
+              <h1 className="expert-brand-title" style={{ fontSize: 18, fontWeight: 900, margin: 0, color: 'var(--e-text)' }}>
+                UniMind
+              </h1>
+              <p className="expert-brand-subtitle" style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', margin: '2px 0 0', color: 'var(--e-text-muted)' }}>
+                Cổng Chuyên Viên
+              </p>
+            </div>
           </div>
 
           {/* Expert info card */}

@@ -62,12 +62,6 @@ const MOCK_EXPERTS = [
   },
 ];
 
-const DATES = Array.from({ length: 7 }, (_, i) => {
-  const d = new Date();
-  d.setDate(d.getDate() + i);
-  return d;
-});
-
 function ExpertCard({ expert, isSelected, onSelect }) {
   const specialty = expert.specialization || expert.specialty || 'Tư vấn tâm lý học đường';
   const sessions = expert.totalConsultations ?? expert.totalSessions ?? 50;
@@ -130,15 +124,37 @@ export default function BookingPage() {
   const [step, setStep]             = useState(1); // 1: chọn expert, 2: chọn ngày/giờ, 3: xác nhận
   const [experts, setExperts]       = useState(MOCK_EXPERTS);
   const [selected, setSelected]     = useState(null);
-  const [selectedDate, setDate]     = useState(DATES[0]);
+  
+  // Quản lý ngày đặt lịch linh hoạt (Tuần này, Tuần sau, Tháng sau)
+  const [weekOffset, setWeekOffset] = useState(0); // 0 = tuần này, 1 = tuần sau, 2 = 2 tuần tới, 4 = tháng sau
+  const [selectedDate, setDate]     = useState(new Date());
   const [selectedSlot, setSlot]     = useState(null);
   const [consultType, setConsultType] = useState('Physical'); // Physical | Online
   const [note, setNote]             = useState('');
   const [myBookings, setMyBookings] = useState([]);
+  const [expertBookings, setExpertBookings] = useState([]); // Danh sách các lịch đã book của chuyên gia để chống trùng
   const [activeTab, setActiveTab]   = useState('new'); // 'new' | 'history'
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess]       = useState(false);
   const [bookingError, setBookingError] = useState('');
+
+  // Dữ liệu cảm xúc & lịch sử sinh viên để liên kết vào buổi tư vấn
+  const [studentMoodProfile, setStudentMoodProfile] = useState({
+    recentMoods: [],
+    dominantMood: 'Đang tải...',
+    latestTest: null,
+    postCount: 0,
+    attachProfile: true
+  });
+
+  // Tạo danh sách 7 ngày dựa trên weekOffset
+  const dateList = useMemo(() => {
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date();
+      d.setDate(d.getDate() + (weekOffset * 7) + i);
+      return d;
+    });
+  }, [weekOffset]);
 
   // Tải danh sách chuyên gia từ backend
   useEffect(() => {
@@ -150,6 +166,67 @@ export default function BookingPage() {
       })
       .catch(() => {});
   }, []);
+
+  // Tải các ca đã được đặt của chuyên gia đang chọn (Để chống trùng lịch 100%)
+  useEffect(() => {
+    if (selected?.id) {
+      axiosClient.get(`/appointments/expert/${selected.id}`)
+        .then(r => {
+          if (r.data?.data && Array.isArray(r.data.data)) {
+            setExpertBookings(r.data.data);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [selected?.id]);
+
+  // Tải lịch sử & cảm xúc tổng quan của sinh viên hiện tại
+  useEffect(() => {
+    const studentId = user?.id || '22222222-2222-2222-2222-222222222221';
+    
+    // 1. Lấy nhật ký cảm xúc gần đây
+    axiosClient.get(`/mood-journals/student/${studentId}`)
+      .then(r => {
+        if (r.data?.data && Array.isArray(r.data.data)) {
+          const list = r.data.data;
+          const moodNames = {
+            Sad: 'Rất tệ', Stressed: 'Căng thẳng', Exhausted: 'Mệt mỏi', Peaceful: 'Khá ổn', Great: 'Tuyệt vời'
+          };
+          const dominant = list.length > 0 ? (moodNames[list[0].moodState] || list[0].moodState) : 'Cân bằng';
+          setStudentMoodProfile(prev => ({
+            ...prev,
+            recentMoods: list.slice(0, 5),
+            dominantMood: dominant
+          }));
+        }
+      })
+      .catch(() => {});
+
+    // 2. Lấy kết quả DASS-21 gần nhất
+    axiosClient.get(`/psychological-tests/student/${studentId}/latest`)
+      .then(r => {
+        if (r.data?.data) {
+          setStudentMoodProfile(prev => ({
+            ...prev,
+            latestTest: r.data.data
+          }));
+        }
+      })
+      .catch(() => {});
+
+    // 3. Lấy số lượng bài viết tâm sự cộng đồng
+    axiosClient.get('/community/posts')
+      .then(r => {
+        if (r.data?.data && Array.isArray(r.data.data)) {
+          const myPosts = r.data.data.filter(p => p.anonymousPseudonym === user?.anonymousCode || p.studentId === studentId);
+          setStudentMoodProfile(prev => ({
+            ...prev,
+            postCount: myPosts.length
+          }));
+        }
+      })
+      .catch(() => {});
+  }, [user?.id, user?.anonymousCode]);
 
   // Tải lịch sử cuộc hẹn của sinh viên
   const loadMyBookings = () => {
@@ -166,49 +243,66 @@ export default function BookingPage() {
     loadMyBookings();
   }, [user?.id]);
 
-  // Tính toán khung giờ khả dụng cho ngày đã chọn
+  // Tính toán khung giờ khả dụng cho ngày đã chọn & KIỂM TRA CHỐNG TRÙNG LỊCH (Double Booking)
   const availableSlotsForDate = useMemo(() => {
     if (!selected) return [];
 
     const dateStr = selectedDate ? selectedDate.toISOString().split('T')[0] : '';
     const rawSlots = selected.availableSlots || selected.slots || [];
 
-    const matchingSlots = rawSlots.filter(s => {
-      if (typeof s === 'string') return true;
-      if (s.isBooked) return false;
-      return !s.date || s.date === dateStr;
+    // Danh sách các giờ đã bị book bởi người khác trong ngày này
+    const bookedTimesOnThisDate = new Set();
+    expertBookings.forEach(b => {
+      if (b.date === dateStr && (b.status === 'Confirmed' || b.status === 'Pending')) {
+        const t = (b.startTime || '').substring(0, 5);
+        if (t) bookedTimesOnThisDate.add(t);
+      }
     });
 
-    if (matchingSlots.length > 0) {
-      return matchingSlots.map(s => {
-        if (typeof s === 'string') {
-          return { id: null, time: s, label: s };
-        }
-        const timeStr = s.startTime || '09:00';
-        const endStr  = s.endTime ? ` - ${s.endTime}` : '';
+    if (rawSlots.length > 0) {
+      return rawSlots.map(s => {
+        const timeStr = typeof s === 'string' ? s : (s.startTime || '08:30');
+        const endStr  = typeof s === 'object' && s.endTime ? ` - ${s.endTime}` : '';
+        const isSlotBookedInDb = s.isBooked || bookedTimesOnThisDate.has(timeStr.substring(0, 5));
         return {
-          id: s.id,
+          id: typeof s === 'object' ? s.id : null,
           time: timeStr,
-          label: `${timeStr}${endStr}`
+          label: `${timeStr}${endStr}`,
+          isBooked: isSlotBookedInDb
         };
       });
     }
 
-    return DEFAULT_HOURS.map(h => ({
-      id: null,
-      time: h,
-      label: `${h} - ${parseInt(h) + 1}:30`
-    }));
-  }, [selected, selectedDate]);
+    return DEFAULT_HOURS.map(h => {
+      const isBooked = bookedTimesOnThisDate.has(h);
+      return {
+        id: null,
+        time: h,
+        label: `${h} - ${parseInt(h) + 1}:30`,
+        isBooked: isBooked
+      };
+    });
+  }, [selected, selectedDate, expertBookings]);
 
   const handleConfirm = async () => {
     setBookingError('');
     setSubmitting(true);
 
     try {
-      const studentId = user?.id || '00000000-0000-0000-0000-000000000000';
+      const studentId = user?.id || '22222222-2222-2222-2222-222222222221';
       const dateStr = selectedDate ? selectedDate.toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
       const timeStr = selectedSlot?.time || selectedSlot?.label?.split(' - ')[0] || '08:30';
+
+      // Xây dựng ghi chú lý do đính kèm tóm tắt cảm xúc & trắc nghiệm DASS-21
+      let fullReason = note.trim() || 'Sinh viên đặt lịch tư vấn tâm lý học đường';
+      if (studentMoodProfile.attachProfile) {
+        let moodSummary = ` [Hồ sơ đính kèm: Tâm trạng chủ đạo: ${studentMoodProfile.dominantMood}`;
+        if (studentMoodProfile.latestTest) {
+          moodSummary += ` | DASS-21: Trầm cảm ${studentMoodProfile.latestTest.depressionScore}đ, Lo âu ${studentMoodProfile.latestTest.anxietyScore}đ, Căng thẳng ${studentMoodProfile.latestTest.stressScore}đ`;
+        }
+        moodSummary += ` | Đã chia sẻ ${studentMoodProfile.postCount} bài viết cộng đồng]`;
+        fullReason += moodSummary;
+      }
 
       const payload = {
         expertId: selected.id,
@@ -217,13 +311,16 @@ export default function BookingPage() {
         time: timeStr,
         anonymousPseudonym: user?.anonymousCode || user?.fullName || 'Bạn Ẩn Yên #396',
         consultationType: consultType,
-        reasonNotes: note.trim() || 'Sinh viên đặt lịch tư vấn tâm lý học đường'
+        reasonNotes: fullReason
       };
 
       await axiosClient.post(`/appointments/student/${studentId}/book`, payload);
 
       setSuccess(true);
       loadMyBookings();
+
+      // Cập nhật lại danh sách booked slots của chuyên gia để lập tức khóa khung giờ vừa đặt
+      setExpertBookings(prev => [...prev, { date: dateStr, startTime: timeStr, status: 'Pending' }]);
 
       setTimeout(() => {
         setSuccess(false);
@@ -232,9 +329,9 @@ export default function BookingPage() {
         setSlot(null);
         setNote('');
         setActiveTab('history');
-      }, 2500);
+      }, 2300);
     } catch (err) {
-      const msg = err.response?.data?.message || err.message || 'Không thể đặt lịch. Vui lòng thử lại.';
+      const msg = err.response?.data?.message || err.message || 'Không thể đặt lịch do trùng khung giờ hoặc lỗi hệ thống. Vui lòng chọn khung giờ khác.';
       setBookingError(msg);
     } finally {
       setSubmitting(false);
@@ -402,63 +499,164 @@ export default function BookingPage() {
                 </button>
               </div>
 
-              {/* Chọn ngày */}
-              <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--s-text-muted)', marginBottom: 10 }}>
-                Chọn ngày tư vấn:
-              </p>
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 24 }}>
-                {DATES.map(date => {
-                  const isToday = date.toDateString() === new Date().toDateString();
-                  const isSel   = selectedDate?.toDateString() === date.toDateString();
-                  return (
-                    <button
-                      type="button"
-                      key={date.toDateString()}
-                      onClick={() => { setDate(date); setSlot(null); }}
-                      style={{
-                        padding: '12px 16px', borderRadius: 12, cursor: 'pointer', fontFamily: "'Manrope', sans-serif",
-                        border: `2px solid ${isSel ? 'var(--s-primary)' : 'var(--s-border)'}`,
-                        background: isSel ? 'var(--s-primary-soft)' : 'var(--s-surface)',
-                        color: isSel ? 'var(--s-primary)' : 'var(--s-text)',
-                        fontWeight: 700, textAlign: 'center', minWidth: 78,
-                        transition: 'all 0.15s'
-                      }}
-                    >
-                      <div style={{ fontSize: 10, color: isSel ? 'var(--s-primary)' : 'var(--s-text-muted)', marginBottom: 4 }}>
-                        {date.toLocaleDateString('vi-VN', { weekday: 'short' }).toUpperCase()}
-                        {isToday && <span style={{ marginLeft: 4, color: 'var(--s-mood-great)', fontWeight: 800 }}>HÔM NAY</span>}
-                      </div>
-                      <div style={{ fontSize: 20, fontWeight: 900 }}>{date.getDate()}</div>
-                    </button>
-                  );
-                })}
+              {/* Bộ điều hướng chọn tuần / tháng */}
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+                  <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--s-text)', margin: 0 }}>
+                    Chọn khoảng thời gian đặt lịch:
+                  </p>
+                  
+                  {/* Quick week/month selector */}
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {[
+                      { offset: 0, label: 'Tuần này' },
+                      { offset: 1, label: 'Tuần sau' },
+                      { offset: 2, label: '2 tuần tới' },
+                      { offset: 4, label: 'Tháng sau' },
+                    ].map(w => (
+                      <button
+                        key={w.offset}
+                        type="button"
+                        onClick={() => {
+                          setWeekOffset(w.offset);
+                          const newD = new Date();
+                          newD.setDate(newD.getDate() + (w.offset * 7));
+                          setDate(newD);
+                          setSlot(null);
+                        }}
+                        style={{
+                          padding: '5px 12px',
+                          borderRadius: 20,
+                          fontSize: 12,
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          border: `1.5px solid ${weekOffset === w.offset ? 'var(--s-primary)' : 'var(--s-border)'}`,
+                          background: weekOffset === w.offset ? 'var(--s-primary)' : 'var(--s-surface)',
+                          color: weekOffset === w.offset ? '#ffffff' : 'var(--s-text-muted)',
+                          transition: 'all 0.15s',
+                        }}
+                      >
+                        {w.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Chọn ngày dạng hàng nút */}
+                <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 6, marginBottom: 10 }}>
+                  {dateList.map(date => {
+                    const isToday = date.toDateString() === new Date().toDateString();
+                    const isSel   = selectedDate?.toDateString() === date.toDateString();
+                    return (
+                      <button
+                        type="button"
+                        key={date.toDateString()}
+                        onClick={() => { setDate(date); setSlot(null); }}
+                        style={{
+                          padding: '12px 14px', borderRadius: 12, cursor: 'pointer', fontFamily: "'Manrope', sans-serif",
+                          border: `2px solid ${isSel ? 'var(--s-primary)' : 'var(--s-border)'}`,
+                          background: isSel ? 'var(--s-primary-soft)' : 'var(--s-surface)',
+                          color: isSel ? 'var(--s-primary)' : 'var(--s-text)',
+                          fontWeight: 700, textAlign: 'center', minWidth: 82, flexShrink: 0,
+                          transition: 'all 0.15s'
+                        }}
+                      >
+                        <div style={{ fontSize: 10.5, color: isSel ? 'var(--s-primary)' : 'var(--s-text-muted)', marginBottom: 4 }}>
+                          {date.toLocaleDateString('vi-VN', { weekday: 'short' }).toUpperCase()}
+                          {isToday && <span style={{ marginLeft: 4, color: '#16a34a', fontWeight: 800 }}>• NAY</span>}
+                        </div>
+                        <div style={{ fontSize: 18, fontWeight: 900 }}>{date.getDate()}/{date.getMonth() + 1}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Hoặc chọn ngày chính xác bằng Date Input */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--s-surface)', padding: '8px 14px', borderRadius: 8, border: '1px solid var(--s-border)' }}>
+                  <span style={{ fontSize: 12, color: 'var(--s-text-muted)', fontWeight: 600 }}>Hoặc chọn ngày tùy chỉnh:</span>
+                  <input
+                    type="date"
+                    min={new Date().toISOString().split('T')[0]}
+                    value={selectedDate ? selectedDate.toISOString().split('T')[0] : ''}
+                    onChange={e => {
+                      if (e.target.value) {
+                        const [y, m, d] = e.target.value.split('-').map(Number);
+                        const picked = new Date(y, m - 1, d);
+                        setDate(picked);
+                        setSlot(null);
+                      }
+                    }}
+                    style={{
+                      border: '1px solid var(--s-border)',
+                      borderRadius: 6,
+                      padding: '4px 10px',
+                      fontSize: 12.5,
+                      fontFamily: "'Manrope', sans-serif",
+                      outline: 'none',
+                    }}
+                  />
+                  <span style={{ fontSize: 12, color: 'var(--s-primary)', fontWeight: 700, marginLeft: 'auto' }}>
+                    Ngày chọn: {selectedDate?.toLocaleDateString('vi-VN', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' })}
+                  </span>
+                </div>
               </div>
 
-              {/* Chọn giờ */}
-              <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--s-text-muted)', marginBottom: 10 }}>
-                Chọn khung giờ tư vấn ({availableSlotsForDate.length} ca khả dụng):
-              </p>
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 24 }}>
-                {availableSlotsForDate.map(slot => {
-                  const isSlotSel = selectedSlot?.time === slot.time || selectedSlot?.label === slot.label;
-                  return (
-                    <button
-                      type="button"
-                      key={slot.label}
-                      onClick={() => setSlot(slot)}
-                      style={{
-                        padding: '10px 18px', borderRadius: 10, cursor: 'pointer', fontFamily: "'Manrope', sans-serif",
-                        border: `2px solid ${isSlotSel ? 'var(--s-primary)' : 'var(--s-border)'}`,
-                        background: isSlotSel ? 'var(--s-primary)' : 'var(--s-surface)',
-                        color: isSlotSel ? '#fff' : 'var(--s-text)',
-                        fontWeight: 700, fontSize: 13.5,
-                        transition: 'all 0.15s',
-                      }}
-                    >
-                      {slot.label}
-                    </button>
-                  );
-                })}
+              {/* Chọn giờ & CHỐNG TRÙNG LỊCH TRỰC QUAN */}
+              <div style={{ marginBottom: 24 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+                  <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--s-text-muted)', margin: 0 }}>
+                    Chọn khung giờ tư vấn:
+                  </p>
+                  <div style={{ fontSize: 12, display: 'flex', gap: 10 }}>
+                    <span style={{ color: '#16a34a', fontWeight: 700 }}>
+                      ✓ {availableSlotsForDate.filter(s => !s.isBooked).length} ca khả dụng
+                    </span>
+                    <span style={{ color: '#ef4444', fontWeight: 700 }}>
+                      ✕ {availableSlotsForDate.filter(s => s.isBooked).length} ca đã kín lịch
+                    </span>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 10 }}>
+                  {availableSlotsForDate.map(slot => {
+                    const isSlotSel = selectedSlot?.time === slot.time || selectedSlot?.label === slot.label;
+                    const isBooked = slot.isBooked;
+
+                    return (
+                      <button
+                        type="button"
+                        key={slot.label}
+                        disabled={isBooked}
+                        onClick={() => !isBooked && setSlot(slot)}
+                        style={{
+                          padding: '12px 14px', borderRadius: 10,
+                          cursor: isBooked ? 'not-allowed' : 'pointer',
+                          fontFamily: "'Manrope', sans-serif",
+                          border: `2px solid ${isBooked ? '#e2e8f0' : isSlotSel ? 'var(--s-primary)' : 'var(--s-border)'}`,
+                          background: isBooked ? '#f1f5f9' : isSlotSel ? 'var(--s-primary)' : 'var(--s-surface)',
+                          color: isBooked ? '#94a3b8' : isSlotSel ? '#ffffff' : 'var(--s-text)',
+                          fontWeight: 700, fontSize: 13,
+                          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+                          opacity: isBooked ? 0.6 : 1,
+                          transition: 'all 0.15s',
+                        }}
+                      >
+                        <span style={{ fontSize: 13.5, textDecoration: isBooked ? 'line-through' : 'none' }}>
+                          {slot.label}
+                        </span>
+                        <span style={{
+                          fontSize: 10.5,
+                          fontWeight: 800,
+                          color: isBooked ? '#ef4444' : isSlotSel ? '#ffffff' : '#0d9488',
+                          background: isBooked ? '#fee2e2' : isSlotSel ? 'rgba(255,255,255,0.2)' : '#f0fdfa',
+                          padding: '2px 8px', borderRadius: 4
+                        }}>
+                          {isBooked ? 'ĐÃ CÓ NGƯỜI ĐẶT' : 'KHẢ DỤNG'}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               {/* Hình thức tư vấn */}
@@ -508,11 +706,11 @@ export default function BookingPage() {
                 <button
                   type="button"
                   className="s-btn s-btn-primary"
-                  disabled={!selectedDate || !selectedSlot}
+                  disabled={!selectedDate || !selectedSlot || selectedSlot?.isBooked}
                   onClick={() => setStep(3)}
                   style={{
-                    opacity: selectedDate && selectedSlot ? 1 : 0.4,
-                    cursor: selectedDate && selectedSlot ? 'pointer' : 'not-allowed'
+                    opacity: selectedDate && selectedSlot && !selectedSlot?.isBooked ? 1 : 0.4,
+                    cursor: selectedDate && selectedSlot && !selectedSlot?.isBooked ? 'pointer' : 'not-allowed'
                   }}
                 >
                   Tiếp tục xác nhận →
@@ -533,6 +731,7 @@ export default function BookingPage() {
                 />
               )}
 
+              {/* Thông tin tóm tắt buổi hẹn */}
               <div style={{ background: 'var(--s-surface)', border: '1px solid var(--s-border)', borderRadius: 16, padding: '20px 24px', marginBottom: 20 }}>
                 <h3 style={{ fontSize: 15, fontWeight: 800, margin: '0 0 16px', color: 'var(--s-text)' }}>
                   Thông tin tóm tắt buổi hẹn
@@ -552,6 +751,54 @@ export default function BookingPage() {
                 ))}
               </div>
 
+              {/* Khung liên kết hồ sơ cảm xúc & lịch sử đăng bài của sinh viên */}
+              <div style={{ background: '#f8fafc', border: '1.5px solid #0d948840', borderRadius: 16, padding: '18px 22px', marginBottom: 20 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#0d9488' }} />
+                    <h4 style={{ margin: 0, fontSize: 14, fontWeight: 800, color: '#0f766e' }}>
+                      Liên kết hồ sơ cảm xúc &amp; Lịch sử cá nhân
+                    </h4>
+                  </div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, color: '#334155', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={studentMoodProfile.attachProfile}
+                      onChange={e => setStudentMoodProfile(p => ({ ...p, attachProfile: e.target.checked }))}
+                      style={{ accentColor: '#0d9488' }}
+                    />
+                    Tự động đính kèm cho chuyên gia
+                  </label>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
+                  <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '12px' }}>
+                    <span style={{ fontSize: 11, color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>Tâm trạng gần nhất</span>
+                    <p style={{ margin: '4px 0 0', fontSize: 14, fontWeight: 800, color: '#0f766e' }}>
+                      {studentMoodProfile.dominantMood}
+                    </p>
+                  </div>
+                  <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '12px' }}>
+                    <span style={{ fontSize: 11, color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>Trắc nghiệm DASS-21</span>
+                    <p style={{ margin: '4px 0 0', fontSize: 13, fontWeight: 800, color: '#334155' }}>
+                      {studentMoodProfile.latestTest
+                        ? `Trầm cảm ${studentMoodProfile.latestTest.depressionScore} | Lo âu ${studentMoodProfile.latestTest.anxietyScore} | Stress ${studentMoodProfile.latestTest.stressScore}`
+                        : 'Chưa thực hiện test'}
+                    </p>
+                  </div>
+                  <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '12px' }}>
+                    <span style={{ fontSize: 11, color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>Hoạt động chia sẻ</span>
+                    <p style={{ margin: '4px 0 0', fontSize: 14, fontWeight: 800, color: '#334155' }}>
+                      {studentMoodProfile.postCount} bài viết trên Góc ẩn danh
+                    </p>
+                  </div>
+                </div>
+                <p style={{ fontSize: 11.5, color: '#64748b', margin: '10px 0 0', lineHeight: 1.4 }}>
+                  Chuyên viên sẽ dựa vào lịch sử cảm xúc và kết quả DASS-21 để chuẩn bị lộ trình tham vấn phù hợp nhất cho bạn.
+                </p>
+              </div>
+
+              {/* Nhập ghi chú thêm */}
               <div style={{ marginBottom: 20 }}>
                 <label style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--s-text)', display: 'block', marginBottom: 6 }}>
                   Vấn đề bạn đang gặp phải (Ghi chú bảo mật cho chuyên gia)

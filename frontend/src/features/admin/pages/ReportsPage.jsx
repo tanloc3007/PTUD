@@ -31,21 +31,26 @@ export default function AdminReportsPage() {
   }, []);
 
   const monthlyAppts = reports?.monthlyTrend?.map(m => ({ label: m.month, value: m.appointmentsCount })) || [
-    { label: 'T1', value: 8 }, { label: 'T2', value: 12 }, { label: 'T3', value: 15 },
-    { label: 'T4', value: 18 }, { label: 'T5', value: 24 }, { label: 'T6', value: 29 },
-    { label: 'T7', value: 22 }, { label: 'T8', value: 31 }, { label: 'T9', value: 38 },
-    { label: 'T10', value: 42 }, { label: 'T11', value: 45 }, { label: 'T12', value: 50 },
+    { label: 'T1', value: 0 }, { label: 'T2', value: 0 }, { label: 'T3', value: 0 },
+    { label: 'T4', value: 0 }, { label: 'T5', value: 0 }, { label: 'T6', value: 0 },
+    { label: 'T7', value: 0 }, { label: 'T8', value: 0 }, { label: 'T9', value: 0 },
+    { label: 'T10', value: 0 }, { label: 'T11', value: 0 }, { label: 'T12', value: 0 },
   ];
 
   const monthlyTests = reports?.monthlyTrend?.map(m => ({ label: m.month, value: m.testsCount })) || [
-    { label: 'T1', value: 25 }, { label: 'T2', value: 38 }, { label: 'T3', value: 42 },
-    { label: 'T4', value: 55 }, { label: 'T5', value: 68 }, { label: 'T6', value: 72 },
-    { label: 'T7', value: 60 }, { label: 'T8', value: 85 }, { label: 'T9', value: 96 },
-    { label: 'T10', value: 110 }, { label: 'T11', value: 125 }, { label: 'T12', value: 142 },
+    { label: 'T1', value: 0 }, { label: 'T2', value: 0 }, { label: 'T3', value: 0 },
+    { label: 'T4', value: 0 }, { label: 'T5', value: 0 }, { label: 'T6', value: 0 },
+    { label: 'T7', value: 0 }, { label: 'T8', value: 0 }, { label: 'T9', value: 0 },
+    { label: 'T10', value: 0 }, { label: 'T11', value: 0 }, { label: 'T12', value: 0 },
   ];
 
   const moodData = reports?.moodDistribution && reports.moodDistribution.length > 0
-    ? reports.moodDistribution
+    ? reports.moodDistribution.map(m => ({
+        label: m.label,
+        count: m.count,
+        percentage: m.percentage,
+        color: m.color,
+      }))
     : DEFAULT_MOOD_DIST;
 
   return (
@@ -75,20 +80,20 @@ export default function AdminReportsPage() {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20, width: '100%' }}>
 
-          {/* ── Key Metrics from Database ────────────────────── */}
+          {/* ── Key Metrics from Database (Đồng bộ tuyệt đối với Dashboard) ────────────────────── */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14, width: '100%' }}>
             {[
-              { label: 'Tổng ca hẹn tham vấn', value: reports?.totalAppointments ?? 48 },
-              { label: 'Lượt trắc nghiệm DASS-21', value: reports?.totalTests ?? 142 },
-              { label: 'Bài viết cộng đồng', value: reports?.totalPosts ?? 64 },
-              { label: 'Cảnh báo nguy cơ cao', value: reports?.totalCrisisAlerts ?? 3, highlight: (reports?.totalCrisisAlerts ?? 3) > 0 },
-              { label: 'Sinh viên trên hệ thống', value: reports?.totalStudents ?? 14850 },
-              { label: 'Chuyên viên tư vấn', value: reports?.totalExperts ?? 12 },
+              { label: 'Tổng sinh viên', value: reports?.totalStudents ?? 0 },
+              { label: 'Chuyên viên tư vấn', value: reports?.totalExperts ?? 0 },
+              { label: 'Tổng ca hẹn tham vấn', value: reports?.totalAppointments ?? 0 },
+              { label: 'Cảnh báo nguy cơ cao', value: reports?.totalCrisisAlerts ?? 0, highlight: (reports?.totalCrisisAlerts ?? 0) > 0 },
+              { label: 'Bài viết cộng đồng', value: reports?.totalPosts ?? 0 },
+              { label: 'Trắc nghiệm DASS-21', value: reports?.totalTests ?? 0 },
             ].map(s => (
               <div key={s.label} className="admin-card" style={{ padding: '16px 20px', borderLeft: s.highlight ? '4px solid #dc2626' : '1px solid var(--a-border)' }}>
-                <p style={{ fontSize: 12, color: 'var(--a-text-muted)', fontWeight: 700, margin: '0 0 6px' }}>{s.label}</p>
+                <p style={{ fontSize: 12, color: 'var(--a-text-muted)', fontWeight: 700, margin: '0 0 4px' }}>{s.label}</p>
                 <p style={{ fontSize: 24, fontWeight: 900, color: s.highlight ? '#dc2626' : 'var(--a-text)', margin: 0 }}>
-                  {s.value.toLocaleString()}
+                  {typeof s.value === 'number' ? s.value.toLocaleString() : s.value}
                 </p>
               </div>
             ))}
@@ -100,8 +105,8 @@ export default function AdminReportsPage() {
             <div className="admin-card" style={{ padding: 22 }}>
               <ModernDonutPieChart
                 data={moodData}
-                title="🥧 Phân bố cảm xúc sinh viên (Pie Chart)"
-                subtitle="Thống kê trực quan từ nhật ký tâm trạng"
+                title="Phân bố cảm xúc sinh viên"
+                subtitle="Thống kê thực tế từ nhật ký tâm trạng"
                 size={160}
               />
             </div>
@@ -110,7 +115,7 @@ export default function AdminReportsPage() {
             <div className="admin-card" style={{ padding: 22 }}>
               <ModernBarChart
                 data={monthlyTests}
-                title="📊 Lượt hoàn thành trắc nghiệm DASS-21 theo 12 tháng"
+                title="Lượt hoàn thành trắc nghiệm DASS-21 theo 12 tháng"
                 color="#7c3aed"
                 height={150}
                 unit="lượt"
@@ -122,7 +127,7 @@ export default function AdminReportsPage() {
           <div className="admin-card" style={{ padding: 22, width: '100%', boxSizing: 'border-box' }}>
             <ModernBarChart
               data={monthlyAppts}
-              title="📅 Phân bố lịch hẹn tham vấn tâm lý 1-1 theo 12 tháng"
+              title="Phân bố lịch hẹn tham vấn tâm lý theo 12 tháng"
               color="#0284c7"
               height={150}
               unit="ca"
@@ -135,7 +140,7 @@ export default function AdminReportsPage() {
             {/* Faculty Stress Distribution */}
             <div className="admin-card" style={{ padding: 22 }}>
               <h2 className="admin-section-title" style={{ fontSize: 14.5, fontWeight: 800, margin: '0 0 14px', color: 'var(--a-text)' }}>
-                🏢 Phân bố mức độ căng thẳng theo Khoa
+                Phân bố mức độ căng thẳng theo Khoa
               </h2>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {reports?.facultyBreakdown?.map(item => (
@@ -155,7 +160,7 @@ export default function AdminReportsPage() {
             {/* Test Severity Breakdown */}
             <div className="admin-card" style={{ padding: 22 }}>
               <h2 className="admin-section-title" style={{ fontSize: 14.5, fontWeight: 800, margin: '0 0 14px', color: 'var(--a-text)' }}>
-                🩺 Phân loại mức độ trầm cảm &amp; lo âu (DASS-21)
+                Phân loại mức độ trầm cảm &amp; lo âu (DASS-21)
               </h2>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {reports?.testSeverityBreakdown?.map(item => (

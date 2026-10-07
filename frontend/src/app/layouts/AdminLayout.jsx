@@ -85,15 +85,18 @@ export default function AdminLayout() {
           }}
         >
           {/* Brand */}
-          <div style={{ marginBottom: 28, paddingLeft: 8 }}>
-            <h1 className="admin-brand-title"
-                style={{ fontSize: 20, fontWeight: 900, letterSpacing: '-0.02em', margin: 0 }}>
-              UniMind
-            </h1>
-            <p className="admin-brand-subtitle"
-               style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', marginTop: 3, marginBottom: 0 }}>
-              Admin Portal
-            </p>
+          <div style={{ marginBottom: 28, paddingLeft: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
+            <img src="/logo.svg" alt="UniMind Logo" style={{ width: 38, height: 38, borderRadius: 10, flexShrink: 0 }} />
+            <div>
+              <h1 className="admin-brand-title"
+                  style={{ fontSize: 20, fontWeight: 900, letterSpacing: '-0.02em', margin: 0 }}>
+                UniMind
+              </h1>
+              <p className="admin-brand-subtitle"
+                 style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', marginTop: 3, marginBottom: 0 }}>
+                Admin Portal
+              </p>
+            </div>
           </div>
 
           {/* Navigation */}

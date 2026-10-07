@@ -60,14 +60,14 @@ export default function StudentLayout() {
           borderBottom: '1px solid #e5e7eb',
         }}
       >
-        {/* Brand: Clean typographic title with subtle teal dot */}
+        {/* Brand: Custom Lotus Logo & typographic title */}
         <Link
           to="/student/home"
           style={{
             textDecoration: 'none',
             display: 'flex',
             alignItems: 'center',
-            gap: 6,
+            gap: 10,
             fontSize: 18,
             fontWeight: 900,
             color: '#0f766e',
@@ -75,8 +75,8 @@ export default function StudentLayout() {
             fontFamily: "'Plus Jakarta Sans', sans-serif"
           }}
         >
+          <img src="/logo.svg" alt="UniMind Logo" style={{ width: 32, height: 32, borderRadius: 9 }} />
           <span>UniMind</span>
-          <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#0d9488' }} />
         </Link>
 
         {/* Desktop Nav: Clean typography text links, no icon clutter */}

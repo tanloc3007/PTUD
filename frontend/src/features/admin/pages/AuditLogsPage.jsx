@@ -1,18 +1,18 @@
 import { useState, useEffect, useCallback } from 'react';
-import { getAuditLogs, getAuditLogHistory, getAuditLogFilterOptions } from '../api/adminApi';
+import { getAuditLogs, getAuditLogHistory } from '../api/adminApi';
 
 const ACTION_META = {
-  STUDENT_REGISTERED:     { icon: '👤', color: '#0d9488', label: 'Đăng ký sinh viên' },
-  USER_PROVISIONED:       { icon: '🔑', color: '#0284c7', label: 'Cấp tài khoản' },
-  APPOINTMENT_SCHEDULED:  { icon: '📅', color: '#7c3aed', label: 'Đặt lịch hẹn' },
-  KEYWORD_ADDED:          { icon: '🔍', color: '#d97706', label: 'Thêm từ khóa' },
-  CRISIS_TRIAGE_FLAGGED:  { icon: '🚨', color: '#dc2626', label: 'Cảnh báo AI' },
-  ROLE_CHANGED:           { icon: '🔒', color: '#6366f1', label: 'Thay đổi quyền' },
-  SYSTEM:                 { icon: '⚙️', color: '#64748b', label: 'Hệ thống' },
+  STUDENT_REGISTERED:    { icon: '👤', color: '#0d9488', bg: '#f0fdfa', border: '#99f6e4', label: 'Đăng ký sinh viên' },
+  USER_PROVISIONED:      { icon: '🔑', color: '#0284c7', bg: '#f0f9ff', border: '#bae6fd', label: 'Cấp tài khoản' },
+  APPOINTMENT_SCHEDULED: { icon: '📅', color: '#7c3aed', bg: '#f5f3ff', border: '#ddd6fe', label: 'Đặt lịch hẹn' },
+  KEYWORD_ADDED:         { icon: '🔍', color: '#d97706', bg: '#fffbeb', border: '#fde68a', label: 'Thêm từ khóa' },
+  CRISIS_TRIAGE_FLAGGED: { icon: '🚨', color: '#dc2626', bg: '#fef2f2', border: '#fecaca', label: 'Cảnh báo AI Triage' },
+  ROLE_CHANGED:          { icon: '🔒', color: '#4338ca', bg: '#eef2ff', border: '#c7d2fe', label: 'Thay đổi quyền' },
+  SYSTEM:                { icon: '⚙️', color: '#475569', bg: '#f8fafc', border: '#cbd5e1', label: 'Hệ thống' },
 };
 
 function getMeta(actionType) {
-  return ACTION_META[actionType] || { icon: '📋', color: '#64748b', label: actionType };
+  return ACTION_META[actionType] || { icon: '📋', color: '#475569', bg: '#f8fafc', border: '#cbd5e1', label: actionType };
 }
 
 function formatTime(iso) {
@@ -96,6 +96,7 @@ export default function AuditLogsPage() {
     const q = search.toLowerCase();
     const matchSearch = !q ||
       l.actionType?.toLowerCase().includes(q) ||
+      getMeta(l.actionType).label.toLowerCase().includes(q) ||
       l.details?.toLowerCase().includes(q) ||
       l.target?.toLowerCase().includes(q) ||
       l.actorEmail?.toLowerCase().includes(q) ||
@@ -110,46 +111,91 @@ export default function AuditLogsPage() {
                   'Tháng 7','Tháng 8','Tháng 9','Tháng 10','Tháng 11','Tháng 12'];
   const YEARS  = [2025, 2026, 2027].map(y => y.toString());
 
+  const securityAlertsCount = logs.filter(l => l.actionType === 'CRISIS_TRIAGE_FLAGGED' || l.actionType === 'ROLE_CHANGED').length;
+
   return (
     <div className="admin-page-shell" style={{ width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}>
-      {/* Header */}
-      <div className="admin-page-header">
-        <h1 className="admin-page-title">Nhật Ký Hoạt Động Hệ Thống</h1>
-        <p className="admin-page-subtitle">
-          Giám sát toàn bộ thao tác bảo mật, thay đổi dữ liệu và xử lý sự kiện — tổng hợp từ SQL Server
+      
+      {/* ── Page Header ────────────────────────────────────── */}
+      <div style={{ marginBottom: 22 }}>
+        <h1 className="admin-page-title" style={{ fontSize: 22, fontWeight: 900, color: 'var(--a-text, #1e1b4b)', margin: '0 0 6px', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+          Nhật Ký Hoạt Động Hệ Thống
+        </h1>
+        <p className="admin-page-subtitle" style={{ fontSize: 13, color: 'var(--a-text-muted, #6b7280)', margin: 0 }}>
+          Giám sát toàn bộ thao tác bảo mật, thay đổi dữ liệu và cảnh báo an toàn — đồng bộ thời gian thực từ SQL Server
         </p>
       </div>
 
-      {/* Stat Pills */}
-      <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
+      {/* ── 4 Stat Cards Grid (Full Width & Beautiful Accent) ────────────────── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14, marginBottom: 22, width: '100%' }}>
         {[
-          { label: 'Tổng bản ghi', value: totalCount, color: '#0284c7' },
-          { label: 'Đang hiển thị', value: filtered.length, color: '#7c3aed' },
-          { label: 'Nhóm theo ngày', value: groups.length, color: '#0d9488' },
+          { icon: '📜', label: 'Tổng bản ghi hệ thống', value: totalCount || logs.length, sub: 'Ghi nhận trong CSDL', border: '#4338ca', color: '#4338ca' },
+          { icon: '🔍', label: 'Bản ghi đang hiển thị', value: filtered.length, sub: 'Khớp theo bộ lọc', border: '#0284c7', color: '#0284c7' },
+          { icon: '📅', label: 'Nhóm theo ngày', value: groups.length, sub: 'Dòng thời gian hoạt động', border: '#0d9488', color: '#0d9488' },
+          { icon: '🛡️', label: 'Sự kiện AI & Bảo mật', value: securityAlertsCount, sub: 'Cần chú ý giám sát', border: '#dc2626', color: '#dc2626' },
         ].map(s => (
-          <div key={s.label} style={{
-            background: 'var(--a-card)', border: '1px solid var(--a-border)',
-            borderRadius: 10, padding: '10px 18px', display: 'flex', flexDirection: 'column', gap: 2
-          }}>
-            <span style={{ fontSize: 11, color: 'var(--a-text-muted)', fontWeight: 600 }}>{s.label}</span>
-            <span style={{ fontSize: 22, fontWeight: 900, color: s.color }}>{s.value.toLocaleString()}</span>
+          <div
+            key={s.label}
+            style={{
+              background: 'var(--a-surface, #ffffff)',
+              border: '1px solid var(--a-border, #e5e7eb)',
+              borderLeft: `4px solid ${s.border}`,
+              borderRadius: 14,
+              padding: '16px 20px',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+              transition: 'transform 0.15s, box-shadow 0.15s'
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--a-text-muted, #6b7280)' }}>{s.label}</span>
+              <span style={{ fontSize: 18 }}>{s.icon}</span>
+            </div>
+            <div>
+              <div style={{ fontSize: 26, fontWeight: 900, color: s.color, lineHeight: 1.1, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+                {s.value.toLocaleString()}
+              </div>
+              <span style={{ fontSize: 11.5, color: 'var(--a-text-muted, #94a3b8)', marginTop: 4, display: 'block' }}>
+                {s.sub}
+              </span>
+            </div>
           </div>
         ))}
       </div>
 
-      {/* Filters */}
-      <div className="admin-card" style={{ padding: '14px 18px', marginBottom: 20 }}>
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-          <input
-            className="admin-input"
-            placeholder="🔍  Tìm theo hành động, người thực hiện, đối tượng..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            style={{ flex: 1, minWidth: 260 }}
-          />
+      {/* ── Modern Toolbar & Filter Section ──────────────────────────────── */}
+      <div className="admin-card" style={{ padding: '16px 20px', marginBottom: 24, borderRadius: 14, boxShadow: '0 2px 10px rgba(0,0,0,0.03)' }}>
+        
+        {/* Search & Main Dropdowns */}
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
+          <div style={{ position: 'relative', flex: 1, minWidth: 260 }}>
+            <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 14, color: '#94a3b8', pointerEvents: 'none' }}>
+              🔍
+            </span>
+            <input
+              className="admin-input"
+              placeholder="Tìm theo hành động, người thực hiện, đối tượng, IP..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              style={{
+                width: '100%',
+                paddingLeft: 34,
+                paddingRight: 12,
+                paddingTop: 9,
+                paddingBottom: 9,
+                borderRadius: 9,
+                fontSize: 13,
+                fontFamily: "'Manrope', sans-serif",
+                boxSizing: 'border-box'
+              }}
+            />
+          </div>
+
           <select
             className="admin-input"
-            style={{ width: 'auto', minWidth: 180 }}
+            style={{ width: 'auto', minWidth: 190, padding: '9px 12px', borderRadius: 9, fontSize: 13, cursor: 'pointer' }}
             value={actionFilter}
             onChange={e => { setActionFilter(e.target.value); setPage(1); }}
           >
@@ -158,134 +204,189 @@ export default function AuditLogsPage() {
               <option key={a} value={a}>{getMeta(a).icon} {getMeta(a).label}</option>
             ))}
           </select>
+
           <select
             className="admin-input"
-            style={{ width: 'auto', minWidth: 130 }}
+            style={{ width: 'auto', minWidth: 130, padding: '9px 12px', borderRadius: 9, fontSize: 13, cursor: 'pointer' }}
             value={monthFilter}
             onChange={e => { setMonthFilter(e.target.value); setPage(1); }}
           >
             <option value="">Tất cả tháng</option>
             {MONTHS.map((m, i) => <option key={i + 1} value={String(i + 1)}>{m}</option>)}
           </select>
+
           <select
             className="admin-input"
-            style={{ width: 'auto', minWidth: 100 }}
+            style={{ width: 'auto', minWidth: 110, padding: '9px 12px', borderRadius: 9, fontSize: 13, cursor: 'pointer' }}
             value={yearFilter}
             onChange={e => { setYearFilter(e.target.value); setPage(1); }}
           >
             {YEARS.map(y => <option key={y} value={y}>Năm {y}</option>)}
           </select>
+
           <button
+            type="button"
             className="admin-btn admin-btn-outline"
             onClick={() => { setSearch(''); setActionFilter(''); setMonthFilter(''); setYearFilter(new Date().getFullYear().toString()); setPage(1); }}
-            style={{ padding: '9px 16px', fontSize: 13, cursor: 'pointer' }}
+            style={{ padding: '9px 16px', fontSize: 13, cursor: 'pointer', borderRadius: 9, fontWeight: 700 }}
           >
             ↺ Đặt lại
           </button>
         </div>
+
+        {/* Quick Filter Tag Pills */}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', borderTop: '1px solid #f1f5f9', paddingTop: 12 }}>
+          <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--a-text-muted)', marginRight: 4 }}>Lọc nhanh:</span>
+          {[
+            { key: '', label: 'Tất cả' },
+            { key: 'CRISIS_TRIAGE_FLAGGED', label: '🚨 Cảnh báo AI' },
+            { key: 'STUDENT_REGISTERED', label: '👤 Đăng ký mới' },
+            { key: 'APPOINTMENT_SCHEDULED', label: '📅 Đặt lịch' },
+            { key: 'ROLE_CHANGED', label: '🔒 Quyền hạn' },
+            { key: 'KEYWORD_ADDED', label: '🔍 Từ khóa' },
+          ].map(tag => {
+            const isSelected = actionFilter === tag.key;
+            return (
+              <button
+                key={tag.key}
+                type="button"
+                onClick={() => { setActionFilter(tag.key); setPage(1); }}
+                style={{
+                  padding: '4px 12px',
+                  borderRadius: 20,
+                  fontSize: 12,
+                  fontWeight: isSelected ? 800 : 600,
+                  border: isSelected ? '1.5px solid #4338ca' : '1px solid #e2e8f0',
+                  background: isSelected ? '#eef2ff' : '#f8fafc',
+                  color: isSelected ? '#4338ca' : '#475569',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s'
+                }}
+              >
+                {tag.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
-      {/* Timeline Log */}
+      {/* ── Timeline Log Display ─────────────────────────────────────────── */}
       {loading ? (
         <div style={{ padding: '48px 0', textAlign: 'center', color: 'var(--a-text-muted)', fontSize: 14 }}>
           <div style={{ fontSize: 32, marginBottom: 12 }}>⏳</div>
-          Đang tải nhật ký hoạt động từ cơ sở dữ liệu...
+          Đang truy xuất nhật ký hoạt động từ cơ sở dữ liệu...
         </div>
       ) : filtered.length === 0 ? (
         <div className="admin-card" style={{ padding: '48px 0', textAlign: 'center', color: 'var(--a-text-muted)' }}>
           <div style={{ fontSize: 36, marginBottom: 10 }}>📭</div>
-          <p style={{ margin: 0, fontWeight: 600 }}>Không tìm thấy nhật ký phù hợp</p>
-          <p style={{ margin: '4px 0 0', fontSize: 13 }}>Thử thay đổi bộ lọc hoặc đặt lại tìm kiếm</p>
+          <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: 'var(--a-text)' }}>Không tìm thấy nhật ký phù hợp</p>
+          <p style={{ margin: '4px 0 0', fontSize: 13 }}>Thử thay đổi bộ lọc hoặc nhấn nút Đặt lại</p>
         </div>
       ) : (
         <div>
           {groups.map((group, gi) => (
             <div key={gi} style={{ marginBottom: 28 }}>
-              {/* Date Header */}
+              
+              {/* Date Header Ribbon */}
               <div style={{
                 display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14
               }}>
                 <div style={{
-                  background: 'var(--a-primary)', color: '#fff',
-                  borderRadius: 8, padding: '4px 14px', fontSize: 12.5, fontWeight: 800, whiteSpace: 'nowrap'
+                  background: 'linear-gradient(135deg, #4338ca, #3730a3)',
+                  color: '#ffffff',
+                  borderRadius: 20,
+                  padding: '5px 16px',
+                  fontSize: 12.5,
+                  fontWeight: 800,
+                  whiteSpace: 'nowrap',
+                  boxShadow: '0 2px 6px rgba(67,56,202,0.2)',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6
                 }}>
-                  {group.dateLabel}
+                  <span>📅</span>
+                  <span>{group.dateLabel}</span>
                 </div>
-                <div style={{ flex: 1, height: 1, background: 'var(--a-border)' }} />
-                <span style={{ fontSize: 12, color: 'var(--a-text-muted)', fontWeight: 600 }}>
+                <div style={{ flex: 1, height: 1, background: '#e2e8f0' }} />
+                <span style={{ fontSize: 12, color: 'var(--a-text-muted)', fontWeight: 700, background: '#f1f5f9', padding: '3px 10px', borderRadius: 12 }}>
                   {group.items.length} thao tác
                 </span>
               </div>
 
-              {/* Log entries */}
-              <div className="admin-card" style={{ padding: 0, overflow: 'hidden' }}>
+              {/* Log entries card list */}
+              <div className="admin-card" style={{ padding: 0, overflow: 'hidden', borderRadius: 14, boxShadow: '0 2px 8px rgba(0,0,0,0.03)' }}>
                 {group.items.map((log, idx) => {
                   const meta = getMeta(log.actionType);
                   return (
                     <div
                       key={log.id || idx}
                       style={{
-                        display: 'flex', gap: 14, padding: '14px 20px',
-                        borderBottom: idx < group.items.length - 1 ? '1px solid var(--a-border)' : 'none',
-                        alignItems: 'flex-start', transition: 'background 0.15s',
+                        display: 'flex', gap: 16, padding: '16px 20px',
+                        borderBottom: idx < group.items.length - 1 ? '1px solid #f1f5f9' : 'none',
+                        alignItems: 'flex-start',
+                        transition: 'background 0.15s',
+                        background: '#ffffff'
                       }}
-                      onMouseEnter={e => e.currentTarget.style.background = 'var(--a-surface)'}
-                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                      onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                      onMouseLeave={e => e.currentTarget.style.background = '#ffffff'}
                     >
-                      {/* Icon circle */}
+                      {/* Icon container */}
                       <div style={{
-                        width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
-                        background: meta.color + '18', border: `2px solid ${meta.color}30`,
+                        width: 40, height: 40, borderRadius: 12, flexShrink: 0,
+                        background: meta.bg, border: `1.5px solid ${meta.border}`,
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontSize: 15, marginTop: 2
+                        fontSize: 18, marginTop: 2
                       }}>
                         {meta.icon}
                       </div>
 
-                      {/* Content */}
+                      {/* Content Details */}
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                             <span style={{
-                              fontSize: 11, fontWeight: 800, background: meta.color + '15',
-                              color: meta.color, padding: '2px 8px', borderRadius: 5, border: `1px solid ${meta.color}30`
+                              fontSize: 11.5, fontWeight: 800, background: meta.bg,
+                              color: meta.color, padding: '3px 9px', borderRadius: 6, border: `1px solid ${meta.border}`
                             }}>
-                              {log.actionType}
+                              {meta.label}
                             </span>
-                            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--a-text)' }}>
-                              {log.actorEmail || log.actorRole}
+                            <span style={{ fontSize: 13.5, fontWeight: 800, color: '#0f172a' }}>
+                              {log.actorEmail || log.actorRole || 'System AI'}
                             </span>
                             {log.actorRole && (
                               <span style={{
-                                fontSize: 10.5, background: 'var(--a-surface)',
-                                border: '1px solid var(--a-border)', padding: '1px 7px', borderRadius: 4,
-                                color: 'var(--a-text-muted)', fontWeight: 600
+                                fontSize: 11, background: '#f1f5f9',
+                                border: '1px solid #e2e8f0', padding: '2px 8px', borderRadius: 4,
+                                color: '#475569', fontWeight: 700
                               }}>
                                 {log.actorRole}
                               </span>
                             )}
                           </div>
+
                           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, flexShrink: 0 }}>
-                            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--a-text-muted)' }}>
+                            <span style={{ fontSize: 12.5, fontWeight: 800, color: '#1e293b' }}>
                               {formatTime(log.createdAt)}
                             </span>
-                            <span style={{ fontSize: 10.5, color: 'var(--a-text-muted)' }}>
+                            <span style={{ fontSize: 11, color: '#64748b' }}>
                               {timeAgo(log.createdAt)}
                             </span>
                           </div>
                         </div>
-                        <p style={{ fontSize: 13, color: 'var(--a-text)', margin: '0 0 4px', lineHeight: 1.55 }}>
+
+                        <p style={{ fontSize: 13.5, color: '#334155', margin: '0 0 6px', lineHeight: 1.6 }}>
                           {log.details}
                         </p>
-                        <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+
+                        <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center' }}>
                           {log.target && (
-                            <span style={{ fontSize: 11.5, color: 'var(--a-text-muted)' }}>
-                              🎯 Đối tượng: <strong style={{ color: 'var(--a-text)' }}>{log.target}</strong>
+                            <span style={{ fontSize: 12, color: '#64748b' }}>
+                              🎯 Đối tượng: <strong style={{ color: '#0f172a' }}>{log.target}</strong>
                             </span>
                           )}
                           {log.ipAddress && (
-                            <span style={{ fontSize: 11.5, color: 'var(--a-text-muted)' }}>
-                              🌐 IP: <code style={{ fontSize: 11, background: 'var(--a-surface)', padding: '0 5px', borderRadius: 3 }}>{log.ipAddress}</code>
+                            <span style={{ fontSize: 12, color: '#64748b' }}>
+                              🌐 IP: <code style={{ fontSize: 11.5, background: '#f1f5f9', padding: '2px 6px', borderRadius: 4, color: '#0284c7' }}>{log.ipAddress}</code>
                             </span>
                           )}
                         </div>
@@ -299,21 +400,21 @@ export default function AuditLogsPage() {
 
           {/* Pagination */}
           {totalPages > 1 && (
-            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 10, marginTop: 20 }}>
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 10, marginTop: 22 }}>
               <button
                 className="admin-btn admin-btn-outline"
-                style={{ padding: '7px 16px', fontSize: 13, cursor: page <= 1 ? 'not-allowed' : 'pointer', opacity: page <= 1 ? 0.5 : 1 }}
+                style={{ padding: '8px 18px', fontSize: 13, cursor: page <= 1 ? 'not-allowed' : 'pointer', opacity: page <= 1 ? 0.5 : 1, borderRadius: 8 }}
                 disabled={page <= 1}
                 onClick={() => setPage(p => p - 1)}
               >
                 ← Trang trước
               </button>
-              <span style={{ fontSize: 13, color: 'var(--a-text-muted)', fontWeight: 600 }}>
+              <span style={{ fontSize: 13, color: 'var(--a-text-muted)', fontWeight: 700 }}>
                 Trang {page} / {totalPages}
               </span>
               <button
                 className="admin-btn admin-btn-primary"
-                style={{ padding: '7px 16px', fontSize: 13, cursor: page >= totalPages ? 'not-allowed' : 'pointer', opacity: page >= totalPages ? 0.5 : 1 }}
+                style={{ padding: '8px 18px', fontSize: 13, cursor: page >= totalPages ? 'not-allowed' : 'pointer', opacity: page >= totalPages ? 0.5 : 1, borderRadius: 8 }}
                 disabled={page >= totalPages}
                 onClick={() => setPage(p => p + 1)}
               >

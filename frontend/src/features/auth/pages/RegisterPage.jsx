@@ -24,7 +24,7 @@ const FACULTIES = [
   'Khác',
 ];
 
-const YEARS = ['Năm 1', 'Năm 2', 'Năm 3', 'Năm 4', 'Năm 5+', 'Cao học'];
+const COURSES = ['2021', '2022', '2023', '2024', '2025', '2026'];
 
 export default function RegisterPage() {
   const navigate  = useNavigate();
@@ -38,7 +38,7 @@ export default function RegisterPage() {
   const [form, setForm] = useState({
     studentId:   '',
     faculty:     '',
-    yearOfStudy: '',
+    yearOfStudy: '2024',
     email:       '',
     password:    '',
     confirmPass: '',
@@ -53,7 +53,7 @@ export default function RegisterPage() {
   const validateStep1 = () => {
     if (!form.studentId.trim()) return 'Vui lòng nhập Mã số sinh viên (MSSV).';
     if (!form.faculty)          return 'Vui lòng chọn khoa đang theo học.';
-    if (!form.yearOfStudy)      return 'Vui lòng chọn năm học hiện tại.';
+    if (!form.yearOfStudy)      return 'Vui lòng chọn hoặc điền khóa học (ví dụ: 2023, 2024, 2025).';
     if (!form.email.includes('@')) return 'Email liên lạc không hợp lệ.';
     return '';
   };
@@ -224,27 +224,36 @@ export default function RegisterPage() {
                   </select>
                 </div>
 
-                {/* Năm học */}
+                {/* Khóa học */}
                 <div>
-                  <label style={labelStyle}>Năm học <span style={{ color: '#ef4444' }}>*</span></label>
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    {YEARS.map(y => (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <label style={{ ...labelStyle, margin: 0 }}>Khóa học (Năm tuyển sinh) <span style={{ color: '#ef4444' }}>*</span></label>
+                    <span style={{ fontSize: 11, color: '#0d9488', fontWeight: 700 }}>VD: 2023, 2024, 2025</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+                    {COURSES.map(c => (
                       <button
-                        key={y}
+                        key={c}
                         type="button"
-                        onClick={() => set('yearOfStudy', y)}
+                        onClick={() => set('yearOfStudy', c)}
                         style={{
                           padding: '7px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer',
-                          border: `1.5px solid ${form.yearOfStudy === y ? '#0d9488' : '#e5e7eb'}`,
-                          background: form.yearOfStudy === y ? '#f0fdfa' : '#fff',
-                          color: form.yearOfStudy === y ? '#0d9488' : '#6b7280',
+                          border: `1.5px solid ${form.yearOfStudy === c ? '#0d9488' : '#e5e7eb'}`,
+                          background: form.yearOfStudy === c ? '#f0fdfa' : '#fff',
+                          color: form.yearOfStudy === c ? '#0d9488' : '#6b7280',
                           fontFamily: "'Manrope', sans-serif",
                         }}
                       >
-                        {y}
+                        Khóa {c}
                       </button>
                     ))}
                   </div>
+                  <input
+                    style={{ ...inputStyle, padding: '8px 12px', fontSize: 13 }}
+                    placeholder="Hoặc nhập năm khóa học khác (VD: 2020, 2023, 2025...)"
+                    value={form.yearOfStudy}
+                    onChange={e => set('yearOfStudy', e.target.value)}
+                  />
                 </div>
 
                 {/* Email */}
@@ -346,7 +355,7 @@ export default function RegisterPage() {
                   {[
                     { label: 'MSSV',      value: form.studentId },
                     { label: 'Khoa',      value: form.faculty },
-                    { label: 'Năm học',   value: form.yearOfStudy },
+                    { label: 'Khóa học',  value: form.yearOfStudy?.startsWith('Khóa') ? form.yearOfStudy : `Khóa ${form.yearOfStudy}` },
                     { label: 'Email',     value: form.email },
                     { label: 'Mật khẩu',  value: '••••••••' },
                   ].map(row => (

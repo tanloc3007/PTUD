@@ -483,11 +483,11 @@ function renderCommunityPosts(posts) {
         </div>
       ` : ''}
 
-      <!-- Nút tương tác: Ôm, Đồng cảm, Bình luận -->
+      <!-- Nút tương tác: Thích, Đồng cảm, Bình luận -->
       <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid var(--slate-100); padding-top:10px; font-size:12.5px;">
         <div style="display:flex; gap:12px;">
           <button class="trigger-chip" onclick="reactPost('${post.id}', 'hug')">
-            🫂 Ôm một cái (${post.hugCount || 0})
+            👍 Thích (${post.hugCount || 0})
           </button>
           <button class="trigger-chip" onclick="reactPost('${post.id}', 'empathy')">
             💙 Đồng cảm (${post.empathyCount || 0})

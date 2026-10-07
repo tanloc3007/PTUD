@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import axiosClient from '../../auth/api/authApi';
 import { useAuthStore } from '../../auth/store/authStore';
@@ -20,20 +20,20 @@ export default function ConsultationRoomPage() {
 
   // Meeting State
   const [isMeetingStarted, setIsMeetingStarted] = useState(false);
-  const [micOn, setMicOn] = useState(true);
-  const [camOn, setCamOn] = useState(true);
-  const [screenSharing, setScreenSharing] = useState(false);
+  const [meetingMode, setMeetingMode] = useState('internet'); // 'internet' (Jitsi Live WebRTC) | 'private' (Anonymous Audio)
   const [sessionSeconds, setSessionSeconds] = useState(0);
 
-  // Chat State
-  const [messages, setMessages] = useState([]);
-  const [inputText, setInputText] = useState('');
-
-  // Clinical Notebook
+  // Clinical Notebook Drawer/Popup State (Chỉ là 1 nút nhắc để mở khung nhỏ)
+  const [showNotebook, setShowNotebook] = useState(false);
   const [clinicalNotes, setClinicalNotes] = useState('');
   const [riskAssessment, setRiskAssessment] = useState('Moderate');
   const [followUpPlan, setFollowUpPlan] = useState('Hẹn tái khám tuần sau qua Phòng An Yên');
   const [prescribedActions, setPrescribedActions] = useState('Thực hành bài tập thở 4-7-8 hàng ngày và ghi chép nhật ký cảm xúc.');
+
+  // Chat State
+  const [messages, setMessages] = useState([]);
+  const [inputText, setInputText] = useState('');
+  const [showChat, setShowChat] = useState(false);
 
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState(null);
@@ -98,17 +98,18 @@ export default function ConsultationRoomPage() {
     setSelectedAppt(target);
     setIsMeetingStarted(true);
     setSessionSeconds(0);
+    setShowNotebook(false);
     setMessages([
       {
         id: 1,
         sender: 'system',
-        text: `🔒 Đã khởi tạo phòng tư vấn riêng biệt cho ${target.studentAnonymousCode || 'Sinh viên'}. Mã ca: ${target.bookingCode || 'ST-LIVE'}.`,
+        text: `🔒 Đã khởi tạo phòng tư vấn Internet an toàn cho ${target.studentAnonymousCode || 'Sinh viên'}. Mã ca: ${target.bookingCode || 'ST-LIVE'}.`,
         time: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
       },
       {
         id: 2,
         sender: 'student',
-        text: target.reasonNotes ? `Dạ em chào chuyên viên, nội dung em muốn chia sẻ: "${target.reasonNotes}"` : 'Dạ em chào thầy/cô, em đã vào phòng tư vấn rồi ạ.',
+        text: target.reasonNotes ? `Dạ em chào chuyên viên, nội dung em muốn chia sẻ: "${target.reasonNotes}"` : 'Dạ em chào thầy/cô, em đã kết nối vào phòng tư vấn trực tuyến.',
         time: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
       }
     ]);
@@ -128,7 +129,6 @@ export default function ConsultationRoomPage() {
     setMessages(prev => [...prev, newMsg]);
     setInputText('');
 
-    // Simulate student response
     setTimeout(() => {
       setMessages(prev => [
         ...prev,
@@ -144,10 +144,11 @@ export default function ConsultationRoomPage() {
 
   const handleEndSession = async () => {
     if (!clinicalNotes.trim()) {
+      setShowNotebook(true);
       setNotice({
         type: 'warning',
         title: 'Chưa nhập sổ tay lâm sàng',
-        message: 'Vui lòng ghi nhận xét chuyên môn tóm tắt trước khi hoàn tất phiên tham vấn.'
+        message: 'Vui lòng mở Sổ tay lâm sàng và ghi nhận xét tóm tắt trước khi kết thúc ca tham vấn.'
       });
       return;
     }
@@ -158,13 +159,13 @@ export default function ConsultationRoomPage() {
     try {
       if (targetId) {
         await axiosClient.post(`/appointments/${targetId}/complete`, {
-          clinicalNotes: `${clinicalNotes}\n[Đánh giá nguy cơ: ${riskAssessment}]\n[Kế hoạch: ${followUpPlan}]\n[Chỉ định: ${prescribedActions}]`
+          clinicalNotes: `${clinicalNotes}\n[Đánh giá nguy cơ: ${riskAssessment}]\n[Kế hoạch: ${followUpPlan}]\n[Khuyến nghị: ${prescribedActions}]`
         });
       }
 
       setNotice({
         type: 'success',
-        title: 'Hoàn tất phiên tư vấn',
+        title: 'Hoàn tất ca tư vấn',
         message: `Đã lưu hồ sơ tham vấn cho ${selectedAppt?.studentAnonymousCode || 'sinh viên'} vào CSDL thành công!`
       });
 
@@ -187,8 +188,13 @@ export default function ConsultationRoomPage() {
     }
   };
 
+  // Tạo mã phòng Jitsi Meet trực tuyến Internet dựa trên bookingCode
+  const roomName = `UniMind_Consultation_${(selectedAppt?.bookingCode || 'ST_LIVE').replace(/[^a-zA-Z0-9]/g, '_')}`;
+  const jitsiUrl = `https://meet.jit.si/${roomName}#config.prejoinPageEnabled=false&config.disableDeepLinking=true&config.startWithAudioMuted=false&config.startWithVideoMuted=false`;
+
   return (
     <div className="expert-page-shell" style={{ width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}>
+      
       {/* Header */}
       <div style={{
         display: 'flex',
@@ -211,17 +217,17 @@ export default function ConsultationRoomPage() {
               display: 'inline-block'
             }} />
             <h1 style={{ fontSize: 22, fontWeight: 900, color: 'var(--e-text, #0f172a)', margin: 0, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
-              {isMeetingStarted ? 'Phòng Tư Vấn Trực Tuyến 1-1 (Đang Diễn Ra)' : 'Trung Tâm Quản Lý Cuộc Họp Tư Vấn'}
+              {isMeetingStarted ? 'Phòng Tư Vấn Trực Tuyến Internet (Đang Kết Nối)' : 'Trung Tâm Quản Lý Cuộc Họp Tư Vấn'}
             </h1>
           </div>
           <p style={{ fontSize: 13, color: 'var(--e-text-muted, #64748b)', margin: '4px 0 0' }}>
             {isMeetingStarted
-              ? `Đang tham vấn cùng: ${selectedAppt?.studentAnonymousCode || 'Sinh viên'} • Thời lượng: ${formatTime(sessionSeconds)}`
-              : 'Xem lịch hẹn đã duyệt của sinh viên và chủ động quyết định khởi động phòng họp'}
+              ? `Tham vấn trực tuyến cùng: ${selectedAppt?.studentAnonymousCode || 'Sinh viên'} • Thời lượng: ${formatTime(sessionSeconds)}`
+              : 'Xem lịch hẹn đã duyệt của sinh viên và khởi động phòng họp trực tuyến'}
           </p>
         </div>
 
-        <div style={{ display: 'flex', gap: 10 }}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
           <button
             type="button"
             onClick={() => navigate('/expert/schedule')}
@@ -230,16 +236,39 @@ export default function ConsultationRoomPage() {
           >
             ← Lịch hẹn tham vấn
           </button>
+
           {isMeetingStarted && (
-            <button
-              type="button"
-              onClick={handleEndSession}
-              disabled={saving}
-              className="e-btn e-btn-primary"
-              style={{ fontSize: 13, padding: '7px 16px', background: '#dc2626', borderColor: '#dc2626' }}
-            >
-              {saving ? 'Đang lưu...' : '⏹️ Kết thúc & Lưu sổ tay'}
-            </button>
+            <>
+              {/* NÚT NHẮC ĐỂ HIỂN THỊ KHUNG NHỎ SỔ TAY LÂM SÀNG */}
+              <button
+                type="button"
+                onClick={() => setShowNotebook(v => !v)}
+                className="e-btn"
+                style={{
+                  fontSize: 13,
+                  padding: '7px 14px',
+                  background: showNotebook ? '#0284c7' : '#f0f9ff',
+                  color: showNotebook ? '#ffffff' : '#0284c7',
+                  border: '1.5px solid #0284c7',
+                  fontWeight: 800,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6
+                }}
+              >
+                📝 {showNotebook ? 'Ẩn Sổ Tay' : 'Mở Sổ Tay Lâm Sàng'}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleEndSession}
+                disabled={saving}
+                className="e-btn e-btn-primary"
+                style={{ fontSize: 13, padding: '7px 16px', background: '#dc2626', borderColor: '#dc2626' }}
+              >
+                {saving ? 'Đang lưu...' : '⏹️ Kết thúc phiên'}
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -253,11 +282,9 @@ export default function ConsultationRoomPage() {
         />
       )}
 
-      {/* ══════════════ VIEW 1: PRE-MEETING LOBBY & APPOINTMENT SELECTION ══════════════ */}
+      {/* ══════════════ VIEW 1: LOBBY & CHỌN CA HẸN ══════════════ */}
       {!isMeetingStarted ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20, width: '100%' }}>
-
-          {/* Selected Appointment Ready Card */}
           {selectedAppt ? (
             <div className="e-card" style={{
               padding: 24,
@@ -274,7 +301,7 @@ export default function ConsultationRoomPage() {
                     {selectedAppt.studentAnonymousCode || 'Sinh viên Ẩn danh'}
                   </h2>
                   <p style={{ fontSize: 13, color: 'var(--e-text-muted)', margin: 0 }}>
-                    📅 Ngày hẹn: <strong>{selectedAppt.date}</strong> ({selectedAppt.startTime} - {selectedAppt.endTime}) • 🌐 Hình thức: <strong>{selectedAppt.consultationType === 'Online' ? 'Trực tuyến (SafeRoom)' : 'Trực tiếp tại phòng'}</strong>
+                    📅 Ngày hẹn: <strong>{selectedAppt.date}</strong> ({selectedAppt.startTime} - {selectedAppt.endTime}) • 🌐 Hình thức: <strong>{selectedAppt.consultationType === 'Online' ? 'Trực tuyến Internet (SafeRoom WebRTC)' : 'Trực tiếp tại phòng'}</strong>
                   </p>
                 </div>
 
@@ -285,24 +312,40 @@ export default function ConsultationRoomPage() {
 
               {selectedAppt.reasonNotes && (
                 <div style={{ background: 'var(--e-bg-soft, #f8fafc)', padding: '12px 16px', borderRadius: 8, marginBottom: 20, borderLeft: '4px solid #0284c7' }}>
-                  <p style={{ fontSize: 12, fontWeight: 700, color: 'var(--e-text-muted)', margin: '0 0 4px' }}>Nội dung sinh viên đăng ký trước:</p>
+                  <p style={{ fontSize: 12, fontWeight: 700, color: 'var(--e-text-muted)', margin: '0 0 4px' }}>Nội dung &amp; Hồ sơ cảm xúc sinh viên gửi:</p>
                   <p style={{ fontSize: 13.5, color: 'var(--e-text)', margin: 0, fontStyle: 'italic' }}>
                     "{selectedAppt.reasonNotes}"
                   </p>
                 </div>
               )}
 
-              {/* Action Buttons */}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 14, paddingTop: 14, borderTop: '1px solid var(--e-border)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--e-text)', cursor: 'pointer' }}>
-                    <input type="checkbox" checked={camOn} onChange={e => setCamOn(e.target.checked)} />
-                    Bật Camera trước khi vào
-                  </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--e-text)', cursor: 'pointer' }}>
-                    <input type="checkbox" checked={micOn} onChange={e => setMicOn(e.target.checked)} />
-                    Bật Microphone
-                  </label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 13, color: 'var(--e-text)', fontWeight: 600 }}>Chế độ cuộc họp:</span>
+                  <button
+                    type="button"
+                    onClick={() => setMeetingMode('internet')}
+                    style={{
+                      padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                      border: `1.5px solid ${meetingMode === 'internet' ? '#0284c7' : '#cbd5e1'}`,
+                      background: meetingMode === 'internet' ? '#0284c7' : '#fff',
+                      color: meetingMode === 'internet' ? '#fff' : '#475569'
+                    }}
+                  >
+                    🌐 Video Call Internet (Jitsi WebRTC)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMeetingMode('private')}
+                    style={{
+                      padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                      border: `1.5px solid ${meetingMode === 'private' ? '#0284c7' : '#cbd5e1'}`,
+                      background: meetingMode === 'private' ? '#0284c7' : '#fff',
+                      color: meetingMode === 'private' ? '#fff' : '#475569'
+                    }}
+                  >
+                    🔒 Ẩn Danh Riêng Tư (Voice/SafeRoom)
+                  </button>
                 </div>
 
                 <button
@@ -320,7 +363,7 @@ export default function ConsultationRoomPage() {
                     borderRadius: 10,
                   }}
                 >
-                  <span>🟢</span> Mở Cuộc Họp &amp; Bắt Đầu Ca Tư Vấn
+                  <span>🌐</span> Bắt Đầu Cuộc Họp Trực Tuyến Internet
                 </button>
               </div>
             </div>
@@ -332,12 +375,11 @@ export default function ConsultationRoomPage() {
             </div>
           )}
 
-          {/* List of all appointments for this expert */}
+          {/* List of appointments */}
           <div className="e-card" style={{ padding: 22 }}>
             <h3 style={{ fontSize: 15, fontWeight: 800, color: 'var(--e-text)', margin: '0 0 14px' }}>
               📋 Danh sách ca hẹn của bạn ({confirmedAppts.length})
             </h3>
-
             {loadingAppts ? (
               <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--e-text-muted)' }}>
                 Đang tải danh sách lịch hẹn...
@@ -381,7 +423,7 @@ export default function ConsultationRoomPage() {
                           </span>
                         </div>
                         <p style={{ fontSize: 12, color: 'var(--e-text-muted)', margin: 0 }}>
-                          {a.date} ({a.startTime} - {a.endTime}) • {a.consultationType === 'Online' ? 'Trực tuyến (SafeRoom)' : `Phòng ${a.roomLocation || 'P.302'}`}
+                          {a.date} ({a.startTime} - {a.endTime}) • {a.consultationType === 'Online' ? 'Trực tuyến Internet' : `Phòng ${a.roomLocation || 'P.302'}`}
                         </p>
                       </div>
 
@@ -396,7 +438,7 @@ export default function ConsultationRoomPage() {
                             className="e-btn e-btn-primary"
                             style={{ fontSize: 12, padding: '6px 14px', background: '#0284c7' }}
                           >
-                            🎥 Mở phòng họp
+                            🎥 Vào phòng họp
                           </button>
                         ) : (
                           <a
@@ -415,316 +457,268 @@ export default function ConsultationRoomPage() {
               </div>
             )}
           </div>
-
         </div>
       ) : (
-        /* ══════════════ VIEW 2: ACTIVE LIVE MEETING WORKSPACE ══════════════ */
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))',
-          gap: 20,
-          width: '100%',
-        }}>
-          {/* Left Column: Live Screen & Chat */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            {/* Live Video Box */}
+        /* ══════════════ VIEW 2: PHÒNG HỌP TRỰC TUYẾN INTERNET ══════════════ */
+        <div style={{ position: 'relative', width: '100%' }}>
+          
+          {/* Main Video & Meeting Container */}
+          <div style={{
+            background: '#090d16',
+            borderRadius: 16,
+            overflow: 'hidden',
+            border: '1px solid rgba(255,255,255,0.12)',
+            boxShadow: '0 12px 36px rgba(0,0,0,0.3)',
+            height: '74vh',
+            minHeight: 480,
+            display: 'flex',
+            flexDirection: 'column',
+            position: 'relative'
+          }}>
+            {/* Top Bar inside Meeting */}
             <div style={{
-              background: '#090d16',
-              borderRadius: 14,
-              overflow: 'hidden',
-              position: 'relative',
-              aspectRatio: '16/9',
-              minHeight: 240,
               display: 'flex',
-              flexDirection: 'column',
               justifyContent: 'space-between',
-              padding: 16,
-              boxShadow: '0 10px 30px rgba(0,0,0,0.25)',
-              border: '1px solid rgba(255,255,255,0.1)',
+              alignItems: 'center',
+              padding: '10px 16px',
+              background: 'rgba(15, 23, 42, 0.85)',
+              backdropFilter: 'blur(8px)',
+              borderBottom: '1px solid rgba(255,255,255,0.1)',
+              zIndex: 10
             }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{
-                  background: 'rgba(0,0,0,0.6)',
-                  backdropFilter: 'blur(8px)',
-                  color: '#fff',
-                  fontSize: 12,
-                  fontWeight: 700,
-                  padding: '4px 10px',
-                  borderRadius: 6,
-                  border: '1px solid rgba(255,255,255,0.15)',
-                }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: 12, color: '#fff', fontWeight: 800 }}>
                   🧑‍🎓 {selectedAppt?.studentAnonymousCode || 'Sinh viên Ẩn danh'}
                 </span>
-                <span style={{
-                  background: '#ef4444',
-                  color: '#fff',
-                  fontSize: 11,
-                  fontWeight: 800,
-                  padding: '3px 8px',
-                  borderRadius: 4,
-                  letterSpacing: '0.05em',
-                }}>
+                <span style={{ fontSize: 11, background: '#0284c7', color: '#fff', padding: '2px 8px', borderRadius: 4, fontWeight: 700 }}>
+                  Phòng Internet WebRTC
+                </span>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <button
+                  type="button"
+                  onClick={() => setMeetingMode(m => m === 'internet' ? 'private' : 'internet')}
+                  style={{
+                    fontSize: 11.5,
+                    padding: '4px 10px',
+                    borderRadius: 6,
+                    border: '1px solid rgba(255,255,255,0.2)',
+                    background: 'rgba(255,255,255,0.1)',
+                    color: '#fff',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {meetingMode === 'internet' ? 'Chuyển sang Chế độ Riêng tư' : 'Chuyển sang Jitsi Internet Live'}
+                </button>
+                <span style={{ background: '#ef4444', color: '#fff', fontSize: 11, fontWeight: 800, padding: '3px 8px', borderRadius: 4 }}>
                   TRỰC TUYẾN • {formatTime(sessionSeconds)}
                 </span>
               </div>
+            </div>
 
-              <div style={{ textAlign: 'center', margin: 'auto' }}>
+            {/* Video Body */}
+            <div style={{ flex: 1, position: 'relative', width: '100%', height: '100%' }}>
+              {meetingMode === 'internet' ? (
+                /* NHÚNG PHÒNG HỌP INTERNET JITSI MEET CHUẨN WEBRTC */
+                <iframe
+                  src={jitsiUrl}
+                  title="Internet Video Consultation Room"
+                  allow="camera; microphone; display-capture; autoplay; clipboard-write"
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    border: 'none',
+                    display: 'block'
+                  }}
+                />
+              ) : (
+                /* Chế độ riêng tư âm thanh */
                 <div style={{
-                  width: 76,
-                  height: 76,
-                  borderRadius: '50%',
-                  background: 'linear-gradient(135deg, #0284c7, #0369a1)',
-                  color: '#fff',
-                  fontSize: 28,
-                  fontWeight: 900,
+                  height: '100%',
                   display: 'flex',
+                  flexDirection: 'column',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  margin: '0 auto 10px',
-                  boxShadow: '0 0 24px rgba(2,132,199,0.5)',
+                  color: '#fff',
+                  textAlign: 'center',
+                  padding: 20
                 }}>
-                  {selectedAppt?.studentAnonymousCode?.charAt(0) || 'S'}
+                  <div style={{
+                    width: 80, height: 80, borderRadius: '50%', background: '#0284c7',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 32,
+                    fontWeight: 900, marginBottom: 14, boxShadow: '0 0 24px rgba(2,132,199,0.5)'
+                  }}>
+                    {selectedAppt?.studentAnonymousCode?.charAt(0) || 'S'}
+                  </div>
+                  <h3 style={{ margin: '0 0 6px', fontSize: 18, fontWeight: 800 }}>
+                    Phiên Tham Vấn Âm Thanh Ẩn Danh
+                  </h3>
+                  <p style={{ margin: 0, fontSize: 13, opacity: 0.8, maxWidth: 400 }}>
+                    Kênh thoại bảo mật trực tuyến qua mạng Internet. Danh tính sinh viên được bảo vệ tuyệt đối.
+                  </p>
                 </div>
-                <p style={{ color: 'rgba(255,255,255,0.9)', fontSize: 13, fontWeight: 700, margin: 0 }}>
-                  Đang kết nối phiên tư vấn an toàn 1-1
-                </p>
-              </div>
+              )}
+            </div>
+          </div>
 
-              {/* Controls */}
+          {/* ══════════════ KHUNG NHỎ SỔ TAY LÂM SÀNG (DRAWER/POP-UP GỌN GÀNG THEO YÊU CẦU HÌNH 2) ══════════════ */}
+          {showNotebook && (
+            <div style={{
+              position: 'fixed',
+              top: 80,
+              right: 24,
+              width: 380,
+              maxWidth: '90vw',
+              maxHeight: '85vh',
+              background: '#ffffff',
+              borderRadius: 16,
+              boxShadow: '0 16px 40px rgba(0,0,0,0.25)',
+              border: '2px solid #0284c7',
+              zIndex: 9999,
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+              animation: 'fadeIn 0.2s ease-out'
+            }}>
+              {/* Header khung nhỏ */}
               <div style={{
+                padding: '14px 18px',
+                background: '#f0f9ff',
+                borderBottom: '1px solid #bae6fd',
                 display: 'flex',
-                justifyContent: 'center',
-                alignItems: 'center',
-                gap: 12,
-                background: 'rgba(0,0,0,0.65)',
-                backdropFilter: 'blur(10px)',
-                padding: '8px 16px',
-                borderRadius: 30,
-                margin: '0 auto',
-                border: '1px solid rgba(255,255,255,0.1)',
+                justifyContent: 'space-between',
+                alignItems: 'center'
               }}>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: 14.5, fontWeight: 900, color: '#0369a1', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+                    📋 Sổ Tay &amp; Hồ Sơ Lâm Sàng
+                  </h3>
+                  <span style={{ fontSize: 11, color: '#0284c7', fontWeight: 700 }}>
+                    Lưu bảo mật vào CSDL cho {selectedAppt?.studentAnonymousCode}
+                  </span>
+                </div>
                 <button
                   type="button"
-                  onClick={() => setMicOn(v => !v)}
-                  style={{
-                    background: micOn ? 'rgba(255,255,255,0.15)' : '#ef4444',
-                    color: '#fff', border: 'none', borderRadius: '50%', width: 36, height: 36, cursor: 'pointer',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16
-                  }}
-                  title={micOn ? 'Tắt Mic' : 'Bật Mic'}
+                  onClick={() => setShowNotebook(false)}
+                  style={{ background: 'none', border: 'none', fontSize: 18, color: '#64748b', cursor: 'pointer', padding: 2 }}
                 >
-                  {micOn ? '🎙️' : '🔇'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCamOn(v => !v)}
-                  style={{
-                    background: camOn ? 'rgba(255,255,255,0.15)' : '#ef4444',
-                    color: '#fff', border: 'none', borderRadius: '50%', width: 36, height: 36, cursor: 'pointer',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16
-                  }}
-                  title={camOn ? 'Tắt Cam' : 'Bật Cam'}
-                >
-                  {camOn ? '📹' : '📷'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setScreenSharing(v => !v)}
-                  style={{
-                    background: screenSharing ? '#0284c7' : 'rgba(255,255,255,0.15)',
-                    color: '#fff', border: 'none', borderRadius: '50%', width: 36, height: 36, cursor: 'pointer',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15
-                  }}
-                  title="Chia sẻ màn hình"
-                >
-                  🖥️
+                  ✕
                 </button>
               </div>
-            </div>
 
-            {/* Chat */}
-            <div className="e-card" style={{ padding: 16, display: 'flex', flexDirection: 'column', height: 300 }}>
-              <h3 style={{ fontSize: 13.5, fontWeight: 800, color: 'var(--e-text)', margin: '0 0 10px' }}>
-                💬 Kênh trao đổi trực tiếp ẩn danh
-              </h3>
-              <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10 }}>
-                {messages.map(m => {
-                  const isMe = m.sender === 'expert';
-                  const isSys = m.sender === 'system';
+              {/* Body khung nhỏ */}
+              <div style={{ padding: '16px 18px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                
+                {/* Đánh giá rủi ro */}
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 800, color: '#334155', display: 'block', marginBottom: 4 }}>
+                    Đánh giá mức độ rủi ro &amp; Căng thẳng:
+                  </label>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
+                    {[
+                      { key: 'Low', label: 'Thấp', color: '#16a34a', bg: '#f0fdf4' },
+                      { key: 'Moderate', label: 'Vừa', color: '#d97706', bg: '#fffbeb' },
+                      { key: 'High', label: 'Cao', color: '#ea580c', bg: '#fff7ed' },
+                      { key: 'Crisis', label: 'Khẩn cấp', color: '#dc2626', bg: '#fef2f2' },
+                    ].map(r => (
+                      <button
+                        key={r.key}
+                        type="button"
+                        onClick={() => setRiskAssessment(r.key)}
+                        style={{
+                          padding: '6px 2px',
+                          borderRadius: 6,
+                          border: `1.5px solid ${riskAssessment === r.key ? r.color : '#cbd5e1'}`,
+                          background: riskAssessment === r.key ? r.bg : '#ffffff',
+                          color: riskAssessment === r.key ? r.color : '#64748b',
+                          fontSize: 11,
+                          fontWeight: 800,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {r.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
-                  if (isSys) {
-                    return (
-                      <div key={m.id} style={{ background: 'var(--e-bg-soft)', color: 'var(--e-text-muted)', fontSize: 11.5, padding: '6px 12px', borderRadius: 8, textAlign: 'center' }}>
-                        {m.text}
-                      </div>
-                    );
-                  }
-                  return (
-                    <div
-                      key={m.id}
-                      style={{
-                        alignSelf: isMe ? 'flex-end' : 'flex-start',
-                        maxWidth: '85%',
-                        background: isMe ? '#0284c7' : 'var(--e-surface)',
-                        color: isMe ? '#ffffff' : 'var(--e-text)',
-                        border: isMe ? 'none' : '1px solid var(--e-border)',
-                        borderRadius: isMe ? '12px 12px 2px 12px' : '12px 12px 12px 2px',
-                        padding: '8px 12px',
-                        fontSize: 13,
-                      }}
-                    >
-                      <p style={{ margin: 0 }}>{m.text}</p>
-                      <span style={{ fontSize: 10, opacity: 0.8, display: 'block', textAlign: 'right', marginTop: 2 }}>{m.time}</span>
-                    </div>
-                  );
-                })}
-              </div>
-              <form onSubmit={handleSendMessage} style={{ display: 'flex', gap: 8 }}>
-                <input
-                  type="text"
-                  value={inputText}
-                  onChange={e => setInputText(e.target.value)}
-                  placeholder="Nhập tin nhắn tư vấn..."
-                  style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid var(--e-border)', background: 'var(--e-surface)', color: 'var(--e-text)', fontSize: 13, outline: 'none' }}
-                />
-                <button type="submit" className="e-btn e-btn-primary" style={{ padding: '8px 16px', fontSize: 13, background: '#0284c7' }}>
-                  Gửi
-                </button>
-              </form>
-            </div>
-          </div>
-
-          {/* Right Column: Sổ tay lâm sàng */}
-          <div className="e-card" style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <div>
-              <h2 style={{ fontSize: 16, fontWeight: 900, color: 'var(--e-text)', margin: '0 0 4px' }}>
-                📋 Sổ Tay &amp; Hồ Sơ Lâm Sàng Tham Vấn
-              </h2>
-              <p style={{ fontSize: 12, color: 'var(--e-text-muted)', margin: 0 }}>
-                Ghi chép chuyên môn được lưu trữ bảo mật vào CSDL cho ca hẹn của {selectedAppt?.studentAnonymousCode}
-              </p>
-            </div>
-
-            <div>
-              <label style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--e-text)', display: 'block', marginBottom: 6 }}>
-                Đánh giá mức độ rủi ro &amp; Căng thẳng:
-              </label>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
-                {[
-                  { key: 'Low', label: 'Thấp', color: '#16a34a', bg: '#f0fdf4' },
-                  { key: 'Moderate', label: 'Vừa', color: '#d97706', bg: '#fffbeb' },
-                  { key: 'High', label: 'Cao', color: '#ea580c', bg: '#fff7ed' },
-                  { key: 'Crisis', label: 'Khẩn cấp', color: '#dc2626', bg: '#fef2f2' },
-                ].map(r => (
-                  <button
-                    key={r.key}
-                    type="button"
-                    onClick={() => setRiskAssessment(r.key)}
+                {/* Nhận định buổi tư vấn */}
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 800, color: '#334155', display: 'block', marginBottom: 4 }}>
+                    Nhận định triệu chứng &amp; Ghi chú buổi tư vấn <span style={{ color: '#dc2626' }}>*</span>:
+                  </label>
+                  <textarea
+                    rows={4}
+                    value={clinicalNotes}
+                    onChange={e => setClinicalNotes(e.target.value)}
+                    placeholder="Ghi nhận tóm tắt trạng thái tâm lý, phản hồi của sinh viên..."
                     style={{
-                      padding: '8px 4px',
-                      borderRadius: 8,
-                      border: `1.5px solid ${riskAssessment === r.key ? r.color : 'var(--e-border)'}`,
-                      background: riskAssessment === r.key ? r.bg : 'transparent',
-                      color: riskAssessment === r.key ? r.color : 'var(--e-text-muted)',
-                      fontSize: 12,
-                      fontWeight: 800,
-                      cursor: 'pointer',
+                      width: '100%', padding: '8px 10px', borderRadius: 8,
+                      border: '1px solid #cbd5e1', fontSize: 12.5, fontFamily: "'Manrope', sans-serif",
+                      boxSizing: 'border-box', outline: 'none'
                     }}
+                  />
+                </div>
+
+                {/* Kế hoạch can thiệp */}
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 800, color: '#334155', display: 'block', marginBottom: 4 }}>
+                    Kế hoạch can thiệp &amp; Hẹn tái khám:
+                  </label>
+                  <input
+                    type="text"
+                    value={followUpPlan}
+                    onChange={e => setFollowUpPlan(e.target.value)}
+                    style={{
+                      width: '100%', padding: '7px 10px', borderRadius: 8,
+                      border: '1px solid #cbd5e1', fontSize: 12.5, fontFamily: "'Manrope', sans-serif",
+                      boxSizing: 'border-box', outline: 'none'
+                    }}
+                  />
+                </div>
+
+                {/* Khuyến nghị */}
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 800, color: '#334155', display: 'block', marginBottom: 4 }}>
+                    Khuyến nghị cho sinh viên:
+                  </label>
+                  <input
+                    type="text"
+                    value={prescribedActions}
+                    onChange={e => setPrescribedActions(e.target.value)}
+                    style={{
+                      width: '100%', padding: '7px 10px', borderRadius: 8,
+                      border: '1px solid #cbd5e1', fontSize: 12.5, fontFamily: "'Manrope', sans-serif",
+                      boxSizing: 'border-box', outline: 'none'
+                    }}
+                  />
+                </div>
+
+                {/* Nút lưu */}
+                <div style={{ marginTop: 4, display: 'flex', gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowNotebook(false)}
+                    className="e-btn e-btn-ghost"
+                    style={{ fontSize: 12, padding: '8px 12px', flex: 1 }}
                   >
-                    {r.label}
+                    Thu nhỏ
                   </button>
-                ))}
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={handleEndSession}
+                    className="e-btn e-btn-primary"
+                    style={{ fontSize: 12, padding: '8px 14px', background: '#0284c7', flex: 2 }}
+                  >
+                    {saving ? 'Đang lưu...' : '💾 Lưu & Kết Thúc Ca'}
+                  </button>
+                </div>
               </div>
             </div>
+          )}
 
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-              <label style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--e-text)', display: 'block', marginBottom: 6 }}>
-                Nhận định triệu chứng &amp; Ghi chú buổi tư vấn: <span style={{ color: '#dc2626' }}>*</span>
-              </label>
-              <textarea
-                rows={5}
-                value={clinicalNotes}
-                onChange={e => setClinicalNotes(e.target.value)}
-                placeholder="Ghi nhận tóm tắt: Trạng thái cảm xúc, phản ứng của sinh viên với bài tập thở, mức độ phục hồi..."
-                style={{
-                  width: '100%',
-                  padding: '10px 12px',
-                  borderRadius: 8,
-                  border: '1px solid var(--e-border)',
-                  background: 'var(--e-surface)',
-                  color: 'var(--e-text)',
-                  fontSize: 13,
-                  lineHeight: 1.5,
-                  boxSizing: 'border-box',
-                  resize: 'vertical',
-                  outline: 'none',
-                }}
-              />
-            </div>
-
-            <div>
-              <label style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--e-text)', display: 'block', marginBottom: 6 }}>
-                Kế hoạch can thiệp &amp; Hẹn tái khám:
-              </label>
-              <input
-                type="text"
-                value={followUpPlan}
-                onChange={e => setFollowUpPlan(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  borderRadius: 8,
-                  border: '1px solid var(--e-border)',
-                  background: 'var(--e-surface)',
-                  color: 'var(--e-text)',
-                  fontSize: 12.5,
-                  boxSizing: 'border-box',
-                  outline: 'none',
-                }}
-              />
-            </div>
-
-            <div>
-              <label style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--e-text)', display: 'block', marginBottom: 6 }}>
-                Khuyến nghị cho sinh viên:
-              </label>
-              <input
-                type="text"
-                value={prescribedActions}
-                onChange={e => setPrescribedActions(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  borderRadius: 8,
-                  border: '1px solid var(--e-border)',
-                  background: 'var(--e-surface)',
-                  color: 'var(--e-text)',
-                  fontSize: 12.5,
-                  boxSizing: 'border-box',
-                  outline: 'none',
-                }}
-              />
-            </div>
-
-            <div style={{ paddingTop: 8, borderTop: '1px solid var(--e-border)' }}>
-              <button
-                type="button"
-                onClick={handleEndSession}
-                disabled={saving}
-                className="e-btn e-btn-primary"
-                style={{
-                  width: '100%',
-                  padding: '11px',
-                  fontSize: 14,
-                  fontWeight: 800,
-                  background: '#0284c7',
-                  borderRadius: 8,
-                }}
-              >
-                {saving ? 'Đang lưu hồ sơ lâm sàng...' : '💾 Lưu Sổ Tay & Kết Thúc Phiên Tham Vấn'}
-              </button>
-            </div>
-          </div>
         </div>
       )}
     </div>

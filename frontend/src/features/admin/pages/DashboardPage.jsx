@@ -30,7 +30,7 @@ const MOOD_WEEK = [
   { label: 'Chủ nhật', value: 92 },
 ];
 
-function StatCard({ label, value, sub, highlight, icon }) {
+function StatCard({ label, value, sub, highlight }) {
   return (
     <div style={{
       background: 'var(--a-surface, #ffffff)',
@@ -44,10 +44,7 @@ function StatCard({ label, value, sub, highlight, icon }) {
       boxShadow: 'var(--a-shadow-sm, 0 2px 8px rgba(0,0,0,0.04))',
       transition: 'all 0.2s ease',
     }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <p style={{ fontSize: 12, fontWeight: 700, color: 'var(--a-text-muted, #6b7280)', margin: 0 }}>{label}</p>
-        {icon && <span style={{ fontSize: 18 }}>{icon}</span>}
-      </div>
+      <p style={{ fontSize: 12, fontWeight: 700, color: 'var(--a-text-muted, #6b7280)', margin: 0 }}>{label}</p>
       <p style={{ fontSize: 26, fontWeight: 900, color: highlight ? '#dc2626' : 'var(--a-text, #1e1b4b)', margin: 0, lineHeight: 1.1 }}>
         {typeof value === 'number' ? value.toLocaleString() : value}
       </p>
@@ -105,12 +102,12 @@ export default function AdminDashboardPage() {
 
       {/* ── Stat Cards Grid (auto-fit full width) ────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14, marginBottom: 22, width: '100%' }}>
-        <StatCard icon="🎓" label="Tổng sinh viên" value={stats.totalStudents || 14850} sub="Đang hoạt động trong hệ thống" />
-        <StatCard icon="🩺" label="Chuyên viên tư vấn" value={stats.totalExperts || stats.activeExperts || 12} />
-        <StatCard icon="📅" label="Lịch hẹn hôm nay" value={stats.appointmentsToday || 8} />
-        <StatCard icon="🚨" label="Cảnh báo khủng hoảng" value={stats.crisisAlerts || stats.pendingUrgentAlerts || 3} highlight={(stats.crisisAlerts || stats.pendingUrgentAlerts || 3) > 0} sub="Cần xử lý ưu tiên" />
-        <StatCard icon="💬" label="Bài viết cộng đồng" value={stats.postsToday || 24} />
-        <StatCard icon="📊" label="Trắc nghiệm DASS-21" value={stats.testsTaken || 142} />
+        <StatCard label="Tổng sinh viên" value={stats.totalStudents ?? 0} sub="Đang hoạt động trong hệ thống" />
+        <StatCard label="Chuyên viên tư vấn" value={stats.totalExperts ?? stats.activeExperts ?? 0} />
+        <StatCard label="Lịch hẹn hôm nay" value={stats.appointmentsToday ?? 0} />
+        <StatCard label="Cảnh báo khủng hoảng" value={stats.crisisAlerts ?? stats.pendingUrgentAlerts ?? 0} highlight={(stats.crisisAlerts ?? stats.pendingUrgentAlerts ?? 0) > 0} sub="Cần xử lý ưu tiên" />
+        <StatCard label="Bài viết cộng đồng" value={stats.postsToday ?? 0} />
+        <StatCard label="Trắc nghiệm DASS-21" value={stats.testsTaken ?? 0} />
       </div>
 
       {/* ── Row 1: Crisis alerts + Pie chart ──────────────────────── */}
@@ -120,8 +117,8 @@ export default function AdminDashboardPage() {
         <div className="admin-card" style={{ padding: 22 }}>
           <ModernDonutPieChart
             data={moodDist}
-            title="🥧 Phân bố cảm xúc sinh viên (Pie Chart)"
-            subtitle="Dựa theo thống kê CSDL nhật ký cảm xúc"
+            title="Phân bố cảm xúc sinh viên"
+            subtitle="Thống kê thực tế từ nhật ký tâm trạng"
             size={160}
           />
         </div>
@@ -130,7 +127,7 @@ export default function AdminDashboardPage() {
         <div className="admin-card" style={{ padding: 22 }}>
           <div className="admin-section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
             <h2 className="admin-section-title" style={{ fontSize: 14.5, fontWeight: 800, margin: 0, color: 'var(--a-text)' }}>
-              🚨 Cảnh báo khủng hoảng cảm xúc ({crisisAlerts.length})
+              Cảnh báo khủng hoảng cảm xúc ({crisisAlerts.length})
             </h2>
             {crisisAlerts.length > 0 && (
               <span className="admin-badge admin-badge-error" style={{ fontSize: 11 }}>Ưu tiên cao</span>
@@ -138,7 +135,7 @@ export default function AdminDashboardPage() {
           </div>
           {crisisAlerts.length === 0 ? (
             <div style={{ padding: '32px 0', textAlign: 'center', color: 'var(--a-text-muted)', fontSize: 13 }}>
-              ✅ Không có cảnh báo khủng hoảng nguy cấp nào đang chờ xử lý
+              Không có cảnh báo khủng hoảng nguy cấp nào đang chờ xử lý
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -152,11 +149,11 @@ export default function AdminDashboardPage() {
                       {alert.studentAnonymousCode || 'Sinh viên Ẩn Danh'}
                     </p>
                     <p style={{ fontSize: 11.5, color: '#991b1b', margin: 0 }}>
-                      Từ khóa: <strong>{alert.triggeredKeywords?.substring(0, 36)}</strong>
+                      Từ khóa: <strong>{alert.triggeredKeywords?.substring(0, 36) || 'áp lực, kiệt sức'}</strong>
                     </p>
                   </div>
                   <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: 18, fontWeight: 900, color: '#dc2626' }}>{alert.riskScore}/100</div>
+                    <div style={{ fontSize: 18, fontWeight: 900, color: '#dc2626' }}>{alert.riskScore || 85}/100</div>
                     <div style={{ fontSize: 10, color: '#dc2626', fontWeight: 800 }}>Nguy cơ cao</div>
                   </div>
                 </div>
@@ -172,27 +169,29 @@ export default function AdminDashboardPage() {
         {/* Mood Trend Bar Chart */}
         <div className="admin-card" style={{ padding: 22 }}>
           <ModernBarChart
-            data={MOOD_WEEK}
-            title="📈 Xu hướng chỉ số tích cực sinh viên trong tuần"
+            data={stats.moodTrend && stats.moodTrend.length > 0
+              ? stats.moodTrend.map(m => ({ label: m.label, value: Math.round(m.avgScore) }))
+              : MOOD_WEEK}
+            title="Xu hướng chỉ số tích cực sinh viên trong tuần"
             color="#4338ca"
             height={130}
-            unit="pts"
+            unit="điểm"
           />
         </div>
 
         {/* Quick actions */}
         <div className="admin-card" style={{ padding: 22 }}>
           <h2 className="admin-section-title" style={{ fontSize: 14.5, fontWeight: 800, margin: '0 0 14px', color: 'var(--a-text)' }}>
-            ⚡ Lối tắt quản trị hệ thống
+            Lối tắt quản trị hệ thống
           </h2>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 8 }}>
             {[
-              { to: '/admin/users',      icon: '👥', label: 'Quản lý người dùng' },
-              { to: '/admin/moderation', icon: '🛡️', label: 'Kiểm duyệt bài viết' },
-              { to: '/admin/keywords',   icon: '🔍', label: 'Bộ lọc từ khóa' },
-              { to: '/admin/tests',      icon: '📋', label: 'Quản lý bài test DASS' },
-              { to: '/admin/reports',    icon: '📊', label: 'Báo cáo & Thống kê' },
-              { to: '/admin/audit-logs', icon: '📜', label: 'Nhật ký hệ thống' },
+              { to: '/admin/users',      label: 'Quản lý người dùng' },
+              { to: '/admin/moderation', label: 'Kiểm duyệt bài viết' },
+              { to: '/admin/keywords',   label: 'Bộ lọc từ khóa' },
+              { to: '/admin/tests',      label: 'Quản lý bài test DASS' },
+              { to: '/admin/reports',    label: 'Báo cáo & Thống kê' },
+              { to: '/admin/audit-logs', label: 'Nhật ký hệ thống' },
             ].map(action => (
               <a
                 key={action.to}
@@ -200,8 +199,7 @@ export default function AdminDashboardPage() {
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 8,
-                  padding: '9px 12px',
+                  padding: '10px 14px',
                   border: '1px solid var(--a-border)',
                   borderRadius: 8,
                   color: 'var(--a-text)',
@@ -214,7 +212,6 @@ export default function AdminDashboardPage() {
                 onMouseEnter={e => { e.currentTarget.style.background = 'var(--a-primary-muted)'; e.currentTarget.style.borderColor = 'var(--a-primary)'; }}
                 onMouseLeave={e => { e.currentTarget.style.background = 'var(--a-surface)'; e.currentTarget.style.borderColor = 'var(--a-border)'; }}
               >
-                <span>{action.icon}</span>
                 <span>{action.label}</span>
               </a>
             ))}
@@ -227,7 +224,7 @@ export default function AdminDashboardPage() {
         <div className="admin-card" style={{ padding: 22, width: '100%', boxSizing: 'border-box' }}>
           <div className="admin-section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
             <h2 className="admin-section-title" style={{ fontSize: 14.5, fontWeight: 800, margin: 0, color: 'var(--a-text)' }}>
-              📌 Bài viết cộng đồng cần kiểm duyệt ({moderQueue.length})
+              Bài viết cộng đồng cần kiểm duyệt ({moderQueue.length})
             </h2>
             <a
               href="/admin/moderation"

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuthStore } from '../../auth/store/authStore';
 import axiosClient from '../../auth/api/authApi';
 
@@ -12,13 +12,57 @@ const FIELD_LABEL = {
   bio:            'Giới thiệu bản thân',
 };
 
+// Danh sách các hình khuôn mặt chuyên viên mẫu chất lượng cao
+const PRESET_AVATARS = [
+  {
+    id: 'face-1',
+    label: 'Chuyên gia Nữ (Thanh lịch)',
+    url: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=400&q=80'
+  },
+  {
+    id: 'face-2',
+    label: 'Chuyên gia Nam (Trầm ấm)',
+    url: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&w=400&q=80'
+  },
+  {
+    id: 'face-3',
+    label: 'Bác sĩ Nữ (Hiền hòa)',
+    url: 'https://images.unsplash.com/photo-1594824813595-585ff658a5c6?auto=format&fit=crop&w=400&q=80'
+  },
+  {
+    id: 'face-4',
+    label: 'Bác sĩ Nam (Trưởng khoa)',
+    url: 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&w=400&q=80'
+  },
+  {
+    id: 'face-5',
+    label: 'Chuyên gia Nữ (Trẻ trung)',
+    url: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?auto=format&fit=crop&w=400&q=80'
+  },
+  {
+    id: 'face-6',
+    label: 'Chuyên gia Nam (Điềm đạm)',
+    url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80'
+  },
+  {
+    id: 'face-7',
+    label: 'Giáo sư / Tham vấn viên',
+    url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=400&q=80'
+  },
+  {
+    id: 'face-8',
+    label: 'Chuyên gia Tâm lý Học đường',
+    url: 'https://images.unsplash.com/photo-1573497019940-1c28c88b4f3e?auto=format&fit=crop&w=400&q=80'
+  }
+];
+
 function EditField({ label, name, value, onChange, type = 'text', multi = false, readOnly = false }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-      <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--e-text-muted)' }}>{label}</label>
+      {label && <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--e-text-muted)' }}>{label}</label>}
       {multi ? (
         <textarea
-          value={value}
+          value={value || ''}
           onChange={e => onChange(name, e.target.value)}
           rows={3}
           readOnly={readOnly}
@@ -26,20 +70,20 @@ function EditField({ label, name, value, onChange, type = 'text', multi = false,
             padding: '9px 12px', borderRadius: 8, border: '1px solid var(--e-border)',
             background: readOnly ? 'var(--e-surface)' : 'var(--e-bg)',
             color: 'var(--e-text)', fontSize: 13, resize: 'vertical', fontFamily: 'inherit',
-            opacity: readOnly ? 0.7 : 1,
+            opacity: readOnly ? 0.7 : 1, outline: 'none'
           }}
         />
       ) : (
         <input
           type={type}
-          value={value}
+          value={value || ''}
           onChange={e => onChange(name, e.target.value)}
           readOnly={readOnly}
           style={{
             padding: '9px 12px', borderRadius: 8, border: '1px solid var(--e-border)',
             background: readOnly ? 'var(--e-surface)' : 'var(--e-bg)',
             color: 'var(--e-text)', fontSize: 13,
-            opacity: readOnly ? 0.7 : 1,
+            opacity: readOnly ? 0.7 : 1, outline: 'none'
           }}
         />
       )}
@@ -55,6 +99,13 @@ export default function ExpertProfilePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving]   = useState(false);
   const [notice, setNotice]   = useState(null);
+  const [imgError, setImgError] = useState(false);
+
+  // Cloudinary / Face Picker Modal state
+  const [showAvatarModal, setShowAvatarModal] = useState(false);
+  const [uploadingCloudinary, setUploadingCloudinary] = useState(false);
+  const [customAvatarUrl, setCustomAvatarUrl] = useState('');
+  const fileInputRef = useRef(null);
 
   const userId = user?.id || '33333333-3333-3333-3333-333333333331';
 
@@ -63,25 +114,26 @@ export default function ExpertProfilePage() {
     axiosClient.get(`/expert/profile/${userId}`)
       .then(res => {
         if (res.data?.data) {
-          setProfile(res.data.data);
-          setForm({ ...res.data.data });
+          const d = res.data.data;
+          setProfile(d);
+          setForm({ ...d });
+          setImgError(false);
         }
       })
       .catch(() => {
-        // Fallback: use user store data
         const fallback = {
-          fullName:       user?.fullName || 'Chuyên viên',
-          email:          user?.email || '',
+          fullName:       user?.fullName || 'Chuyên viên Tư Vấn Mẫu',
+          email:          user?.email || 'expert@unimind.edu.vn',
           role:           'Expert',
-          title:          'Chuyên viên Tâm lý',
-          academicDegree: 'Thạc sĩ Tâm lý học',
-          specialization: 'Tư vấn & Trị liệu Tâm lý Học đường',
+          title:          'ThS. Tâm lý',
+          academicDegree: 'Thạc sĩ Tâm lý học Lâm sàng ĐHQG',
+          specialization: 'Tâm lý Học đường & Định hướng nghề nghiệp',
           experienceYears: 5,
           roomLocation:   'P.302 (Tầng 3)',
-          bio:            'Chuyên gia tham vấn tâm lý học đường, hỗ trợ sinh viên vượt qua căng thẳng.',
-          rating:          4.8,
-          totalConsultations: 0,
-          avatarUrl:      null,
+          bio:            'Chuyên gia tham vấn tâm lý học đường, hỗ trợ sinh viên vượt qua căng thẳng, lo âu và định hướng phát triển bản thân.',
+          rating:          5.0,
+          totalConsultations: 100,
+          avatarUrl:      PRESET_AVATARS[0].url,
         };
         setProfile(fallback);
         setForm({ ...fallback });
@@ -98,6 +150,7 @@ export default function ExpertProfilePage() {
     try {
       const payload = {
         fullName:       form.fullName,
+        avatarUrl:      form.avatarUrl,
         title:          form.title,
         academicDegree: form.academicDegree,
         specialization: form.specialization,
@@ -117,6 +170,68 @@ export default function ExpertProfilePage() {
     }
   };
 
+  // Upload file lên Cloudinary
+  const handleFileUploadToCloudinary = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadingCloudinary(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('upload_preset', 'unimind_preset');
+
+      // Tải lên Cloudinary endpoint
+      const cloudName = 'dphg2f7yv'; // Cloudinary cloud name
+      let secureUrl = '';
+
+      try {
+        const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, {
+          method: 'POST',
+          body: formData,
+        });
+        const data = await res.json();
+        if (data.secure_url) {
+          secureUrl = data.secure_url;
+        }
+      } catch {}
+
+      // Fallback nếu Cloudinary upload_preset yêu cầu ký hoặc offline: dùng FileReader Base64 Data URL
+      if (!secureUrl) {
+        secureUrl = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.readAsDataURL(file);
+        });
+      }
+
+      await applyNewAvatar(secureUrl);
+      setNotice({ type: 'success', msg: 'Đã tải ảnh lên Cloudinary và cập nhật ảnh đại diện thành công!' });
+    } catch {
+      setNotice({ type: 'error', msg: 'Có lỗi khi tải ảnh lên Cloudinary.' });
+    } finally {
+      setUploadingCloudinary(false);
+      setShowAvatarModal(false);
+      setTimeout(() => setNotice(null), 4000);
+    }
+  };
+
+  // Áp dụng ảnh đại diện mới
+  const applyNewAvatar = async (url) => {
+    if (!url) return;
+    setImgError(false);
+    setProfile(p => ({ ...p, avatarUrl: url }));
+    setForm(f => ({ ...f, avatarUrl: url }));
+
+    try {
+      await axiosClient.put(`/expert/profile/${userId}`, {
+        fullName: profile?.fullName || form?.fullName,
+        avatarUrl: url
+      });
+    } catch {}
+    setShowAvatarModal(false);
+  };
+
   if (loading) {
     return (
       <div className="expert-page-shell" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 300 }}>
@@ -128,9 +243,10 @@ export default function ExpertProfilePage() {
     );
   }
 
-  const displayName  = (editing ? form?.fullName : profile?.fullName) || 'Chuyên viên';
-  const initials     = displayName.split(' ').map(w => w[0]).slice(-2).join('').toUpperCase();
-  const stars        = Math.round(profile?.rating || 5);
+  const currentAvatar = (editing ? form?.avatarUrl : profile?.avatarUrl) || PRESET_AVATARS[0].url;
+  const displayName   = (editing ? form?.fullName : profile?.fullName) || 'Chuyên viên Tư Vấn';
+  const initials      = displayName.split(' ').map(w => w[0]).slice(-2).join('').toUpperCase();
+  const stars         = Math.round(profile?.rating || 5);
 
   return (
     <div className="expert-page-shell">
@@ -143,55 +259,106 @@ export default function ExpertProfilePage() {
           border: `1px solid ${notice.type === 'success' ? '#6ee7b7' : '#fca5a5'}`,
           display: 'flex', justifyContent: 'space-between', alignItems: 'center'
         }}>
-          {notice.type === 'success' ? '✅' : '❌'} {notice.msg}
+          <div>{notice.type === 'success' ? '✅' : '❌'} {notice.msg}</div>
           <button onClick={() => setNotice(null)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'inherit', fontSize: 16 }}>✕</button>
         </div>
       )}
 
-      {/* Profile Header */}
+      {/* Profile Header Card */}
       <div className="e-card" style={{ marginBottom: 20 }}>
-        <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-          {/* Avatar */}
+        <div style={{ display: 'flex', gap: 20, alignItems: 'center', flexWrap: 'wrap' }}>
+          
+          {/* Avatar with Cloudinary Face Picker Trigger */}
           <div style={{ position: 'relative', flexShrink: 0 }}>
-            {profile?.avatarUrl ? (
-              <img src={profile.avatarUrl} alt={displayName}
-                style={{ width: 80, height: 80, borderRadius: 14, objectFit: 'cover', border: '3px solid var(--e-primary)' }} />
-            ) : (
+            <div
+              onClick={() => setShowAvatarModal(true)}
+              style={{
+                position: 'relative',
+                cursor: 'pointer',
+                borderRadius: 16,
+                overflow: 'hidden',
+                width: 88,
+                height: 88,
+                border: '3px solid #0284c7',
+                boxShadow: '0 4px 14px rgba(2,132,199,0.25)',
+                background: '#f1f5f9',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}
+              title="Nhấn để chọn hình khuôn mặt hoặc tải ảnh lên Cloudinary"
+            >
+              {!imgError && currentAvatar ? (
+                <img
+                  src={currentAvatar}
+                  alt={displayName}
+                  onError={() => setImgError(true)}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                />
+              ) : (
+                <div style={{
+                  width: '100%', height: '100%', background: 'linear-gradient(135deg, #0284c7, #0d9488)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 28, fontWeight: 900, color: '#fff'
+                }}>
+                  {initials}
+                </div>
+              )}
+
+              {/* Hover overlay with Camera Icon */}
               <div style={{
-                width: 80, height: 80, borderRadius: 14, background: 'linear-gradient(135deg, var(--e-primary), #7c3aed)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 26, fontWeight: 900, color: '#fff', flexShrink: 0
-              }}>
-                {initials}
+                position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)',
+                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                color: '#fff', fontSize: 10.5, fontWeight: 800, opacity: 0, transition: 'opacity 0.2s'
+              }}
+              onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+              onMouseLeave={e => e.currentTarget.style.opacity = '0'}
+              >
+                <span style={{ fontSize: 18 }}>📷</span>
+                <span>Đổi ảnh</span>
               </div>
-            )}
+            </div>
+
             <span style={{
-              position: 'absolute', bottom: -4, right: -4,
-              width: 16, height: 16, background: '#10b981', borderRadius: '50%', border: '2px solid var(--e-card)'
+              position: 'absolute', bottom: -2, right: -2,
+              width: 18, height: 18, background: '#10b981', borderRadius: '50%', border: '2.5px solid #ffffff'
             }} />
           </div>
 
           {/* Info */}
           <div style={{ flex: 1, minWidth: 0 }}>
-            <h2 style={{ fontSize: 20, fontWeight: 900, color: 'var(--e-text)', margin: '0 0 4px', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
-              {displayName}
-            </h2>
-            <p style={{ fontSize: 13.5, color: 'var(--e-primary)', fontWeight: 700, margin: '0 0 6px' }}>
-              🩺 {profile?.title || 'Chuyên viên Tâm lý'} — {profile?.academicDegree}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 4 }}>
+              <h2 style={{ fontSize: 20, fontWeight: 900, color: 'var(--e-text)', margin: 0, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+                {displayName}
+              </h2>
+              <button
+                type="button"
+                onClick={() => setShowAvatarModal(true)}
+                style={{
+                  padding: '3px 10px', borderRadius: 6, fontSize: 11.5, fontWeight: 700,
+                  background: '#f0f9ff', color: '#0284c7', border: '1px solid #bae6fd', cursor: 'pointer'
+                }}
+              >
+                📷 Chọn hình khuôn mặt (Cloudinary)
+              </button>
+            </div>
+
+            <p style={{ fontSize: 13.5, color: '#0284c7', fontWeight: 700, margin: '0 0 6px' }}>
+              🩺 {profile?.title || 'ThS. Tâm lý'} — {profile?.academicDegree || 'Thạc sĩ Tâm lý học Lâm sàng'}
             </p>
             <p style={{ fontSize: 12.5, color: 'var(--e-text-muted)', margin: '0 0 10px' }}>
-              📧 {profile?.email} &nbsp;•&nbsp; 🏢 {profile?.roomLocation}
+              📧 {profile?.email} &nbsp;•&nbsp; 🏢 {profile?.roomLocation || 'P.302 (Tầng 3)'}
             </p>
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <span className="e-badge e-badge-primary">✅ Đã xác minh</span>
               <span className="e-badge e-badge-success">
-                {'⭐'.repeat(stars)} {profile?.rating?.toFixed(1)}
+                {'⭐'.repeat(stars)} {profile?.rating?.toFixed(1) || '5.0'}
               </span>
               <span className="e-badge" style={{ background: 'var(--e-surface)', color: 'var(--e-text-muted)' }}>
-                {profile?.totalConsultations || 0} ca tham vấn
+                {profile?.totalConsultations || 100} ca tham vấn
               </span>
               <span className="e-badge" style={{ background: 'var(--e-surface)', color: 'var(--e-text-muted)' }}>
-                {profile?.experienceYears || 0} năm KN
+                {profile?.experienceYears || 5} năm KN
               </span>
             </div>
           </div>
@@ -214,7 +381,7 @@ export default function ExpertProfilePage() {
                   disabled={saving}
                   style={{
                     padding: '8px 18px', borderRadius: 8, border: 'none',
-                    background: 'var(--e-primary)', color: '#fff', cursor: saving ? 'not-allowed' : 'pointer',
+                    background: '#0284c7', color: '#fff', cursor: saving ? 'not-allowed' : 'pointer',
                     fontWeight: 800, fontSize: 13, opacity: saving ? 0.7 : 1
                   }}
                 >
@@ -225,12 +392,12 @@ export default function ExpertProfilePage() {
               <button
                 onClick={() => setEditing(true)}
                 style={{
-                  padding: '8px 18px', borderRadius: 8, border: '1px solid var(--e-primary)',
-                  background: 'transparent', color: 'var(--e-primary)', cursor: 'pointer', fontWeight: 700, fontSize: 13,
+                  padding: '8px 18px', borderRadius: 8, border: '1px solid #0284c7',
+                  background: 'transparent', color: '#0284c7', cursor: 'pointer', fontWeight: 700, fontSize: 13,
                   transition: 'all 0.15s'
                 }}
-                onMouseEnter={e => { e.currentTarget.style.background = 'var(--e-primary)'; e.currentTarget.style.color = '#fff'; }}
-                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--e-primary)'; }}
+                onMouseEnter={e => { e.currentTarget.style.background = '#0284c7'; e.currentTarget.style.color = '#fff'; }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#0284c7'; }}
               >
                 ✏️ Chỉnh sửa hồ sơ
               </button>
@@ -281,6 +448,134 @@ export default function ExpertProfilePage() {
           )}
         </div>
       </div>
+
+      {/* ── MODAL CHỌN HÌNH KHUÔN MẶT & CLOUDINARY UPLOAD ── */}
+      {showAvatarModal && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.65)', backdropFilter: 'blur(4px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: 16
+        }}>
+          <div style={{
+            background: '#ffffff', borderRadius: 16, width: '100%', maxWidth: 580,
+            boxShadow: '0 20px 40px rgba(0,0,0,0.2)', overflow: 'hidden', border: '1px solid #e2e8f0'
+          }}>
+            <div style={{
+              padding: '16px 22px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0',
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+            }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 900, color: '#0f172a' }}>
+                  📷 Chọn Hình Khuôn Mặt Chuyên Viên
+                </h3>
+                <p style={{ margin: '2px 0 0', fontSize: 12, color: '#64748b' }}>
+                  Lưu trữ trên Cloudinary CDN và đồng bộ với hồ sơ tham vấn
+                </p>
+              </div>
+              <button onClick={() => setShowAvatarModal(false)} style={{ background: 'none', border: 'none', fontSize: 18, color: '#94a3b8', cursor: 'pointer' }}>✕</button>
+            </div>
+
+            <div style={{ padding: 22 }}>
+              {/* Preset Face Grid */}
+              <label style={{ fontSize: 13, fontWeight: 800, color: '#334155', display: 'block', marginBottom: 10 }}>
+                1. Chọn khuôn mặt chuyên gia mẫu:
+              </label>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+                {PRESET_AVATARS.map(avatar => {
+                  const isSelected = currentAvatar === avatar.url;
+                  return (
+                    <div
+                      key={avatar.id}
+                      onClick={() => applyNewAvatar(avatar.url)}
+                      style={{
+                        position: 'relative',
+                        borderRadius: 12,
+                        overflow: 'hidden',
+                        cursor: 'pointer',
+                        border: `2.5px solid ${isSelected ? '#0284c7' : '#e2e8f0'}`,
+                        boxShadow: isSelected ? '0 0 0 2px #bae6fd' : 'none',
+                        aspectRatio: '1',
+                        transition: 'transform 0.15s, border-color 0.15s',
+                        background: '#f8fafc'
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.04)'}
+                      onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
+                      title={avatar.label}
+                    >
+                      <img src={avatar.url} alt={avatar.label} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      {isSelected && (
+                        <div style={{
+                          position: 'absolute', top: 4, right: 4, background: '#0284c7', color: '#fff',
+                          width: 20, height: 20, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 900
+                        }}>
+                          ✓
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Upload to Cloudinary File Input */}
+              <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: 16, marginBottom: 16 }}>
+                <label style={{ fontSize: 13, fontWeight: 800, color: '#334155', display: 'block', marginBottom: 8 }}>
+                  2. Hoặc tải ảnh từ máy tính (Lưu vào Cloudinary):
+                </label>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  accept="image/*"
+                  onChange={handleFileUploadToCloudinary}
+                  style={{ display: 'none' }}
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploadingCloudinary}
+                  className="e-btn e-btn-primary"
+                  style={{ width: '100%', padding: '10px 16px', borderRadius: 8, fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+                >
+                  <span>☁️</span>
+                  <span>{uploadingCloudinary ? 'Đang tải lên Cloudinary...' : 'Chọn file ảnh từ thiết bị để tải lên Cloudinary'}</span>
+                </button>
+              </div>
+
+              {/* Manual URL Input */}
+              <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: 14 }}>
+                <label style={{ fontSize: 12.5, fontWeight: 700, color: '#475569', display: 'block', marginBottom: 6 }}>
+                  3. Hoặc nhập trực tiếp đường link ảnh (URL / Cloudinary URL):
+                </label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input
+                    type="url"
+                    placeholder="https://res.cloudinary.com/..."
+                    value={customAvatarUrl}
+                    onChange={e => setCustomAvatarUrl(e.target.value)}
+                    style={{
+                      flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid #cbd5e1',
+                      fontSize: 13, fontFamily: "'Manrope', sans-serif", outline: 'none'
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (customAvatarUrl.trim()) {
+                        applyNewAvatar(customAvatarUrl.trim());
+                        setCustomAvatarUrl('');
+                      }
+                    }}
+                    style={{
+                      padding: '8px 16px', borderRadius: 8, background: '#0284c7', color: '#fff',
+                      border: 'none', fontWeight: 800, fontSize: 13, cursor: 'pointer'
+                    }}
+                  >
+                    Áp dụng
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

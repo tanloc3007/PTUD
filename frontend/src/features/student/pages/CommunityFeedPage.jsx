@@ -83,7 +83,7 @@ function PostCard({ post, onReact, onComment }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 10, borderTop: '1px solid var(--s-border)', flexWrap: 'wrap', gap: 8 }}>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button className="s-btn-reaction" onClick={() => onReact(post.id, 'hug')}>
-            Ôm ({post.hugCount})
+            Thích ({post.hugCount})
           </button>
           <button className="s-btn-reaction" onClick={() => onReact(post.id, 'empathy')}>
             Đồng cảm ({post.empathyCount})

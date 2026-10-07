@@ -125,18 +125,44 @@ export default function TestPage() {
 
   if (step === 'intro') return (
     <div className="student-page-shell">
-      <div style={{ maxWidth: 640, margin: '0 auto', textAlign: 'center', paddingTop: 20 }}>
+      <div style={{ maxWidth: 680, margin: '0 auto', textAlign: 'center', paddingTop: 10 }}>
         
-        <h1 style={{ fontSize: 24, fontWeight: 900, color: 'var(--s-text)', margin: '0 0 10px', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
-          Thang Đo Trắc Nghiệm Tâm Lý DASS-21
-        </h1>
-        <p style={{ fontSize: 14, color: 'var(--s-text-muted)', lineHeight: 1.65, margin: '0 0 24px' }}>
-          Thang đo <strong>Depression Anxiety Stress Scale (DASS-21)</strong> gồm 21 câu hỏi chuẩn hóa quốc tế, 
-          được sử dụng rộng rãi để đánh giá khách quan 3 chỉ số sức khỏe tinh thần trong 1 tuần vừa qua.
-        </p>
+        {/* Banner hình ảnh minh họa trực quan */}
+        <div style={{
+          background: 'linear-gradient(135deg, #0d9488 0%, #042f2e 100%)',
+          borderRadius: 20,
+          padding: '28px 24px',
+          color: '#ffffff',
+          marginBottom: 26,
+          position: 'relative',
+          overflow: 'hidden',
+          boxShadow: '0 10px 30px rgba(13,148,136,0.18)'
+        }}>
+          <div style={{
+            position: 'absolute', right: -20, top: -20, width: 140, height: 140,
+            borderRadius: '50%', background: 'rgba(255,255,255,0.08)', pointerEvents: 'none'
+          }} />
+          <div style={{
+            position: 'absolute', right: 40, bottom: -30, width: 100, height: 100,
+            borderRadius: '50%', background: 'rgba(255,255,255,0.05)', pointerEvents: 'none'
+          }} />
+
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(255,255,255,0.18)', padding: '4px 12px', borderRadius: 20, fontSize: 12, fontWeight: 800, marginBottom: 12 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            </svg>
+            CHUẨN HÓA LÂM SÀNG QUỐC TẾ
+          </div>
+          <h1 style={{ fontSize: 24, fontWeight: 900, color: '#ffffff', margin: '0 0 10px', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+            Đánh Giá Sức Khỏe Tinh Thần DASS-21
+          </h1>
+          <p style={{ fontSize: 13.5, color: 'rgba(255,255,255,0.9)', lineHeight: 1.6, margin: '0 auto', maxWidth: 540 }}>
+            Bộ công cụ trắc nghiệm gồm 21 câu hỏi giúp nhận diện sớm và định lượng khách quan 3 trạng thái cảm xúc của bạn trong tuần qua.
+          </p>
+        </div>
 
         {hasPrevious && result && (
-          <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: '16px 20px', marginBottom: 24, textAlign: 'left' }}>
+          <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 14, padding: '16px 20px', marginBottom: 24, textAlign: 'left' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
               <span style={{ fontSize: 13, fontWeight: 800, color: '#0f766e', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                 Kết quả gần nhất ({result.completedAt.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })})
@@ -147,7 +173,7 @@ export default function TestPage() {
                 style={{ padding: '4px 12px', fontSize: 12 }}
                 onClick={() => setStep('result')}
               >
-                Xem chi tiết
+                Xem chi tiết kết quả
               </button>
             </div>
             <div style={{ display: 'flex', gap: 16, fontSize: 13, color: '#334155' }}>
@@ -158,28 +184,86 @@ export default function TestPage() {
           </div>
         )}
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 26 }}>
+        {/* 3 Thẻ đánh giá tâm lý */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 26 }}>
           {[
-            { tag: 'Depression', label: 'Trầm cảm', desc: 'Đánh giá mức độ mất hứng thú, buồn bã và vô vọng' },
-            { tag: 'Anxiety',    label: 'Lo âu',    desc: 'Đánh giá phản ứng cơ thể, hồi hộp và cảm giác bất an' },
-            { tag: 'Stress',     label: 'Căng thẳng', desc: 'Đánh giá mức độ quá tải, dễ kích động và khó thư giãn' },
+            {
+              label: 'Trầm cảm',
+              desc: 'Đánh giá mức độ mất hứng thú, buồn bã và cảm giác vô vọng',
+              color: '#3b82f6',
+              bg: '#eff6ff',
+              icon: (
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="M8 15s1.5-2 4-2 4 2 4 2" />
+                  <line x1="9" y1="9" x2="9.01" y2="9" />
+                  <line x1="15" y1="9" x2="15.01" y2="9" />
+                </svg>
+              )
+            },
+            {
+              label: 'Lo âu',
+              desc: 'Đánh giá phản ứng cơ thể, hồi hộp và cảm giác bất an',
+              color: '#f59e0b',
+              bg: '#fffbeb',
+              icon: (
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+                </svg>
+              )
+            },
+            {
+              label: 'Căng thẳng',
+              desc: 'Đánh giá mức độ quá tải, dễ kích động và khó thư giãn',
+              color: '#ef4444',
+              bg: '#fef2f2',
+              icon: (
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+                </svg>
+              )
+            },
           ].map(c => (
-            <div key={c.label} style={{ background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: 12, padding: '16px 14px', textAlign: 'left' }}>
-              <span style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#0f766e', display: 'block', marginBottom: 6 }}>
-                {c.tag}
-              </span>
-              <p style={{ fontSize: 14, fontWeight: 800, color: '#111827', margin: '0 0 6px' }}>{c.label}</p>
-              <p style={{ fontSize: 12, color: '#6b7280', margin: 0, lineHeight: 1.4 }}>{c.desc}</p>
+            <div
+              key={c.label}
+              style={{
+                background: '#ffffff',
+                border: '1px solid #e2e8f0',
+                borderRadius: 16,
+                padding: '22px 18px',
+                textAlign: 'left',
+                boxShadow: '0 4px 14px rgba(0,0,0,0.03)',
+                display: 'flex',
+                flexDirection: 'column',
+                transition: 'transform 0.2s, box-shadow 0.2s'
+              }}
+            >
+              <div style={{ width: 44, height: 44, borderRadius: 12, background: c.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 14 }}>
+                {c.icon}
+              </div>
+              <p style={{ fontSize: 16, fontWeight: 900, color: '#111827', margin: '0 0 6px', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{c.label}</p>
+              <p style={{ fontSize: 12.5, color: '#64748b', margin: 0, lineHeight: 1.5 }}>{c.desc}</p>
             </div>
           ))}
         </div>
 
-        <p style={{ fontSize: 12.5, color: '#64748b', marginBottom: 24 }}>
-          Thời gian làm bài: 5-7 phút • Dữ liệu mã hóa và bảo mật hoàn toàn
-        </p>
+        {/* Khung hướng dẫn bảo mật & thời gian */}
+        <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 12, padding: '12px 18px', marginBottom: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2">
+            <circle cx="12" cy="12" r="10" />
+            <polyline points="12 6 12 12 16 14" />
+          </svg>
+          <span style={{ fontSize: 13, color: '#166534', fontWeight: 600 }}>
+            Thời gian hoàn thành: <strong>5 - 7 phút</strong> • Dữ liệu được mã hóa bảo mật tuyệt đối
+          </span>
+        </div>
 
-        <button className="s-btn s-btn-primary" style={{ fontSize: 14, padding: '10px 24px' }} onClick={() => setStep('quiz')}>
-          {hasPrevious ? 'Làm lại trắc nghiệm' : 'Bắt đầu làm bài'}
+        <button
+          className="s-btn s-btn-primary"
+          style={{ fontSize: 15, padding: '12px 32px', borderRadius: 10, boxShadow: '0 4px 14px rgba(13,148,136,0.3)' }}
+          onClick={() => setStep('quiz')}
+        >
+          {hasPrevious ? 'Làm lại bài trắc nghiệm' : 'Bắt đầu làm bài trắc nghiệm'}
         </button>
       </div>
     </div>
@@ -200,7 +284,7 @@ export default function TestPage() {
 
         <div style={{ textAlign: 'center', marginBottom: 24 }}>
           <h1 style={{ fontSize: 22, fontWeight: 900, color: 'var(--s-text)', margin: '0 0 6px', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
-            Kết Quả Trắc Nghiệm DASS-21
+            Kết Quả Trắc Nghiệm Tâm Lý DASS-21
           </h1>
           <p style={{ fontSize: 13, color: 'var(--s-text-muted)', margin: 0 }}>
             Thời điểm thực hiện: {result.completedAt.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
@@ -208,9 +292,9 @@ export default function TestPage() {
         </div>
 
         {[
-          { key: 'depression', label: 'Trầm cảm (Depression)' },
-          { key: 'anxiety',    label: 'Lo âu (Anxiety)' },
-          { key: 'stress',     label: 'Căng thẳng (Stress)' },
+          { key: 'depression', label: 'Chỉ số Trầm cảm' },
+          { key: 'anxiety',    label: 'Chỉ số Lo âu' },
+          { key: 'stress',     label: 'Chỉ số Căng thẳng' },
         ].map(r => {
           const d = result[r.key];
           return (
@@ -326,7 +410,7 @@ export default function TestPage() {
             onClick={handleSubmit}
             style={{ opacity: answered < 21 ? 0.6 : 1 }}
           >
-            Xem kết quả ({answered}/21)
+            Nộp kết quả ({answered}/21)
           </button>
         </div>
       </div>
