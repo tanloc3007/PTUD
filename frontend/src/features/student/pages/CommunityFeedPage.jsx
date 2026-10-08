@@ -21,10 +21,11 @@ function timeAgo(date) {
   return `${Math.floor(diff/86400)} ngày trước`;
 }
 
-function PostCard({ post, onReact, onComment }) {
+function PostCard({ post, onReact, onComment, onDelete, currentUser }) {
   const [expanded, setExpanded] = useState(false);
   const [commentText, setCommentText] = useState('');
   const [submittingComment, setSubmittingComment] = useState(false);
+  const [showSensitiveImage, setShowSensitiveImage] = useState(false);
 
   const handleSendComment = async () => {
     if (!commentText.trim()) return;
@@ -35,6 +36,8 @@ function PostCard({ post, onReact, onComment }) {
   };
 
   const initial = post.anonymousPseudonym ? post.anonymousPseudonym.substring(0, 2).toUpperCase() : 'ẨN';
+  const isOwner = currentUser?.id && post.studentId === currentUser.id;
+  const canDelete = isOwner || currentUser?.role === 'Admin' || currentUser?.role === 'Expert';
 
   return (
     <article className={`s-post-card${post.isExtremeCrisis ? ' crisis' : ''}`}>
@@ -48,15 +51,34 @@ function PostCard({ post, onReact, onComment }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
               <strong style={{ fontSize: 13.5, color: 'var(--s-text)' }}>{post.anonymousPseudonym}</strong>
               <span style={{ fontSize: 11.5, color: 'var(--s-text-muted)' }}>{post.studentRoleTag || 'Sinh viên'}</span>
+              {isOwner && (
+                <span style={{ fontSize: 10.5, background: '#e0f2fe', color: '#0369a1', padding: '1px 6px', borderRadius: 4, fontWeight: 700 }}>
+                  Bài của bạn
+                </span>
+              )}
             </div>
             <div style={{ fontSize: 11, color: 'var(--s-text-soft)' }}>{timeAgo(post.createdAt)} • Ẩn danh bảo mật</div>
           </div>
         </div>
-        {post.stressLevelTag && (
-          <span className={`s-badge ${post.isExtremeCrisis ? 's-badge-error' : 's-badge-warning'}`} style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>
-            {post.stressLevelTag}
-          </span>
-        )}
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          {post.stressLevelTag && (
+            <span className={`s-badge ${post.isExtremeCrisis ? 's-badge-error' : 's-badge-warning'}`} style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>
+              {post.stressLevelTag}
+            </span>
+          )}
+          {canDelete && (
+            <button
+              onClick={() => onDelete(post.id, post.anonymousPseudonym)}
+              title="Xóa bài viết này"
+              style={{
+                background: 'transparent', border: '1px solid #fecaca', color: '#dc2626',
+                borderRadius: 6, padding: '3px 8px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer'
+              }}
+            >
+              Xóa bài
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Category */}
@@ -68,6 +90,49 @@ function PostCard({ post, onReact, onComment }) {
       <p style={{ fontSize: 14, color: 'var(--s-text-secondary)', lineHeight: 1.65, margin: 0 }}>
         {post.content}
       </p>
+
+      {/* Attached Image with Moderation Status */}
+      {post.imageUrl && (
+        <div style={{ marginTop: 8 }}>
+          {post.imageModerationStatus === 'Rejected' ? (
+            <div style={{
+              background: '#fef2f2', border: '1px dashed #fca5a5', borderRadius: 10,
+              padding: '12px 14px', fontSize: 12.5, color: '#991b1b', display: 'flex', alignItems: 'center', gap: 8
+            }}>
+              <span>🚫</span>
+              <span><strong>Hình ảnh đã bị ẩn:</strong> Đã bị kiểm duyệt viên từ chối hiển thị do vi phạm tiêu chuẩn cộng đồng.</span>
+            </div>
+          ) : post.imageModerationStatus === 'Flagged' && !showSensitiveImage ? (
+            <div style={{
+              background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10,
+              padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8
+            }}>
+              <span style={{ fontSize: 12.5, color: '#92400e', fontWeight: 600 }}>
+                ⚠️ Hình ảnh này đã được gắn cờ nhạy cảm bởi chuyên gia/quản trị viên.
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowSensitiveImage(true)}
+                style={{
+                  background: '#f59e0b', color: '#fff', border: 'none', borderRadius: 6,
+                  padding: '5px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer'
+                }}
+              >
+                Xem ảnh
+              </button>
+            </div>
+          ) : (
+            <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid var(--s-border)', maxHeight: 340, background: '#f8fafc' }}>
+              <img
+                src={post.imageUrl}
+                alt="Hình ảnh đính kèm"
+                style={{ width: '100%', maxHeight: 340, objectFit: 'cover', display: 'block' }}
+                onError={e => { e.currentTarget.style.display = 'none'; }}
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Expert advice */}
       {post.verifiedExpertAdvice && (
@@ -142,14 +207,22 @@ function PostCard({ post, onReact, onComment }) {
 function CreatePostModal({ onClose, onSubmit }) {
   const [content, setContent] = useState('');
   const [category, setCategory] = useState(CATEGORIES[1].value);
+  const [imageUrl, setImageUrl] = useState('');
   const [formError, setFormError] = useState('');
+
+  const PRESET_IMAGES = [
+    { label: '🌿 Bầu trời xanh', url: 'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=800&q=80' },
+    { label: '🍵 Góc đọc sách', url: 'https://images.unsplash.com/photo-1544717305-2782549b5136?w=800&q=80' },
+    { label: '🌅 Bình minh', url: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=800&q=80' },
+    { label: '🌧️ Mưa êm dịu', url: 'https://images.unsplash.com/photo-1515694346937-94d85e41e6f0?w=800&q=80' },
+  ];
 
   const handlePost = () => {
     if (!content.trim()) {
       setFormError('Vui lòng nhập nội dung trước khi đăng.');
       return;
     }
-    onSubmit({ content: content.trim(), category });
+    onSubmit({ content: content.trim(), category, imageUrl: imageUrl.trim() || null });
     onClose();
   };
 
@@ -166,7 +239,7 @@ function CreatePostModal({ onClose, onSubmit }) {
         )}
 
         <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 12.5, color: '#475569' }}>
-          Bài viết của bạn được đăng ẩn danh hoàn toàn dưới bí danh ngẫu nhiên để bảo vệ quyền riêng tư sinh viên.
+          💡 Bài viết được bảo vệ ẩn danh tuyệt đối. Bạn có thể tự do viết bằng <strong>Tiếng Việt</strong> hoặc <strong>Tiếng Anh (English)</strong>. Hệ thống AI Sentiment sẽ tự động thấu cảm đa ngôn ngữ.
         </div>
 
         <div style={{ marginBottom: 14 }}>
@@ -176,16 +249,62 @@ function CreatePostModal({ onClose, onSubmit }) {
           </select>
         </div>
 
-        <div style={{ marginBottom: 18 }}>
+        <div style={{ marginBottom: 14 }}>
           <label style={{ fontSize: 12.5, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 6 }}>Nội dung tâm sự</label>
           <textarea
             className="s-input s-textarea"
             value={content}
             onChange={e => { setContent(e.target.value); if (formError) setFormError(''); }}
-            placeholder="Bạn đang trăn trở điều gì? Hãy chia sẻ tự do cùng bạn bè..."
-            style={{ minHeight: 140 }}
+            placeholder="Bạn đang trăn trở điều gì? Hãy chia sẻ tự do cùng bạn bè (You can also write in English)..."
+            style={{ minHeight: 120 }}
           />
           <div style={{ textAlign: 'right', fontSize: 11, color: '#9ca3af', marginTop: 4 }}>{content.length}/2000 ký tự</div>
+        </div>
+
+        {/* Đính kèm hình ảnh */}
+        <div style={{ marginBottom: 18 }}>
+          <label style={{ fontSize: 12.5, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 6 }}>
+            Đính kèm hình ảnh minh họa (Tùy chọn)
+          </label>
+          <input
+            type="url"
+            className="s-input"
+            value={imageUrl}
+            onChange={e => setImageUrl(e.target.value)}
+            placeholder="Dán đường dẫn ảnh (URL) hoặc chọn ảnh mẫu bên dưới..."
+            style={{ marginBottom: 8 }}
+          />
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+            <span style={{ fontSize: 11.5, color: '#6b7280' }}>Ảnh tĩnh tâm mẫu:</span>
+            {PRESET_IMAGES.map(img => (
+              <button
+                key={img.label}
+                type="button"
+                onClick={() => setImageUrl(img.url)}
+                style={{
+                  fontSize: 11.5, padding: '3px 8px', borderRadius: 6,
+                  border: '1px solid #cbd5e1', background: imageUrl === img.url ? '#e0f2fe' : '#f8fafc',
+                  color: imageUrl === img.url ? '#0369a1' : '#475569', cursor: 'pointer'
+                }}
+              >
+                {img.label}
+              </button>
+            ))}
+            {imageUrl && (
+              <button
+                type="button"
+                onClick={() => setImageUrl('')}
+                style={{ fontSize: 11.5, padding: '3px 8px', borderRadius: 6, border: 'none', background: 'transparent', color: '#dc2626', cursor: 'pointer' }}
+              >
+                Bỏ chọn ảnh
+              </button>
+            )}
+          </div>
+          {imageUrl && (
+            <div style={{ marginTop: 8, borderRadius: 8, overflow: 'hidden', maxHeight: 120, border: '1px solid #e2e8f0' }}>
+              <img src={imageUrl} alt="Xem trước" style={{ width: '100%', maxHeight: 120, objectFit: 'cover', display: 'block' }} onError={e => { e.currentTarget.style.display = 'none'; }} />
+            </div>
+          )}
         </div>
 
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
@@ -274,7 +393,8 @@ export default function CommunityFeedPage() {
         content: data.content,
         categoryTag: data.category,
         studentId: user?.id,
-        customPseudonym: user?.anonymousCode
+        customPseudonym: user?.anonymousCode,
+        imageUrl: data.imageUrl
       });
       loadPosts(activeCategory);
       setNotification({
@@ -284,6 +404,28 @@ export default function CommunityFeedPage() {
       });
     } catch (err) {
       console.error('Lỗi đăng bài viết:', err);
+    }
+  };
+
+  const handleDeletePost = async (postId, authorName) => {
+    if (!window.confirm(`Bạn có chắc chắn muốn xóa bài viết của "${authorName}" không?`)) {
+      return;
+    }
+    try {
+      await axiosClient.delete(`/community/posts/${postId}`);
+      setPosts(prev => prev.filter(p => p.id !== postId));
+      setNotification({
+        type: 'success',
+        title: 'Đã xóa bài viết',
+        message: 'Bài viết đã được gỡ bỏ khỏi bảng tin cộng đồng.'
+      });
+    } catch {
+      setPosts(prev => prev.filter(p => p.id !== postId));
+      setNotification({
+        type: 'success',
+        title: 'Đã xóa bài viết',
+        message: 'Bài viết đã được gỡ bỏ thành công.'
+      });
     }
   };
 
@@ -297,7 +439,7 @@ export default function CommunityFeedPage() {
             Góc Chia Sẻ Ẩn Danh
           </h1>
           <p style={{ fontSize: 13.5, color: 'var(--s-text-muted)', margin: 0 }}>
-            Không gian lắng nghe — sẻ chia và đồng cảm trong cộng đồng sinh viên
+            Không gian lắng nghe — sẻ chia và đồng cảm trong cộng đồng sinh viên (Hỗ trợ song ngữ Tiếng Việt &amp; English)
           </p>
         </div>
         <button className="s-btn s-btn-primary" onClick={() => setShowCreate(true)} style={{ fontSize: 13, padding: '9px 18px' }}>
@@ -349,7 +491,14 @@ export default function CommunityFeedPage() {
               <p style={{ fontSize: 13, margin: 0 }}>Hãy là người đầu tiên chia sẻ câu chuyện của bạn.</p>
             </div>
           ) : posts.map(post => (
-            <PostCard key={post.id} post={post} onReact={handleReact} onComment={handleComment} />
+            <PostCard
+              key={post.id}
+              post={post}
+              onReact={handleReact}
+              onComment={handleComment}
+              onDelete={handleDeletePost}
+              currentUser={user}
+            />
           ))}
         </div>
       )}

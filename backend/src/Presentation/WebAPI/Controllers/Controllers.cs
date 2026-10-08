@@ -298,6 +298,33 @@ public class CommunityController : ControllerBase
         var result = await expertService.GetTriageAlertsAsync();
         return Ok(result);
     }
+
+    /// <summary>
+    /// Xóa bài viết chia sẻ (Chỉ cho phép tác giả bài viết hoặc Chuyên viên/Admin)
+    /// </summary>
+    [HttpDelete("posts/{postId:guid}")]
+    public async Task<ActionResult<Result>> DeletePost(Guid postId, [FromQuery] Guid? studentId = null, [FromQuery] bool isStaff = false)
+    {
+        var targetUserId = studentId ?? Request.GetUserIdFromRequest() ?? Guid.Parse("22222222-2222-2222-2222-222222222221");
+        var result = await _communityService.DeletePostAsync(postId, targetUserId, isStaff);
+        if (!result.Success && result.ErrorCode == "FORBIDDEN")
+            return StatusCode(403, result);
+        if (!result.Success && result.ErrorCode == "POST_NOT_FOUND")
+            return NotFound(result);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Kiểm duyệt hình ảnh bài viết (Chuyên viên hoặc Admin duyệt / từ chối / gắn cờ ảnh)
+    /// </summary>
+    [HttpPatch("posts/{postId:guid}/moderate-image")]
+    public async Task<ActionResult<Result<PostDto>>> ModerateImage(Guid postId, [FromBody] ModerateImageRequest request, [FromQuery] Guid? moderatorId = null)
+    {
+        var targetModId = moderatorId ?? Request.GetUserIdFromRequest() ?? Guid.Parse("33333333-3333-3333-3333-333333333331");
+        var result = await _communityService.ModeratePostImageAsync(postId, request, targetModId);
+        if (!result.Success) return NotFound(result);
+        return Ok(result);
+    }
 }
 
 [ApiController]
@@ -440,6 +467,16 @@ public class ExpertController : ControllerBase
     public async Task<ActionResult<Result<DashboardStatsDto>>> GetOverview(Guid expertId)
     {
         var result = await _expertService.GetWorkspaceOverviewAsync(expertId);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Đánh giá nhu cầu tư vấn tâm lý của người dùng / sinh viên (DASS-21, chuỗi cảm xúc, rủi ro)
+    /// </summary>
+    [HttpGet("consultation-assessments")]
+    public async Task<ActionResult<Result<List<StudentConsultationAssessmentDto>>>> GetConsultationAssessments()
+    {
+        var result = await _expertService.GetConsultationAssessmentsAsync();
         return Ok(result);
     }
 

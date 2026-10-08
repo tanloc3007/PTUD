@@ -47,3 +47,19 @@ public enum TriageLevel
     Moderate,
     Low
 }
+
+public enum ImageModerationStatus
+{
+    None,
+    Pending,
+    Approved,
+    Flagged,
+    Rejected
+}
+
+public enum ConsultationNeedLevel
+{
+    Stable,       // Bình thường, tự cân bằng tốt
+    Recommended,  // Khuyến nghị tham vấn (Moderate distress)
+    Urgent        // Cần can thiệp tư vấn khẩn cấp (Severe / Crisis)
+}

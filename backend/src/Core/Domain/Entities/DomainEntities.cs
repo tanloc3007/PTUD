@@ -135,6 +135,10 @@ public class TestResult
     public int? DepressionScore { get; set; }
     public int? AnxietyScore { get; set; }
     public int? StressScore { get; set; }
+    public string? DepressionSeverity { get; set; } // Normal, Mild, Moderate, Severe, ExtremelySevere
+    public string? AnxietySeverity { get; set; }
+    public string? StressSeverity { get; set; }
+    public bool NeedsConsultation { get; set; }
     public int ResilienceRate { get; set; } = 50;
     public string SeverityLevel { get; set; } = "Normal";
     public string? AiInterpretation { get; set; }
@@ -161,6 +165,9 @@ public class CommunityPost
     public string AnonymousPseudonym { get; set; } = string.Empty;
     public string StudentRoleTag { get; set; } = "Sinh viên";
     public string Content { get; set; } = string.Empty;
+    public string? ImageUrl { get; set; }
+    public string ImageModerationStatus { get; set; } = "None"; // None, Pending, Approved, Flagged, Rejected
+    public string? ImageModerationNote { get; set; }
     public string CategoryTag { get; set; } = "Áp lực học tập";
     public string? StressLevelTag { get; set; }
     public bool HasKeywordsAlert { get; set; }

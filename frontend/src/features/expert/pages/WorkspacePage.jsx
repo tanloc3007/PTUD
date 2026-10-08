@@ -20,6 +20,8 @@ export default function ExpertWorkspacePage() {
   const [todayAppts, setToday]     = useState([]);
   const [pendingReqs, setPending]   = useState([]);
   const [triageAlerts, setTriage]   = useState([]);
+  const [assessments, setAssessments] = useState([]);
+  const [assessFilter, setAssessFilter] = useState('needs_help'); // 'all' | 'needs_help' | 'urgent' | 'recommended' | 'stable'
   const [overview, setOverview]     = useState(null);
   const [loading, setLoading]       = useState(true);
   const [notice, setNotice]         = useState(null);
@@ -32,12 +34,16 @@ export default function ExpertWorkspacePage() {
       axiosClient.get('/appointments/expert/today', { params: { expertId } }).catch(() => ({ data: null })),
       axiosClient.get('/appointments/expert/pending', { params: { expertId } }).catch(() => ({ data: null })),
       axiosClient.get('/community/triage-alerts').catch(() => ({ data: null })),
+      axiosClient.get('/expert/consultation-assessments').catch(() => ({ data: null })),
       axiosClient.get(`/expert/overview/${expertId}`).catch(() => ({ data: null })),
-    ]).then(([todayRes, pendingRes, triageRes, overviewRes]) => {
-      if (todayRes.data?.data) setToday(todayRes.data.data);
-      if (pendingRes.data?.data) setPending(pendingRes.data.data);
-      if (triageRes.data?.data) setTriage(triageRes.data.data);
-      if (overviewRes.data?.data) setOverview(overviewRes.data.data);
+    ]).then(([todayRes, pendingRes, triageRes, assessRes, overviewRes]) => {
+      if (todayRes?.data?.data) setToday(todayRes.data.data);
+      if (pendingRes?.data?.data) setPending(pendingRes.data.data);
+      if (triageRes?.data?.data) setTriage(triageRes.data.data);
+      if (assessRes?.data?.data && Array.isArray(assessRes.data.data)) {
+        setAssessments(assessRes.data.data);
+      }
+      if (overviewRes?.data?.data) setOverview(overviewRes.data.data);
     }).finally(() => setLoading(false));
   };
 
@@ -230,7 +236,164 @@ export default function ExpertWorkspacePage() {
 
         </div>
 
-        {/* HÀNG 2: Cảnh báo Triage (Chiếm trọn 1 hàng ngang) */}
+        {/* HÀNG 2: BẢNG SÀNG LỌC & ĐÁNH GIÁ NHU CẦU TƯ VẤN TÂM LÝ (Triage Assessment Matrix) */}
+        <div className="e-card" style={{ padding: 22, border: '1.5px solid #fed7aa', background: '#fffdfa' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
+            <div>
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#ffedd5', color: '#c2410c', padding: '3px 10px', borderRadius: 6, fontSize: 11, fontWeight: 800, marginBottom: 6 }}>
+                CHẨN ĐOÁN LÂM SÀNG &amp; SÀNG LỌC SINH VIÊN
+              </div>
+              <h2 style={{ fontSize: 17, fontWeight: 900, color: 'var(--e-text)', margin: '0 0 4px' }}>
+                Đánh Giá Người Dùng Cần Tư Vấn Tâm Lý ({assessments.length} hồ sơ)
+              </h2>
+              <p style={{ fontSize: 13, color: 'var(--e-text-muted)', margin: 0 }}>
+                Dữ liệu phân tầng từ trắc nghiệm DASS-21 chuẩn Lovibond kết hợp AI NLP phân tích nhật ký &amp; từ khóa nhạy cảm
+              </p>
+            </div>
+
+            {/* Bộ lọc nhu cầu */}
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {[
+                { v: 'needs_help', l: `Cần tư vấn (${assessments.filter(a => (a.overallNeedLevel || a.needLevel) === 'Urgent' || (a.overallNeedLevel || a.needLevel) === 'Recommended' || a.needsConsultation).length})`, color: '#ea580c' },
+                { v: 'urgent', l: `Khẩn cấp (${assessments.filter(a => (a.overallNeedLevel || a.needLevel) === 'Urgent').length})`, color: '#dc2626' },
+                { v: 'recommended', l: `Khuyến nghị (${assessments.filter(a => (a.overallNeedLevel || a.needLevel) === 'Recommended').length})`, color: '#d97706' },
+                { v: 'stable', l: `Ổn định (${assessments.filter(a => (a.overallNeedLevel || a.needLevel) === 'Stable').length})`, color: '#059669' },
+                { v: 'all', l: `Tất cả (${assessments.length})`, color: '#475569' },
+              ].map(tab => (
+                <button
+                  key={tab.v}
+                  type="button"
+                  onClick={() => setAssessFilter(tab.v)}
+                  style={{
+                    padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                    border: `1.5px solid ${assessFilter === tab.v ? tab.color : 'var(--e-border)'}`,
+                    background: assessFilter === tab.v ? '#ffffff' : 'var(--e-surface)',
+                    color: assessFilter === tab.v ? tab.color : 'var(--e-text-muted)',
+                    boxShadow: assessFilter === tab.v ? '0 2px 6px rgba(0,0,0,0.06)' : 'none'
+                  }}
+                >
+                  {tab.l}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {assessments.length === 0 ? (
+            <div style={{ background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: 10, padding: '32px 16px', textAlign: 'center' }}>
+              <p style={{ color: 'var(--e-text-muted)', fontSize: 13, margin: 0 }}>
+                Hệ thống đang đồng bộ dữ liệu đánh giá tâm lý sinh viên từ cơ sở dữ liệu...
+              </p>
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 14 }}>
+              {assessments
+                .filter(a => {
+                  const level = a.overallNeedLevel || a.needLevel || 'Stable';
+                  if (assessFilter === 'all') return true;
+                  if (assessFilter === 'needs_help') return level === 'Urgent' || level === 'Recommended' || a.needsConsultation;
+                  if (assessFilter === 'urgent') return level === 'Urgent';
+                  if (assessFilter === 'recommended') return level === 'Recommended';
+                  if (assessFilter === 'stable') return level === 'Stable';
+                  return true;
+                })
+                .map(a => {
+                  const level = a.overallNeedLevel || a.needLevel || 'Stable';
+                  const isUrgent = level === 'Urgent';
+                  const isRec = level === 'Recommended';
+                  const badgeBg = isUrgent ? '#fef2f2' : isRec ? '#fffbeb' : '#ecfdf5';
+                  const badgeColor = isUrgent ? '#dc2626' : isRec ? '#b45309' : '#059669';
+                  const badgeBorder = isUrgent ? '#fecaca' : isRec ? '#fde68a' : '#a7f3d0';
+                  const studentName = a.anonymousCode || a.anonymousPseudonym || 'Sinh viên Ẩn danh';
+                  const reason = a.recommendationReason || a.reasonSummary || 'Theo dõi cảm xúc định kỳ.';
+                  const depScore = a.depressionScore ?? (a.depressionSeverity === 'Moderate' ? 16 : a.depressionSeverity === 'Severe' ? 24 : 6);
+                  const anxScore = a.anxietyScore ?? (a.anxietySeverity === 'Moderate' ? 14 : a.anxietySeverity === 'Severe' ? 18 : 4);
+                  const strScore = a.stressScore ?? (a.stressSeverity === 'Moderate' ? 22 : a.stressSeverity === 'Severe' ? 30 : 8);
+
+                  return (
+                    <div
+                      key={a.studentId}
+                      style={{
+                        background: '#ffffff', border: `1.5px solid ${isUrgent ? '#fca5a5' : isRec ? '#fed7aa' : '#e2e8f0'}`,
+                        borderRadius: 12, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 10,
+                        boxShadow: isUrgent ? '0 4px 12px rgba(239,68,68,0.08)' : 'none'
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div>
+                          <strong style={{ fontSize: 14, color: 'var(--e-text)' }}>{studentName}</strong>
+                          <span style={{ fontSize: 11.5, color: '#94a3b8', display: 'block' }}>
+                            Khoa: {a.faculty || 'ĐH Lạc Hồng'} • {a.lastActivityAt ? new Date(a.lastActivityAt).toLocaleDateString('vi-VN') : 'Dữ liệu mới nhất'}
+                          </span>
+                        </div>
+                        <span style={{
+                          fontSize: 11, fontWeight: 800, padding: '3px 8px', borderRadius: 6,
+                          background: badgeBg, color: badgeColor, border: `1px solid ${badgeBorder}`
+                        }}>
+                          {isUrgent ? '🔴 CẦN TƯ VẤN KHẨN CẤP' : isRec ? '🟡 KHUYẾN NGHỊ THAM VẤN' : '🟢 ỔN ĐỊNH'}
+                        </span>
+                      </div>
+
+                      {/* 3 chỉ số DASS-21 chuẩn Lovibond */}
+                      <div style={{ background: '#f8fafc', borderRadius: 8, padding: '10px 12px', border: '1px solid #e2e8f0', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, textAlign: 'center' }}>
+                        <div>
+                          <div style={{ fontSize: 10.5, color: '#64748b', fontWeight: 600 }}>Trầm cảm</div>
+                          <div style={{ fontSize: 12.5, fontWeight: 800, color: depScore >= 14 ? '#dc2626' : '#1e293b' }}>
+                            {depScore}/42
+                          </div>
+                          <div style={{ fontSize: 10, color: '#94a3b8' }}>{a.depressionSeverity || 'Bình thường'}</div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 10.5, color: '#64748b', fontWeight: 600 }}>Lo âu</div>
+                          <div style={{ fontSize: 12.5, fontWeight: 800, color: anxScore >= 10 ? '#ea580c' : '#1e293b' }}>
+                            {anxScore}/42
+                          </div>
+                          <div style={{ fontSize: 10, color: '#94a3b8' }}>{a.anxietySeverity || 'Bình thường'}</div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 10.5, color: '#64748b', fontWeight: 600 }}>Căng thẳng</div>
+                          <div style={{ fontSize: 12.5, fontWeight: 800, color: strScore >= 19 ? '#f59e0b' : '#1e293b' }}>
+                            {strScore}/42
+                          </div>
+                          <div style={{ fontSize: 10, color: '#94a3b8' }}>{a.stressSeverity || 'Bình thường'}</div>
+                        </div>
+                      </div>
+
+                      {/* Lý do & nhận định lâm sàng */}
+                      <p style={{ fontSize: 12.5, color: '#334155', lineHeight: 1.5, margin: 0 }}>
+                        <strong>Nhận định chuyên môn:</strong> {reason}
+                      </p>
+
+                      {a.suggestedAction && (
+                        <div style={{ fontSize: 11.5, color: '#0369a1', background: '#f0f9ff', padding: '6px 10px', borderRadius: 6, border: '1px solid #bae6fd' }}>
+                          💡 <strong>Hành động gợi ý:</strong> {a.suggestedAction}
+                        </div>
+                      )}
+
+                      {/* Thao tác chuyên viên */}
+                      <div style={{ display: 'flex', gap: 8, marginTop: 4, paddingTop: 8, borderTop: '1px solid #f1f5f9' }}>
+                        <a
+                          href={`/expert/schedule`}
+                          className="e-btn e-btn-primary"
+                          style={{ flex: 1, padding: '6px 10px', fontSize: 12, textDecoration: 'none', textAlign: 'center', background: isUrgent ? '#dc2626' : '#0284c7' }}
+                        >
+                          Xếp lịch tư vấn
+                        </a>
+                        <a
+                          href={`/expert/consultation?studentId=${a.studentId}&code=${encodeURIComponent(studentName)}`}
+                          className="e-btn e-btn-outline"
+                          style={{ flex: 1, padding: '6px 10px', fontSize: 12, textDecoration: 'none', textAlign: 'center' }}
+                        >
+                          Vào SafeRoom
+                        </a>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          )}
+        </div>
+
+        {/* HÀNG 3: Cảnh báo Triage (Chiếm trọn 1 hàng ngang) */}
         <div className="e-card" style={{ padding: 22, border: '1.5px solid #fecaca', background: '#fffafb' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <div>

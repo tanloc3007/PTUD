@@ -130,21 +130,21 @@ INSERT INTO dbo.TestQuestions (Id, TestId, QuestionNumber, Content, SubscaleCate
 (NEWID(), @Dass21Id, 4, N'Tôi bị khó thở (ví dụ: thở gấp, hụt hơi dù không gắng sức)', 'Anxiety'),
 (NEWID(), @Dass21Id, 5, N'Tôi thấy khó bắt tay vào làm việc gì đó', 'Depression'),
 (NEWID(), @Dass21Id, 6, N'Tôi có xu hướng phản ứng thái quá với các tình huống', 'Stress'),
-(NEWID(), @Dass21Id, 7, N'Trong suốt 1 tuần qua, bạn cảm thấy khó thư giãn hoặc bồn chồn đứng ngồi không yên đến mức nào?', 'Stress'),
-(NEWID(), @Dass21Id, 8, N'Tôi cảm thấy lo lắng nhiều và dễ hoảng sợ', 'Anxiety'),
-(NEWID(), @Dass21Id, 9, N'Tôi cảm thấy không có gì để hào hứng mong đợi ở tương lai', 'Depression'),
-(NEWID(), @Dass21Id, 10, N'Tôi thấy mình bực bội, khó chịu khi bị ngắt quãng công việc', 'Stress'),
-(NEWID(), @Dass21Id, 11, N'Tôi thấy mình dễ bị xúc động hoặc rơi nước mắt', 'Depression'),
-(NEWID(), @Dass21Id, 12, N'Tôi cảm thấy mình hao tổn rất nhiều năng lượng tinh thần', 'Stress'),
-(NEWID(), @Dass21Id, 13, N'Tôi cảm thấy buồn nản và u sầu', 'Depression'),
-(NEWID(), @Dass21Id, 14, N'Tôi thấy sốt ruột khi việc gì đó bị chậm trễ', 'Stress'),
+(NEWID(), @Dass21Id, 7, N'Tôi bị run rẩy tay chân khi cảm thấy lo lắng', 'Anxiety'),
+(NEWID(), @Dass21Id, 8, N'Tôi cảm thấy mình hao tổn rất nhiều năng lượng tinh thần', 'Stress'),
+(NEWID(), @Dass21Id, 9, N'Tôi lo lắng mình sẽ rơi vào trạng thái hoảng sợ và bối rối', 'Anxiety'),
+(NEWID(), @Dass21Id, 10, N'Tôi cảm thấy không có gì để hào hứng mong đợi ở tương lai', 'Depression'),
+(NEWID(), @Dass21Id, 11, N'Tôi thấy mình dễ bị bực bội, khó chịu hoặc kích động', 'Stress'),
+(NEWID(), @Dass21Id, 12, N'Tôi thấy khó thư giãn hoặc bồn chồn đứng ngồi không yên', 'Stress'),
+(NEWID(), @Dass21Id, 13, N'Tôi cảm thấy buồn nản, thất vọng và u sầu', 'Depression'),
+(NEWID(), @Dass21Id, 14, N'Tôi thấy sốt ruột và không chịu được khi việc gì đó bị chậm trễ', 'Stress'),
 (NEWID(), @Dass21Id, 15, N'Tôi cảm thấy gần như hoảng loạn hoặc tim đập thình thịch', 'Anxiety'),
-(NEWID(), @Dass21Id, 16, N'Tôi không thể cảm thấy nhiệt tình với bất cứ việc gì', 'Depression'),
+(NEWID(), @Dass21Id, 16, N'Tôi không thể cảm thấy nhiệt tình hay hào hứng với bất cứ việc gì', 'Depression'),
 (NEWID(), @Dass21Id, 17, N'Tôi cảm thấy mình không có giá trị với tư cách là một con người', 'Depression'),
-(NEWID(), @Dass21Id, 18, N'Tôi cảm thấy mình khá dễ nổi cáu', 'Stress'),
+(NEWID(), @Dass21Id, 18, N'Tôi cảm thấy mình khá dễ nổi cáu hoặc nhạy cảm quá mức', 'Stress'),
 (NEWID(), @Dass21Id, 19, N'Tôi nhận thấy tim mình đập nhanh hoặc loạn nhịp dù không tập thể dục', 'Anxiety'),
 (NEWID(), @Dass21Id, 20, N'Tôi cảm thấy sợ hãi vô cớ mà không hiểu nguyên do', 'Anxiety'),
-(NEWID(), @Dass21Id, 21, N'Tôi cảm thấy cuộc sống dường như vô nghĩa', 'Depression');
+(NEWID(), @Dass21Id, 21, N'Tôi cảm thấy cuộc sống dường như vô nghĩa và tuyệt vọng', 'Depression');
 
 -- CÁC LỰA CHỌN TRẢ LỜI CỦA BÀI TEST
 -- Áp dụng bảng điểm chuẩn: 0: Không đúng chút nào, 1: Đúng một phần, 2: Đúng phần nhiều, 3: Rất đúng

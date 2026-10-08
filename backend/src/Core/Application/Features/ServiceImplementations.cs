@@ -366,11 +366,60 @@ public class PsychologicalTestService : IPsychologicalTestService
             stressScore = totalScore - depScore - anxScore;
         }
 
+        // ── CHUẨN HÓA THANG ĐO DASS-21 THEO LOVIBOND & LOVIBOND (1995) ──
+        // Thang DASS-21 (bản rút gọn 21 câu) được nhân đôi (x2) để đối chiếu ngưỡng chuẩn y khoa DASS-42
+        int depScaled = depScore * 2;
+        int anxScaled = anxScore * 2;
+        int stressScaled = stressScore * 2;
+
+        string depSeverity = depScaled switch
+        {
+            <= 9 => "Normal",
+            <= 13 => "Mild",
+            <= 20 => "Moderate",
+            <= 27 => "Severe",
+            _ => "ExtremelySevere"
+        };
+
+        string anxSeverity = anxScaled switch
+        {
+            <= 7 => "Normal",
+            <= 9 => "Mild",
+            <= 14 => "Moderate",
+            <= 19 => "Severe",
+            _ => "ExtremelySevere"
+        };
+
+        string stressSeverity = stressScaled switch
+        {
+            <= 14 => "Normal",
+            <= 18 => "Mild",
+            <= 25 => "Moderate",
+            <= 33 => "Severe",
+            _ => "ExtremelySevere"
+        };
+
+        // Mức độ nghiêm trọng tổng thể lấy theo phân độ cao nhất trong 3 thang
         string severity = "Normal";
-        if (totalScore >= 30) severity = "ExtremelySevere";
-        else if (totalScore >= 20) severity = "Severe";
-        else if (totalScore >= 12) severity = "Moderate";
-        else if (totalScore >= 6) severity = "Mild";
+        if (depSeverity == "ExtremelySevere" || anxSeverity == "ExtremelySevere" || stressSeverity == "ExtremelySevere")
+            severity = "ExtremelySevere";
+        else if (depSeverity == "Severe" || anxSeverity == "Severe" || stressSeverity == "Severe")
+            severity = "Severe";
+        else if (depSeverity == "Moderate" || anxSeverity == "Moderate" || stressSeverity == "Moderate")
+            severity = "Moderate";
+        else if (depSeverity == "Mild" || anxSeverity == "Mild" || stressSeverity == "Mild")
+            severity = "Mild";
+
+        bool needsConsultation = severity == "Severe" || severity == "ExtremelySevere" || depScaled >= 14 || anxScaled >= 15 || stressScaled >= 26;
+
+        string aiInterpretation = severity switch
+        {
+            "ExtremelySevere" => $"CẢNH BÁO LÂM SÀNG: Các chỉ số của bạn đang ở ngưỡng Rất nặng (Trầm cảm: {depScaled}/42 - {depSeverity}, Lo âu: {anxScaled}/42 - {anxSeverity}, Căng thẳng: {stressScaled}/42 - {stressSeverity}). Bạn đang chịu áp lực tâm lý vượt ngưỡng tự điều tiết. Hệ thống khuyến nghị bạn kết nối với chuyên viên tâm lý hoặc Tổng đài SOS trường học ngay hôm nay.",
+            "Severe" => $"Mức độ áp lực và xáo trộn tâm lý của bạn đang ở ngưỡng Nặng (Trầm cảm: {depScaled}/42 - {depSeverity}, Lo âu: {anxScaled}/42 - {anxSeverity}, Căng thẳng: {stressScaled}/42 - {stressSeverity}). Bạn rất nên đặt lịch tư vấn 1-1 tại phòng P.302 hoặc SafeRoom Online để được chuyên gia hỗ trợ điều hòa nhận thức.",
+            "Moderate" => $"Bạn đang có biểu hiện căng thẳng và lo âu ở mức Trung bình (Trầm cảm: {depScaled}/42, Lo âu: {anxScaled}/42, Căng thẳng: {stressScaled}/42). Hãy dành thời gian nghỉ ngơi, giảm bớt tải công việc và có thể đăng ký một phiên trò chuyện tâm lý định hướng.",
+            "Mild" => $"Chỉ số của bạn ở mức Nhẹ (Trầm cảm: {depScaled}/42, Lo âu: {anxScaled}/42, Căng thẳng: {stressScaled}/42). Đây là phản ứng tự nhiên trước kỳ thi hoặc bài tập. Thực hành thở 4-7-8 và duy trì giấc ngủ đều đặn.",
+            _ => $"Tuyệt vời! Sức khỏe tinh thần của bạn đang ở trạng thái Cân bằng và Ổn định (Trầm cảm: {depScaled}/42, Lo âu: {anxScaled}/42, Căng thẳng: {stressScaled}/42). Khả năng tự phục hồi (Resilience) rất tốt."
+        };
 
         var result = new TestResult
         {
@@ -381,11 +430,13 @@ public class PsychologicalTestService : IPsychologicalTestService
             DepressionScore = depScore,
             AnxietyScore = anxScore,
             StressScore = stressScore,
+            DepressionSeverity = depSeverity,
+            AnxietySeverity = anxSeverity,
+            StressSeverity = stressSeverity,
+            NeedsConsultation = needsConsultation,
             ResilienceRate = Math.Clamp(100 - (totalScore * 2), 20, 95),
             SeverityLevel = severity,
-            AiInterpretation = totalScore > 15 
-                ? "Mức độ căng thẳng/lo âu của bạn đang ở ngưỡng cần chú ý. Đội ngũ chuyên viên UniMind khuyến nghị bạn nên đặt lịch trò chuyện 1-1 tại SafeRoom hoặc phòng tư vấn P.302 để được giải tỏa kịp thời."
-                : "Chỉ số sức khỏe tinh thần của bạn khá cân bằng và ổn định. Hãy tiếp tục duy trì lối sống lành mạnh và hít thở điều độ!",
+            AiInterpretation = aiInterpretation,
             CompletedAt = DateTime.UtcNow
         };
 
@@ -403,7 +454,11 @@ public class PsychologicalTestService : IPsychologicalTestService
             result.ResilienceRate,
             result.SeverityLevel,
             result.AiInterpretation,
-            result.CompletedAt
+            result.CompletedAt,
+            result.DepressionSeverity,
+            result.AnxietySeverity,
+            result.StressSeverity,
+            result.NeedsConsultation
         );
 
         return Result<TestResultDto>.Ok(dto, "Đã hoàn thành bài đánh giá tâm lý");
@@ -431,7 +486,11 @@ public class PsychologicalTestService : IPsychologicalTestService
             result.ResilienceRate,
             result.SeverityLevel,
             result.AiInterpretation,
-            result.CompletedAt
+            result.CompletedAt,
+            result.DepressionSeverity,
+            result.AnxietySeverity,
+            result.StressSeverity,
+            result.NeedsConsultation
         );
 
         return Task.FromResult(Result<TestResultDto?>.Ok(dto));
@@ -485,6 +544,13 @@ public class CommunityService : ICommunityService
 
                 var expertComment = _context.CommunityComments.FirstOrDefault(c => c.PostId == p.Id && c.IsExpertComment);
 
+                // Nếu ảnh bị từ chối và người xem là sinh viên thường -> che ảnh
+                string? effectiveImageUrl = p.ImageUrl;
+                if (!isStaffOrAdmin && p.ImageModerationStatus == "Rejected")
+                {
+                    effectiveImageUrl = null;
+                }
+
                 return new PostDto(
                     p.Id,
                     p.AnonymousPseudonym,
@@ -503,7 +569,11 @@ public class CommunityService : ICommunityService
                     p.IsSensitiveHiddenFromStudents,
                     p.ModerationStatus.ToString(),
                     comments,
-                    expertComment != null ? expertComment.Content : null
+                    expertComment != null ? expertComment.Content : null,
+                    effectiveImageUrl,
+                    p.ImageModerationStatus,
+                    p.ImageModerationNote,
+                    p.StudentId
                 );
             }).ToList();
 
@@ -522,6 +592,13 @@ public class CommunityService : ICommunityService
 
         var isHiddenFromStudents = analysis.ContainsSensitiveKeywords || analysis.RiskScore >= 75;
 
+        // Trạng thái kiểm duyệt ảnh: nếu nội dung có nguy cơ cao -> Flagged ảnh để chuyên gia xem trước
+        string imgModStatus = "None";
+        if (!string.IsNullOrWhiteSpace(request.ImageUrl))
+        {
+            imgModStatus = isHiddenFromStudents ? "Flagged" : "Approved";
+        }
+
         var post = new CommunityPost
         {
             Id = Guid.NewGuid(),
@@ -529,6 +606,8 @@ public class CommunityService : ICommunityService
             AnonymousPseudonym = pseudonym,
             StudentRoleTag = $"{student?.Faculty ?? "Khoa Công nghệ Thông tin"}",
             Content = request.Content,
+            ImageUrl = request.ImageUrl?.Trim(),
+            ImageModerationStatus = imgModStatus,
             CategoryTag = request.EffectiveCategory,
             StressLevelTag = request.StressLevelTag ?? (analysis.RiskScore > 70 ? "Áp lực cao (Level 4/5)" : "Mức độ vừa"),
             HasKeywordsAlert = analysis.ContainsSensitiveKeywords,
@@ -582,7 +661,11 @@ public class CommunityService : ICommunityService
             post.IsSensitiveHiddenFromStudents,
             post.ModerationStatus.ToString(),
             new List<CommentDto>(),
-            null
+            null,
+            post.ImageUrl,
+            post.ImageModerationStatus,
+            post.ImageModerationNote,
+            post.StudentId
         );
 
         string msg = isHiddenFromStudents
@@ -590,6 +673,86 @@ public class CommunityService : ICommunityService
             : "Đăng bài viết ẩn danh thành công!";
 
         return Result<PostDto>.Ok(dto, msg);
+    }
+
+    public async Task<Result> DeletePostAsync(Guid postId, Guid requestingUserId, bool isStaffOrAdmin)
+    {
+        var post = _context.CommunityPosts.FirstOrDefault(p => p.Id == postId);
+        if (post == null)
+            return Result.Fail("Không tìm thấy bài viết cần xóa", "POST_NOT_FOUND");
+
+        // Kiểm tra quyền: Chỉ chủ bài viết hoặc Staff/Admin mới được xóa
+        if (!isStaffOrAdmin && post.StudentId != requestingUserId)
+        {
+            return Result.Fail("Bạn không có quyền xóa bài viết này.", "FORBIDDEN");
+        }
+
+        // Xóa các bình luận liên quan
+        var relatedComments = _context.CommunityComments.Where(c => c.PostId == postId).ToList();
+        foreach (var c in relatedComments)
+        {
+            _context.CommunityComments.Remove(c);
+        }
+
+        // Xóa bài viết
+        _context.CommunityPosts.Remove(post);
+
+        // Cập nhật alert nếu có
+        var alerts = _context.NlpRiskAlerts.Where(a => a.PostId == postId).ToList();
+        foreach (var a in alerts)
+        {
+            a.Status = "PostDeleted";
+        }
+
+        await _context.SaveChangesAsync();
+        return Result.Ok("Đã xóa bài viết thành công");
+    }
+
+    public async Task<Result<PostDto>> ModeratePostImageAsync(Guid postId, ModerateImageRequest request, Guid moderatorUserId)
+    {
+        var post = _context.CommunityPosts.FirstOrDefault(p => p.Id == postId);
+        if (post == null)
+            return Result<PostDto>.Fail("Không tìm thấy bài viết", "POST_NOT_FOUND");
+
+        post.ImageModerationStatus = request.Action; // Approved, Rejected, Flagged
+        post.ImageModerationNote = request.Note;
+        post.ModeratedBy = moderatorUserId;
+
+        await _context.SaveChangesAsync();
+
+        var comments = _context.CommunityComments
+            .Where(c => c.PostId == post.Id)
+            .Select(c => new CommentDto(
+                c.Id, c.PostId, c.AuthorPseudonym, c.Content, c.IsExpertComment,
+                c.ExpertTitle, c.IsSensitiveHiddenFromStudents, c.DetectedKeywords, c.CreatedAt
+            )).ToList();
+
+        var dto = new PostDto(
+            post.Id,
+            post.AnonymousPseudonym,
+            post.StudentRoleTag,
+            post.Content,
+            post.CategoryTag,
+            post.StressLevelTag,
+            post.HugCount,
+            post.EmpathyCount,
+            post.CommentCount,
+            post.CreatedAt,
+            post.HasKeywordsAlert,
+            post.DetectedKeywords,
+            post.RiskScore,
+            post.IsExtremeCrisis,
+            post.IsSensitiveHiddenFromStudents,
+            post.ModerationStatus.ToString(),
+            comments,
+            null,
+            post.ImageUrl,
+            post.ImageModerationStatus,
+            post.ImageModerationNote,
+            post.StudentId
+        );
+
+        return Result<PostDto>.Ok(dto, $"Đã cập nhật trạng thái kiểm duyệt hình ảnh: {request.Action}");
     }
 
     public async Task<Result<CommentDto>> AddCommentAsync(Guid userId, Guid postId, CreateCommentRequest request, bool isExpert)
@@ -695,7 +858,11 @@ public class CommunityService : ICommunityService
             post.IsSensitiveHiddenFromStudents,
             post.ModerationStatus.ToString(),
             new List<CommentDto>(),
-            null
+            null,
+            post.ImageUrl,
+            post.ImageModerationStatus,
+            post.ImageModerationNote,
+            post.StudentId
         );
 
         return Result<PostDto>.Ok(dto, "Cảm ơn bạn đã gửi sự thấu cảm");
@@ -1051,6 +1218,104 @@ public class ExpertWorkspaceService : IExpertWorkspaceService
         );
 
         return Task.FromResult(Result<DashboardStatsDto>.Ok(stats));
+    }
+
+    public Task<Result<List<StudentConsultationAssessmentDto>>> GetConsultationAssessmentsAsync()
+    {
+        var students = _context.Users.Where(u => u.Role == UserRole.Student).ToList();
+        var resultList = new List<StudentConsultationAssessmentDto>();
+
+        foreach (var st in students)
+        {
+            var latestTest = _context.TestResults
+                .Where(r => r.StudentId == st.Id)
+                .OrderByDescending(r => r.CompletedAt)
+                .FirstOrDefault();
+
+            var recentJournals = _context.MoodJournals
+                .Where(j => j.StudentId == st.Id)
+                .OrderByDescending(j => j.CreatedAt)
+                .Take(7)
+                .ToList();
+
+            var studentPosts = _context.CommunityPosts
+                .Where(p => p.StudentId == st.Id)
+                .ToList();
+
+            int negativePostsCount = studentPosts.Count(p => p.SentimentLabel == "Negative" || p.SentimentLabel == "ExtremeNegative" || p.RiskScore >= 60);
+            var activeAlert = _context.NlpRiskAlerts.FirstOrDefault(a => a.StudentAnonymousCode == st.AnonymousCode && a.Status == "PendingAction");
+
+            double? avgEnergy = recentJournals.Count > 0 ? Math.Round(recentJournals.Average(j => (double)j.EnergyLevel), 1) : null;
+            int maxRiskScore = Math.Max(activeAlert?.RiskScore ?? 0, studentPosts.Count > 0 ? studentPosts.Max(p => p.RiskScore) : 0);
+
+            // Xác định cấp độ nhu cầu tư vấn: Urgent (Khẩn cấp), Recommended (Khuyến nghị), Stable (Ổn định)
+            string needLevel;
+            string reason;
+            string action;
+
+            int depScaled = (latestTest?.DepressionScore ?? 0) * 2;
+            int anxScaled = (latestTest?.AnxietyScore ?? 0) * 2;
+            int stressScaled = (latestTest?.StressScore ?? 0) * 2;
+
+            bool isDassSevere = latestTest != null && (latestTest.SeverityLevel == "Severe" || latestTest.SeverityLevel == "ExtremelySevere" || depScaled >= 21 || anxScaled >= 15 || stressScaled >= 26);
+            bool isDassModerate = latestTest != null && (latestTest.SeverityLevel == "Moderate" || depScaled >= 14 || anxScaled >= 10 || stressScaled >= 19);
+
+            if (isDassSevere || activeAlert != null || maxRiskScore >= 75)
+            {
+                needLevel = "Urgent";
+                reason = isDassSevere
+                    ? $"DASS-21 ở mức {latestTest?.SeverityLevel} (Trầm cảm: {depScaled}/42, Lo âu: {anxScaled}/42, Stress: {stressScaled}/42) - Vượt ngưỡng tự điều tiết."
+                    : (activeAlert != null ? $"Phát hiện cảnh báo NLP khẩn cấp: '{activeAlert.TriggeredKeywords}' (Rủi ro {activeAlert.RiskScore}/100)." : $"Điểm rủi ro tích lũy đạt {maxRiskScore}/100.");
+                action = "Chủ động mời tham vấn SOS SafeRoom hoặc liên hệ hỗ trợ khẩn cấp 1-1";
+            }
+            else if (isDassModerate || (avgEnergy.HasValue && avgEnergy.Value <= 4.0) || negativePostsCount >= 1 || maxRiskScore >= 45)
+            {
+                needLevel = "Recommended";
+                reason = isDassModerate
+                    ? $"DASS-21 ở mức Trung bình ({latestTest?.TotalScore} điểm). Có triệu chứng lo âu/căng thẳng học đường rõ rệt."
+                    : (avgEnergy.HasValue && avgEnergy.Value <= 4.0 ? $"Mức năng lượng nhật ký 7 ngày qua thấp ({avgEnergy}/10), có dấu hiệu kiệt sức kéo dài." : $"Có {negativePostsCount} bài chia sẻ áp lực nặng nề trên cộng đồng.");
+                action = "Khuyến nghị gửi lời mời hẹn tham vấn định hướng tại phòng P.302";
+            }
+            else
+            {
+                needLevel = "Stable";
+                reason = latestTest != null
+                    ? $"DASS-21 ở ngưỡng Bình thường/Nhẹ (Tỷ lệ phục hồi {latestTest.ResilienceRate}%). Trạng thái tinh thần ổn định."
+                    : "Chưa ghi nhận biến động tiêu cực. Năng lượng cảm xúc cân bằng.";
+                action = "Tiếp tục theo dõi định kỳ qua nhật ký cảm xúc";
+            }
+
+            var lastActivity = new[] {
+                latestTest?.CompletedAt,
+                recentJournals.FirstOrDefault()?.CreatedAt,
+                studentPosts.OrderByDescending(p => p.CreatedAt).FirstOrDefault()?.CreatedAt
+            }.Where(d => d.HasValue).OrderByDescending(d => d).FirstOrDefault();
+
+            resultList.Add(new StudentConsultationAssessmentDto(
+                st.Id,
+                st.AnonymousCode,
+                st.Faculty,
+                needLevel,
+                reason,
+                action,
+                Math.Max(maxRiskScore, latestTest?.TotalScore ?? 15),
+                latestTest?.TotalScore,
+                latestTest?.DepressionSeverity ?? (depScaled >= 14 ? "Moderate" : "Normal"),
+                latestTest?.AnxietySeverity ?? (anxScaled >= 10 ? "Moderate" : "Normal"),
+                latestTest?.StressSeverity ?? (stressScaled >= 19 ? "Moderate" : "Normal"),
+                avgEnergy,
+                negativePostsCount,
+                lastActivity
+            ));
+        }
+
+        // Ưu tiên hiển thị: Urgent -> Recommended -> Stable
+        var sorted = resultList
+            .OrderBy(r => r.OverallNeedLevel switch { "Urgent" => 1, "Recommended" => 2, _ => 3 })
+            .ThenByDescending(r => r.RiskScore)
+            .ToList();
+
+        return Task.FromResult(Result<List<StudentConsultationAssessmentDto>>.Ok(sorted));
     }
 
     public Task<Result<List<NlpRiskAlertDto>>> GetTriageAlertsAsync()

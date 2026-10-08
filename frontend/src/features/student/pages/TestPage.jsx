@@ -3,43 +3,46 @@ import axiosClient from '../../auth/api/authApi';
 import { useAuthStore } from '../../auth/store/authStore';
 import InPageNotification from '../../../shared/components/InPageNotification';
 
+// Bộ 21 câu hỏi chuẩn hóa quốc tế DASS-21 (Lovibond & Lovibond 1995)
+// Phân bố chuẩn xác: 7 câu Trầm cảm, 7 câu Lo âu, 7 câu Căng thẳng
 const QUESTIONS = [
-  { id: 1, cat: 'Stress',     text: 'Tôi thấy khó mà dứt ra khỏi tình trạng căng thẳng.' },
-  { id: 2, cat: 'Anxiety',    text: 'Tôi thấy khô miệng khi hồi hộp.' },
-  { id: 3, cat: 'Depression', text: 'Tôi không thấy có bất kỳ cảm xúc tích cực nào.' },
-  { id: 4, cat: 'Anxiety',    text: 'Tôi bị khó thở dù không gắng sức.' },
-  { id: 5, cat: 'Depression', text: 'Tôi thấy khó bắt tay vào làm việc gì đó.' },
-  { id: 6, cat: 'Stress',     text: 'Tôi có xu hướng phản ứng thái quá với các tình huống.' },
-  { id: 7, cat: 'Anxiety',    text: 'Tôi có cảm giác run (như run tay chân, rung nội tâm).' },
-  { id: 8, cat: 'Stress',     text: 'Tôi thấy mình dễ bị kích động.' },
-  { id: 9, cat: 'Depression', text: 'Tôi lo lắng về các tình huống có thể khiến tôi hoảng sợ.' },
-  { id: 10, cat: 'Depression', text: 'Tôi thấy cuộc sống không có ý nghĩa gì.' },
-  { id: 11, cat: 'Stress',    text: 'Tôi thấy mình dễ bực bội, dễ căng thẳng.' },
-  { id: 12, cat: 'Anxiety',   text: 'Tôi cảm thấy không an toàn.' },
-  { id: 13, cat: 'Depression', text: 'Tôi thấy mình chẳng có gì để mong đợi.' },
-  { id: 14, cat: 'Stress',    text: 'Tôi thấy mình dễ bị kích thích.' },
-  { id: 15, cat: 'Anxiety',   text: 'Tôi sắp mất khả năng kiểm soát bản thân.' },
-  { id: 16, cat: 'Depression', text: 'Tôi thấy mình không có khả năng nhiệt tình.' },
-  { id: 17, cat: 'Stress',    text: 'Tôi cảm thấy mình đang sống và làm việc không thực sự có giá trị.' },
-  { id: 18, cat: 'Anxiety',   text: 'Tôi cảm thấy nhịp tim rất nhanh dù không gắng sức.' },
-  { id: 19, cat: 'Depression', text: 'Tôi thấy mình buồn chán, tẻ nhạt, ít quan tâm đến mọi thứ.' },
-  { id: 20, cat: 'Anxiety',   text: 'Tôi sợ hãi vô cớ.' },
-  { id: 21, cat: 'Depression', text: 'Tôi thấy cuộc sống của mình là vô nghĩa.' },
+  { id: 1,  cat: 'Stress',     text: 'Tôi thấy khó mà dứt ra khỏi tình trạng căng thẳng.' },
+  { id: 2,  cat: 'Anxiety',    text: 'Tôi thấy khô môi hoặc khô miệng khi hồi hộp.' },
+  { id: 3,  cat: 'Depression', text: 'Tôi không thấy có bất kỳ cảm xúc tích cực nào.' },
+  { id: 4,  cat: 'Anxiety',    text: 'Tôi bị khó thở (thở gấp, hụt hơi dù không gắng sức).' },
+  { id: 5,  cat: 'Depression', text: 'Tôi thấy khó bắt tay vào làm việc gì đó.' },
+  { id: 6,  cat: 'Stress',     text: 'Tôi có xu hướng phản ứng thái quá với các tình huống.' },
+  { id: 7,  cat: 'Anxiety',    text: 'Tôi có cảm giác run rẩy tay chân khi cảm thấy lo lắng.' },
+  { id: 8,  cat: 'Stress',     text: 'Tôi cảm thấy mình hao tổn rất nhiều năng lượng tinh thần.' },
+  { id: 9,  cat: 'Anxiety',    text: 'Tôi lo lắng mình sẽ rơi vào trạng thái hoảng sợ và bối rối.' },
+  { id: 10, cat: 'Depression', text: 'Tôi cảm thấy không có gì để hào hứng mong đợi ở tương lai.' },
+  { id: 11, cat: 'Stress',    text: 'Tôi thấy mình dễ bị bực bội, khó chịu hoặc kích động.' },
+  { id: 12, cat: 'Stress',    text: 'Tôi thấy khó thư giãn hoặc bồn chồn đứng ngồi không yên.' },
+  { id: 13, cat: 'Depression', text: 'Tôi cảm thấy buồn nản, thất vọng và u sầu.' },
+  { id: 14, cat: 'Stress',    text: 'Tôi thấy sốt ruột và không chịu được khi việc gì đó bị chậm trễ.' },
+  { id: 15, cat: 'Anxiety',   text: 'Tôi cảm thấy gần như hoảng loạn hoặc tim đập thình thịch.' },
+  { id: 16, cat: 'Depression', text: 'Tôi không thể cảm thấy nhiệt tình hay hào hứng với bất cứ việc gì.' },
+  { id: 17, cat: 'Depression', text: 'Tôi cảm thấy mình không có giá trị với tư cách là một con người.' },
+  { id: 18, cat: 'Stress',    text: 'Tôi cảm thấy mình khá dễ nổi cáu hoặc nhạy cảm quá mức.' },
+  { id: 19, cat: 'Anxiety',   text: 'Tôi nhận thấy tim mình đập nhanh hoặc loạn nhịp dù không tập thể dục.' },
+  { id: 20, cat: 'Anxiety',   text: 'Tôi cảm thấy sợ hãi vô cớ mà không hiểu nguyên do.' },
+  { id: 21, cat: 'Depression', text: 'Tôi cảm thấy cuộc sống dường như vô nghĩa và tuyệt vọng.' },
 ];
 
 const OPTIONS = [
-  { value: 0, label: 'Không bao giờ' },
-  { value: 1, label: 'Đôi khi' },
-  { value: 2, label: 'Khá thường xuyên' },
-  { value: 3, label: 'Hầu hết lúc nào' },
+  { value: 0, label: 'Không đúng chút nào (0)' },
+  { value: 1, label: 'Đúng một phần (1)' },
+  { value: 2, label: 'Đúng phần nhiều (2)' },
+  { value: 3, label: 'Hầu như luôn đúng (3)' },
 ];
 
+// Thang phân loại lâm sàng DASS-21 chuẩn Lovibond (1995) sau khi nhân hệ số 2:
 function calcLevel(score, thresholds) {
-  if (score <= thresholds[0]) return { level: 'Bình thường', color: '#10b981', bg: '#f0fdf4' };
-  if (score <= thresholds[1]) return { level: 'Nhẹ',         color: '#fbbf24', bg: '#fffbeb' };
-  if (score <= thresholds[2]) return { level: 'Vừa',         color: '#f97316', bg: '#fff7ed' };
-  if (score <= thresholds[3]) return { level: 'Nặng',        color: '#ef4444', bg: '#fef2f2' };
-  return { level: 'Rất nặng', color: '#b91c1c', bg: '#fff1f2' };
+  if (score <= thresholds[0]) return { level: 'Bình thường', severityKey: 'Normal', color: '#10b981', bg: '#f0fdf4' };
+  if (score <= thresholds[1]) return { level: 'Nhẹ',         severityKey: 'Mild', color: '#fbbf24', bg: '#fffbeb' };
+  if (score <= thresholds[2]) return { level: 'Vừa',         severityKey: 'Moderate', color: '#f97316', bg: '#fff7ed' };
+  if (score <= thresholds[3]) return { level: 'Nặng',        severityKey: 'Severe', color: '#ef4444', bg: '#fef2f2' };
+  return { level: 'Rất nặng', severityKey: 'ExtremelySevere', color: '#b91c1c', bg: '#fff1f2' };
 }
 
 export default function TestPage() {
@@ -92,10 +95,13 @@ export default function TestPage() {
     const anxietyScore    = answers.filter((_, i) => QUESTIONS[i].cat === 'Anxiety').reduce((s, v) => s + (v||0)*2, 0);
     const stressScore     = answers.filter((_, i) => QUESTIONS[i].cat === 'Stress').reduce((s, v) => s + (v||0)*2, 0);
 
+    const needsConsultation = depressionScore >= 14 || anxietyScore >= 10 || stressScore >= 19;
+
     const res = {
       depression: { score: depressionScore, ...calcLevel(depressionScore, [9, 13, 20, 27]) },
       anxiety:    { score: anxietyScore,    ...calcLevel(anxietyScore,    [7, 9,  14, 19]) },
       stress:     { score: stressScore,     ...calcLevel(stressScore,     [14, 18, 25, 33]) },
+      needsConsultation,
       completedAt: new Date(),
     };
     setResult(res);
@@ -112,13 +118,17 @@ export default function TestPage() {
         totalScore: depressionScore + anxietyScore + stressScore,
         studentId: user?.id
       });
-      if (resp.data?.data?.aiInterpretation) {
-        setResult(prev => ({ ...prev, aiInterpretation: resp.data.data.aiInterpretation }));
+      if (resp.data?.data) {
+        setResult(prev => ({
+          ...prev,
+          aiInterpretation: resp.data.data.aiInterpretation || prev.aiInterpretation,
+          needsConsultation: resp.data.data.needsConsultation ?? prev.needsConsultation
+        }));
       }
       setNotification({
         type: 'success',
-        title: 'Đã hoàn thành đánh giá',
-        message: 'Kết quả trắc nghiệm DASS-21 của bạn đã được ghi nhận vào hồ sơ sức khỏe tâm thần cá nhân.'
+        title: 'Đã hoàn thành đánh giá DASS-21 chuẩn Lovibond',
+        message: 'Kết quả trắc nghiệm đã được ghi nhận vào hồ sơ sức khỏe tâm thần cá nhân.'
       });
     } catch {}
   };
@@ -314,6 +324,29 @@ export default function TestPage() {
             </div>
           );
         })}
+
+        {result.needsConsultation && (
+          <div style={{
+            background: '#fff7ed', border: '1.5px solid #fdba74', borderRadius: 14,
+            padding: '18px 20px', marginBottom: 20, display: 'flex', gap: 14, alignItems: 'flex-start'
+          }}>
+            <div style={{
+              width: 38, height: 38, borderRadius: '50%', background: '#ffedd5',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+              fontSize: 20, color: '#ea580c'
+            }}>
+              ⚠️
+            </div>
+            <div>
+              <h4 style={{ margin: '0 0 4px', fontSize: 14.5, fontWeight: 800, color: '#9a3412' }}>
+                Khuyến nghị: Bạn cần được hỗ trợ tư vấn tâm lý
+              </h4>
+              <p style={{ margin: 0, fontSize: 13, color: '#7c2d12', lineHeight: 1.55 }}>
+                Chỉ số đánh giá của bạn cho thấy dấu hiệu căng thẳng hoặc bất an ở mức đáng chú ý. Đừng gánh vác một mình! Hãy kết nối với chuyên viên tâm lý tại trường để được lắng nghe và đồng hành trong không gian an toàn, hoàn toàn ẩn danh.
+              </p>
+            </div>
+          </div>
+        )}
 
         <div style={{ background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: 14, padding: '18px 20px', marginBottom: 20 }}>
           <p style={{ fontSize: 12, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#0f766e', margin: '0 0 6px' }}>

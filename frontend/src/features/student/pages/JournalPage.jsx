@@ -280,14 +280,19 @@ export default function JournalPage() {
 
         {/* Content */}
         <div style={{ marginBottom: 14 }}>
-          <label style={{ fontSize: 12.5, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 6 }}>
-            Nội dung tâm sự / Ghi chú
-          </label>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <label style={{ fontSize: 12.5, fontWeight: 700, color: '#374151', margin: 0 }}>
+              Nội dung tâm sự / Ghi chú
+            </label>
+            <span style={{ fontSize: 11.5, color: '#0f766e', background: '#f0fdfa', padding: '2px 8px', borderRadius: 6, fontWeight: 600 }}>
+              🌐 Song ngữ Anh - Việt (Bilingual EN / VI)
+            </span>
+          </div>
           <textarea
             className="s-input s-textarea"
             value={content}
             onChange={e => setContent(e.target.value)}
-            placeholder="Hôm nay bạn đã trải qua những gì? Điều gì làm bạn suy nghĩ nhiều nhất..."
+            placeholder="Hôm nay bạn đã trải qua những gì? Hãy viết tự do bằng Tiếng Việt hoặc English (e.g. 'I feel completely overwhelmed with my thesis exams...')..."
             style={{ minHeight: 120 }}
           />
         </div>
@@ -301,7 +306,7 @@ export default function JournalPage() {
             className="s-input"
             value={tags}
             onChange={e => setTags(e.target.value)}
-            placeholder="học tập, đồ án, bạn bè, gia đình..."
+            placeholder="học tập, đồ án, deadline, feeling stressed, hopeful, family..."
           />
         </div>
 

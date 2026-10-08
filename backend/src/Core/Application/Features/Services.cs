@@ -31,6 +31,8 @@ public interface ICommunityService
 {
     Task<Result<List<PostDto>>> GetFeedAsync(bool isStaffOrAdmin, string? category = null);
     Task<Result<PostDto>> CreatePostAsync(Guid studentId, CreatePostRequest request);
+    Task<Result> DeletePostAsync(Guid postId, Guid requestingUserId, bool isStaffOrAdmin);
+    Task<Result<PostDto>> ModeratePostImageAsync(Guid postId, ModerateImageRequest request, Guid moderatorUserId);
     Task<Result<CommentDto>> AddCommentAsync(Guid userId, Guid postId, CreateCommentRequest request, bool isExpert);
     Task<Result<PostDto>> ReactAsync(Guid postId, string reactionType);
 }
@@ -48,6 +50,7 @@ public interface IAppointmentService
 public interface IExpertWorkspaceService
 {
     Task<Result<DashboardStatsDto>> GetWorkspaceOverviewAsync(Guid expertId);
+    Task<Result<List<StudentConsultationAssessmentDto>>> GetConsultationAssessmentsAsync();
     Task<Result<List<NlpRiskAlertDto>>> GetTriageAlertsAsync();
     Task<Result> ResolveAlertAsync(Guid alertId, ResolveAlertRequest request, Guid expertUserId);
     Task<Result<List<SensitiveKeywordDto>>> GetSensitiveKeywordsAsync();

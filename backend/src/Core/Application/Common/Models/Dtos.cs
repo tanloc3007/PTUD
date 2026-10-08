@@ -147,7 +147,11 @@ public record TestResultDto(
     int ResilienceRate,
     string SeverityLevel,
     string? AiInterpretation,
-    DateTime CompletedAt
+    DateTime CompletedAt,
+    string? DepressionSeverity = null,
+    string? AnxietySeverity = null,
+    string? StressSeverity = null,
+    bool NeedsConsultation = false
 );
 
 // 4. COMMUNITY DTOs
@@ -158,7 +162,8 @@ public record CreatePostRequest(
     string? CustomPseudonym = null,
     bool RequestExpertPrivateResponse = false,
     string? Category = null,
-    Guid? StudentId = null
+    Guid? StudentId = null,
+    string? ImageUrl = null
 )
 {
     public string EffectiveCategory =>
@@ -184,7 +189,33 @@ public record PostDto(
     bool IsSensitiveHiddenFromStudents,
     string ModerationStatus,
     List<CommentDto> Comments,
-    string? VerifiedExpertAdvice
+    string? VerifiedExpertAdvice,
+    string? ImageUrl = null,
+    string ImageModerationStatus = "None",
+    string? ImageModerationNote = null,
+    Guid? StudentId = null
+);
+
+public record ModerateImageRequest(
+    string Action, // "Approve", "Reject", "Flag"
+    string? Note = null
+);
+
+public record StudentConsultationAssessmentDto(
+    Guid StudentId,
+    string AnonymousCode,
+    string? Faculty,
+    string OverallNeedLevel, // "Urgent", "Recommended", "Stable"
+    string RecommendationReason,
+    string SuggestedAction,
+    int RiskScore,
+    int? Dass21TotalScore,
+    string? DepressionSeverity,
+    string? AnxietySeverity,
+    string? StressSeverity,
+    double? RecentMoodAverage,
+    int NegativePostsCount,
+    DateTime? LastActivityAt
 );
 
 public record CreateCommentRequest(

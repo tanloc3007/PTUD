@@ -170,6 +170,10 @@ CREATE TABLE dbo.TestResults (
     DepressionScore INT NULL,
     AnxietyScore INT NULL,
     StressScore INT NULL,
+    DepressionSeverity NVARCHAR(50) NULL,       -- Normal, Mild, Moderate, Severe, ExtremelySevere
+    AnxietySeverity NVARCHAR(50) NULL,
+    StressSeverity NVARCHAR(50) NULL,
+    NeedsConsultation BIT NOT NULL DEFAULT 0,   -- 1 nếu cần tư vấn tâm lý chuyên môn
     ResilienceRate INT NOT NULL DEFAULT 50,     -- Tỷ lệ khả năng phục hồi (%)
     SeverityLevel NVARCHAR(50) NOT NULL,        -- Normal, Mild, Moderate, Severe, ExtremelySevere
     AiInterpretation NVARCHAR(MAX) NULL,        -- Nhận định chuyên gia & AI y khoa UniMind
@@ -205,6 +209,9 @@ CREATE TABLE dbo.CommunityPosts (
     AnonymousPseudonym NVARCHAR(100) NOT NULL,  -- Cú Mèo Say Ngủ #402, Cún Mưa Rào #512
     StudentRoleTag NVARCHAR(100) NOT NULL DEFAULT 'Sinh viên', -- "Sinh viên năm 4 • Khoa CNTT"
     Content NVARCHAR(MAX) NOT NULL,
+    ImageUrl NVARCHAR(500) NULL,                -- Ảnh đính kèm (nếu có)
+    ImageModerationStatus NVARCHAR(30) NOT NULL DEFAULT 'None', -- None, Pending, Approved, Flagged, Rejected
+    ImageModerationNote NVARCHAR(500) NULL,     -- Lý do kiểm duyệt ảnh từ Chuyên viên/Admin
     CategoryTag NVARCHAR(100) NOT NULL DEFAULT 'Áp lực học tập', -- Áp lực học tập, Mối quan hệ, Việc làm
     StressLevelTag NVARCHAR(100) NULL,          -- Áp lực cao (Stress Level 4/5)
     HasKeywordsAlert BIT NOT NULL DEFAULT 0,    -- 1 nếu chứa từ khóa nhạy cảm

@@ -186,7 +186,7 @@ public class ApplicationDbContext : IApplicationDbContext
         }
 
         // 6. CommunityPosts
-        using (var cmd = new SqlCommand("SELECT Id, StudentId, AnonymousPseudonym, StudentRoleTag, Content, CategoryTag, StressLevelTag, HasKeywordsAlert, DetectedKeywords, SentimentLabel, SentimentScore, RiskScore, IsExtremeCrisis, IsSensitiveHiddenFromStudents, ModerationStatus, ModeratedBy, HugCount, EmpathyCount, CommentCount, CreatedAt FROM dbo.CommunityPosts ORDER BY CreatedAt DESC", conn))
+        using (var cmd = new SqlCommand("SELECT Id, StudentId, AnonymousPseudonym, StudentRoleTag, Content, CategoryTag, StressLevelTag, HasKeywordsAlert, DetectedKeywords, SentimentLabel, SentimentScore, RiskScore, IsExtremeCrisis, IsSensitiveHiddenFromStudents, ModerationStatus, ModeratedBy, HugCount, EmpathyCount, CommentCount, CreatedAt, ImageUrl, ImageModerationStatus, ImageModerationNote FROM dbo.CommunityPosts ORDER BY CreatedAt DESC", conn))
         using (var reader = cmd.ExecuteReader())
         {
             while (reader.Read())
@@ -215,7 +215,10 @@ public class ApplicationDbContext : IApplicationDbContext
                     HugCount = reader.GetInt32(16),
                     EmpathyCount = reader.GetInt32(17),
                     CommentCount = reader.GetInt32(18),
-                    CreatedAt = reader.GetDateTime(19)
+                    CreatedAt = reader.GetDateTime(19),
+                    ImageUrl = reader["ImageUrl"] != DBNull.Value ? reader["ImageUrl"].ToString() : null,
+                    ImageModerationStatus = reader["ImageModerationStatus"] != DBNull.Value ? reader["ImageModerationStatus"].ToString() ?? "None" : "None",
+                    ImageModerationNote = reader["ImageModerationNote"] != DBNull.Value ? reader["ImageModerationNote"].ToString() : null
                 });
             }
         }
@@ -355,6 +358,33 @@ public class ApplicationDbContext : IApplicationDbContext
             }
         }
 
+        // 13. TestResults
+        using (var cmd = new SqlCommand("SELECT Id, StudentId, TestId, TotalScore, DepressionScore, AnxietyScore, StressScore, ResilienceRate, SeverityLevel, AiInterpretation, CompletedAt, DepressionSeverity, AnxietySeverity, StressSeverity, NeedsConsultation FROM dbo.TestResults ORDER BY CompletedAt DESC", conn))
+        using (var reader = cmd.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                TestResults.Add(new TestResult
+                {
+                    Id = reader.GetGuid(0),
+                    StudentId = reader.GetGuid(1),
+                    TestId = reader.GetGuid(2),
+                    TotalScore = reader.GetInt32(3),
+                    DepressionScore = reader.IsDBNull(4) ? null : reader.GetInt32(4),
+                    AnxietyScore = reader.IsDBNull(5) ? null : reader.GetInt32(5),
+                    StressScore = reader.IsDBNull(6) ? null : reader.GetInt32(6),
+                    ResilienceRate = reader.GetInt32(7),
+                    SeverityLevel = reader.GetString(8),
+                    AiInterpretation = reader.IsDBNull(9) ? null : reader.GetString(9),
+                    CompletedAt = reader.GetDateTime(10),
+                    DepressionSeverity = reader.IsDBNull(11) ? null : reader.GetString(11),
+                    AnxietySeverity = reader.IsDBNull(12) ? null : reader.GetString(12),
+                    StressSeverity = reader.IsDBNull(13) ? null : reader.GetString(13),
+                    NeedsConsultation = !reader.IsDBNull(14) && reader.GetBoolean(14)
+                });
+            }
+        }
+
         // Wire relation between Questions and Tests
         foreach (var test in PsychologicalTests)
         {
@@ -394,8 +424,8 @@ public class ApplicationDbContext : IApplicationDbContext
                     IF NOT EXISTS (SELECT 1 FROM dbo.CommunityPosts WHERE Id = @Id)
                     BEGIN
                         INSERT INTO dbo.CommunityPosts 
-                        (Id, StudentId, AnonymousPseudonym, StudentRoleTag, Content, CategoryTag, StressLevelTag, HasKeywordsAlert, DetectedKeywords, SentimentLabel, SentimentScore, RiskScore, IsExtremeCrisis, IsSensitiveHiddenFromStudents, ModerationStatus, ModeratedBy, HugCount, EmpathyCount, CommentCount, CreatedAt)
-                        VALUES (@Id, @StudentId, @AnonymousPseudonym, @StudentRoleTag, @Content, @CategoryTag, @StressLevelTag, @HasKeywordsAlert, @DetectedKeywords, @SentimentLabel, @SentimentScore, @RiskScore, @IsExtremeCrisis, @IsSensitiveHiddenFromStudents, @ModerationStatus, @ModeratedBy, @HugCount, @EmpathyCount, @CommentCount, @CreatedAt)
+                        (Id, StudentId, AnonymousPseudonym, StudentRoleTag, Content, ImageUrl, ImageModerationStatus, ImageModerationNote, CategoryTag, StressLevelTag, HasKeywordsAlert, DetectedKeywords, SentimentLabel, SentimentScore, RiskScore, IsExtremeCrisis, IsSensitiveHiddenFromStudents, ModerationStatus, ModeratedBy, HugCount, EmpathyCount, CommentCount, CreatedAt)
+                        VALUES (@Id, @StudentId, @AnonymousPseudonym, @StudentRoleTag, @Content, @ImageUrl, @ImageModerationStatus, @ImageModerationNote, @CategoryTag, @StressLevelTag, @HasKeywordsAlert, @DetectedKeywords, @SentimentLabel, @SentimentScore, @RiskScore, @IsExtremeCrisis, @IsSensitiveHiddenFromStudents, @ModerationStatus, @ModeratedBy, @HugCount, @EmpathyCount, @CommentCount, @CreatedAt)
                     END
                     ELSE
                     BEGIN
@@ -403,6 +433,9 @@ public class ApplicationDbContext : IApplicationDbContext
                             HugCount = @HugCount, 
                             EmpathyCount = @EmpathyCount, 
                             CommentCount = @CommentCount,
+                            ImageUrl = @ImageUrl,
+                            ImageModerationStatus = @ImageModerationStatus,
+                            ImageModerationNote = @ImageModerationNote,
                             ModerationStatus = @ModerationStatus,
                             ModeratedBy = @ModeratedBy,
                             IsSensitiveHiddenFromStudents = @IsSensitiveHiddenFromStudents
@@ -414,6 +447,9 @@ public class ApplicationDbContext : IApplicationDbContext
                 cmd.Parameters.AddWithValue("@AnonymousPseudonym", post.AnonymousPseudonym);
                 cmd.Parameters.AddWithValue("@StudentRoleTag", post.StudentRoleTag);
                 cmd.Parameters.AddWithValue("@Content", post.Content);
+                cmd.Parameters.AddWithValue("@ImageUrl", (object?)post.ImageUrl ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@ImageModerationStatus", post.ImageModerationStatus ?? "None");
+                cmd.Parameters.AddWithValue("@ImageModerationNote", (object?)post.ImageModerationNote ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@CategoryTag", post.CategoryTag);
                 cmd.Parameters.AddWithValue("@StressLevelTag", (object?)post.StressLevelTag ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@HasKeywordsAlert", post.HasKeywordsAlert);
@@ -663,6 +699,43 @@ public class ApplicationDbContext : IApplicationDbContext
                 cmd.Parameters.AddWithValue("@IsBooked", slot.IsBooked);
                 cmd.Parameters.AddWithValue("@CreatedAt", slot.CreatedAt);
                 await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            // 11. Sync TestResults
+            foreach (var tr in TestResults)
+            {
+                using var cmd = new SqlCommand(@"
+                    IF NOT EXISTS (SELECT 1 FROM dbo.TestResults WHERE Id = @Id)
+                    BEGIN
+                        INSERT INTO dbo.TestResults
+                        (Id, StudentId, TestId, TotalScore, DepressionScore, AnxietyScore, StressScore, DepressionSeverity, AnxietySeverity, StressSeverity, NeedsConsultation, ResilienceRate, SeverityLevel, AiInterpretation, CompletedAt)
+                        VALUES (@Id, @StudentId, @TestId, @TotalScore, @DepressionScore, @AnxietyScore, @StressScore, @DepressionSeverity, @AnxietySeverity, @StressSeverity, @NeedsConsultation, @ResilienceRate, @SeverityLevel, @AiInterpretation, @CompletedAt)
+                    END", conn);
+
+                cmd.Parameters.AddWithValue("@Id", tr.Id);
+                cmd.Parameters.AddWithValue("@StudentId", tr.StudentId);
+                cmd.Parameters.AddWithValue("@TestId", tr.TestId);
+                cmd.Parameters.AddWithValue("@TotalScore", tr.TotalScore);
+                cmd.Parameters.AddWithValue("@DepressionScore", (object?)tr.DepressionScore ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@AnxietyScore", (object?)tr.AnxietyScore ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@StressScore", (object?)tr.StressScore ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@DepressionSeverity", (object?)tr.DepressionSeverity ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@AnxietySeverity", (object?)tr.AnxietySeverity ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@StressSeverity", (object?)tr.StressSeverity ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@NeedsConsultation", tr.NeedsConsultation);
+                cmd.Parameters.AddWithValue("@ResilienceRate", tr.ResilienceRate);
+                cmd.Parameters.AddWithValue("@SeverityLevel", tr.SeverityLevel);
+                cmd.Parameters.AddWithValue("@AiInterpretation", (object?)tr.AiInterpretation ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@CompletedAt", tr.CompletedAt);
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            // 12. Xóa các bài viết đã bị xóa khỏi CSDL SQL Server
+            if (CommunityPosts.Count > 0)
+            {
+                var postIds = string.Join(",", CommunityPosts.Select(p => $"'{p.Id}'"));
+                using var delCmd = new SqlCommand($"DELETE FROM dbo.CommunityComments WHERE PostId NOT IN ({postIds}); DELETE FROM dbo.CommunityPosts WHERE Id NOT IN ({postIds});", conn);
+                await delCmd.ExecuteNonQueryAsync(cancellationToken);
             }
         }
         catch (Exception ex)
