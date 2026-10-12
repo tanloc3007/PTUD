@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Outlet, NavLink, useNavigate, Link } from 'react-router-dom';
+import { Outlet, NavLink, useNavigate, Link, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../../features/auth/store/authStore';
-import { logout } from '../../features/auth/api/authApi';
+import axiosClient, { logout } from '../../features/auth/api/authApi';
 import '../../shared/styles/unimind-student-theme.css';
 
 const DESKTOP_NAV = [
@@ -24,8 +24,34 @@ const MOBILE_NAV = [
 export default function StudentLayout() {
   const { user, clearAuth } = useAuthStore();
   const navigate = useNavigate();
+  const location = useLocation();
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [menuOpen, setMenuOpen] = useState(false);
+
+  // Active meeting detection (Chỉ hiển thị cho sinh viên đã đặt lịch với chuyên viên)
+  const [activeMeeting, setActiveMeeting] = useState(null);
+  const [dismissedMeetingId, setDismissedMeetingId] = useState(null);
+
+  useEffect(() => {
+    const studentId = user?.id || '22222222-2222-2222-2222-222222222221';
+    if (!studentId) return;
+
+    const checkActiveMeeting = () => {
+      axiosClient.get(`/appointments/student/${studentId}/active-meeting`)
+        .then(res => {
+          if (res.data?.data?.hasActiveMeeting) {
+            setActiveMeeting(res.data.data);
+          } else {
+            setActiveMeeting(null);
+          }
+        })
+        .catch(() => {});
+    };
+
+    checkActiveMeeting();
+    const timer = setInterval(checkActiveMeeting, 4000);
+    return () => clearInterval(timer);
+  }, [user?.id]);
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth < 768);
@@ -40,6 +66,7 @@ export default function StudentLayout() {
   };
 
   const anonymousCode = user?.anonymousCode || user?.fullName || 'Bạn Ẩn Danh';
+  const isInMeetingRoom = location.pathname.includes(`/student/meeting/${activeMeeting?.appointmentId}`);
 
   return (
     <div className="student-portal">
@@ -107,6 +134,29 @@ export default function StudentLayout() {
 
         {/* Right controls */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {activeMeeting && !isInMeetingRoom && (
+            <button
+              onClick={() => navigate(`/student/meeting/${activeMeeting.appointmentId}`)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 7,
+                padding: isMobile ? '5px 8px' : '6px 14px',
+                borderRadius: 20,
+                background: '#ecfdf5',
+                border: '1.5px solid #10b981',
+                color: '#065f46',
+                fontSize: 12,
+                fontWeight: 800,
+                cursor: 'pointer',
+                boxShadow: '0 0 12px rgba(16, 185, 129, 0.25)',
+              }}
+            >
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444', display: 'inline-block' }} />
+              <span>{isMobile ? 'Vào phòng' : `🔴 Vào phòng (${activeMeeting.expertName})`}</span>
+            </button>
+          )}
+
           {!isMobile ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <div style={{
@@ -237,6 +287,109 @@ export default function StudentLayout() {
             </NavLink>
           ))}
         </nav>
+      )}
+
+      {/* ══════════════ FLOATING NOTIFICATION: CUỘC HỌP ĐANG MỞ (CHỈ DÀNH RIÊNG CHO SINH VIÊN ĐÃ ĐẶT LỊCH) ══════════════ */}
+      {activeMeeting && !isInMeetingRoom && dismissedMeetingId !== activeMeeting.appointmentId && (
+        <div style={{
+          position: 'fixed',
+          top: 72,
+          right: isMobile ? 12 : 24,
+          width: 380,
+          maxWidth: 'calc(100vw - 24px)',
+          background: 'rgba(255, 255, 255, 0.98)',
+          backdropFilter: 'blur(16px)',
+          borderRadius: 16,
+          boxShadow: '0 20px 45px -10px rgba(15, 118, 110, 0.3), 0 0 0 1.5px rgba(13, 148, 136, 0.3)',
+          padding: '16px 18px',
+          zIndex: 9999,
+          animation: 'slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                fontSize: 11,
+                fontWeight: 900,
+                color: '#047857',
+                background: '#d1fae5',
+                padding: '2px 8px',
+                borderRadius: 12,
+                letterSpacing: '0.04em'
+              }}>
+                <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#ef4444', display: 'inline-block' }} />
+                CUỘC HỌP ĐANG MỞ
+              </span>
+              <span style={{ fontSize: 11.5, fontWeight: 700, color: '#64748b' }}>
+                #{activeMeeting.bookingCode}
+              </span>
+            </div>
+            <button
+              onClick={() => setDismissedMeetingId(activeMeeting.appointmentId)}
+              title="Thu nhỏ thông báo"
+              style={{
+                background: 'none',
+                border: 'none',
+                fontSize: 16,
+                color: '#94a3b8',
+                cursor: 'pointer',
+                padding: 0,
+                lineHeight: 1
+              }}
+            >
+              ✕
+            </button>
+          </div>
+
+          <h3 style={{ fontSize: 14.5, fontWeight: 900, color: '#0f172a', margin: '0 0 4px', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+            Chuyên viên {activeMeeting.expertName} đang đợi bạn!
+          </h3>
+          <p style={{ fontSize: 12.5, color: '#475569', margin: '0 0 14px', lineHeight: 1.5 }}>
+            Chuyên viên đã mở phòng tư vấn trực tuyến cho ca hẹn của bạn. Bạn không cần nhập mã mời, hãy tham gia ngay.
+          </p>
+
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={() => navigate(`/student/meeting/${activeMeeting.appointmentId}`)}
+              style={{
+                flex: 1,
+                padding: '9px 14px',
+                background: 'linear-gradient(135deg, #0d9488 0%, #0f766e 100%)',
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: 10,
+                fontSize: 13,
+                fontWeight: 800,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+                boxShadow: '0 4px 14px rgba(13, 148, 136, 0.35)',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              <span>🎥</span> Tham gia ngay
+            </button>
+            <button
+              onClick={() => setDismissedMeetingId(activeMeeting.appointmentId)}
+              style={{
+                padding: '9px 12px',
+                background: '#f1f5f9',
+                color: '#64748b',
+                border: '1px solid #e2e8f0',
+                borderRadius: 10,
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: 'pointer'
+              }}
+            >
+              Tạm ẩn
+            </button>
+          </div>
+        </div>
       )}
 
     </div>

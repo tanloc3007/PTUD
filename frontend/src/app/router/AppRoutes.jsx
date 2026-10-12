@@ -22,6 +22,7 @@ const JournalPage          = lazy(() => import('../../features/student/pages/Jou
 const TestPage             = lazy(() => import('../../features/student/pages/TestPage'));
 const SafeRoomPage         = lazy(() => import('../../features/student/pages/SafeRoomPage'));
 const StudentProfilePage   = lazy(() => import('../../features/student/pages/ProfilePage'));
+const StudentMeetingRoomPage = lazy(() => import('../../features/student/pages/StudentMeetingRoomPage'));
 
 // Expert Pages
 const ExpertWorkspacePage  = lazy(() => import('../../features/expert/pages/WorkspacePage'));
@@ -80,6 +81,7 @@ export default function AppRoutes() {
         <Route path="test"      element={wrap(<TestPage />)} />
         <Route path="saferoom"  element={wrap(<SafeRoomPage />)} />
         <Route path="profile"   element={wrap(<StudentProfilePage />)} />
+        <Route path="meeting/:id" element={wrap(<StudentMeetingRoomPage />)} />
       </Route>
 
       {/* ══════════════ EXPERT ══════════════ */}

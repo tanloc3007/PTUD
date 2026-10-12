@@ -31,6 +31,7 @@ public class Expert
     public double Rating { get; set; } = 5.0;
     public int TotalConsultations { get; set; }
     public bool IsAvailable { get; set; } = true;
+    public string Permissions { get; set; } = "PERM_WORKSPACE,PERM_SCHEDULE,PERM_ANALYTICS,PERM_MODERATION";
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public User? User { get; set; }
@@ -66,6 +67,8 @@ public class Appointment
     public string? ClinicalNotes { get; set; }
     public string? Dass21Summary { get; set; }
     public int RiskScore { get; set; }
+    public bool IsMeetingActive { get; set; } = false;
+    public DateTime? MeetingStartedAt { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAt { get; set; }
 

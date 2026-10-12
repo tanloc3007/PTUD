@@ -51,8 +51,22 @@ public class AuthService : IAuthService
             return Task.FromResult(Result<AuthResponse>.Fail("Tài khoản của bạn hiện đang bị khóa.", "ACCOUNT_LOCKED"));
         }
 
+        List<string>? permissions = null;
+        if (user.Role == UserRole.Expert)
+        {
+            var exp = _context.Experts.FirstOrDefault(e => e.UserId == user.Id);
+            if (exp != null && !string.IsNullOrWhiteSpace(exp.Permissions))
+            {
+                permissions = exp.Permissions.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+            }
+            else
+            {
+                permissions = new List<string> { "PERM_WORKSPACE", "PERM_SCHEDULE", "PERM_ANALYTICS", "PERM_MODERATION" };
+            }
+        }
+
         var token = _jwtProvider.Generate(user);
-        var userDto = new UserDto(user.Id, user.MSSV, user.FullName, user.Email, user.Role.ToString(), user.Faculty, user.AnonymousCode, user.AvatarUrl);
+        var userDto = new UserDto(user.Id, user.MSSV, user.FullName, user.Email, user.Role.ToString(), user.Faculty, user.AnonymousCode, user.AvatarUrl, permissions);
         return Task.FromResult(Result<AuthResponse>.Ok(new AuthResponse(token, userDto), "Đăng nhập thành công"));
     }
 
@@ -117,7 +131,21 @@ public class AuthService : IAuthService
         if (user == null)
             return Task.FromResult(Result<UserDto>.Fail("Không tìm thấy thông tin người dùng", "USER_NOT_FOUND"));
 
-        var userDto = new UserDto(user.Id, user.MSSV, user.FullName, user.Email, user.Role.ToString(), user.Faculty, user.AnonymousCode, user.AvatarUrl);
+        List<string>? permissions = null;
+        if (user.Role == UserRole.Expert)
+        {
+            var exp = _context.Experts.FirstOrDefault(e => e.UserId == user.Id);
+            if (exp != null && !string.IsNullOrWhiteSpace(exp.Permissions))
+            {
+                permissions = exp.Permissions.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+            }
+            else
+            {
+                permissions = new List<string> { "PERM_WORKSPACE", "PERM_SCHEDULE", "PERM_ANALYTICS", "PERM_MODERATION" };
+            }
+        }
+
+        var userDto = new UserDto(user.Id, user.MSSV, user.FullName, user.Email, user.Role.ToString(), user.Faculty, user.AnonymousCode, user.AvatarUrl, permissions);
         return Task.FromResult(Result<UserDto>.Ok(userDto));
     }
 }
@@ -508,6 +536,38 @@ public class CommunityService : ICommunityService
         _aiService = aiService;
     }
 
+    private static List<string> GetCategoryAliases(string category)
+    {
+        var list = new List<string> { category };
+        var trimmed = category.Trim();
+        if (trimmed.Equals("Góc học tập", StringComparison.OrdinalIgnoreCase) || trimmed.Equals("Áp lực học tập", StringComparison.OrdinalIgnoreCase))
+        {
+            list.Add("Góc học tập");
+            list.Add("Áp lực học tập");
+        }
+        else if (trimmed.Equals("Gia đình & Bạn bè", StringComparison.OrdinalIgnoreCase) || trimmed.Equals("Mối quan hệ & Gia đình", StringComparison.OrdinalIgnoreCase))
+        {
+            list.Add("Gia đình & Bạn bè");
+            list.Add("Mối quan hệ & Gia đình");
+        }
+        else if (trimmed.Equals("Chuyện thường ngày", StringComparison.OrdinalIgnoreCase) || trimmed.Equals("Chia sẻ tích cực", StringComparison.OrdinalIgnoreCase))
+        {
+            list.Add("Chuyện thường ngày");
+            list.Add("Chia sẻ tích cực");
+        }
+        else if (trimmed.Equals("Góc tâm sự", StringComparison.OrdinalIgnoreCase) || trimmed.Equals("Cô đơn & Lạc lõng", StringComparison.OrdinalIgnoreCase))
+        {
+            list.Add("Góc tâm sự");
+            list.Add("Cô đơn & Lạc lõng");
+        }
+        else if (trimmed.Equals("Định hướng & Tương lai", StringComparison.OrdinalIgnoreCase) || trimmed.Equals("Việc làm & Tài chính", StringComparison.OrdinalIgnoreCase))
+        {
+            list.Add("Định hướng & Tương lai");
+            list.Add("Việc làm & Tài chính");
+        }
+        return list.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
     public Task<Result<List<PostDto>>> GetFeedAsync(bool isStaffOrAdmin, string? category = null)
     {
         var query = _context.CommunityPosts.AsQueryable();
@@ -520,7 +580,8 @@ public class CommunityService : ICommunityService
 
         if (!string.IsNullOrWhiteSpace(category) && category != "Tất cả")
         {
-            query = query.Where(p => p.CategoryTag == category);
+            var aliases = GetCategoryAliases(category);
+            query = query.Where(p => aliases.Contains(p.CategoryTag));
         }
 
         var postList = query.OrderByDescending(p => p.CreatedAt).ToList();
@@ -717,6 +778,17 @@ public class CommunityService : ICommunityService
         post.ImageModerationStatus = request.Action; // Approved, Rejected, Flagged
         post.ImageModerationNote = request.Note;
         post.ModeratedBy = moderatorUserId;
+
+        _context.AuditLogs.Add(new AuditLog
+        {
+            Id = Guid.NewGuid(),
+            ActionType = "MODERATE_IMAGE",
+            ActorRole = "Moderator",
+            ActorId = moderatorUserId,
+            Details = $"Kiểm duyệt hình ảnh bài viết #{post.Id.ToString()[..8]}: {request.Action} (Ghi chú: {request.Note ?? "Không có"})",
+            IpAddress = "127.0.0.1",
+            CreatedAt = DateTime.UtcNow
+        });
 
         await _context.SaveChangesAsync();
 
@@ -1172,6 +1244,7 @@ public class AppointmentService : IAppointmentService
         {
             app.Dass21Summary = request.Dass21Summary;
         }
+        app.IsMeetingActive = false;
         app.UpdatedAt = DateTime.UtcNow;
 
         var exp = _context.Experts.FirstOrDefault(e => e.Id == app.ExpertId);
@@ -1179,6 +1252,129 @@ public class AppointmentService : IAppointmentService
 
         await _context.SaveChangesAsync();
         return Result<AppointmentDto>.Ok(null!, "Đã hoàn thành ca tư vấn và lưu hồ sơ");
+    }
+
+    public Task<Result<AppointmentDto>> GetAppointmentByIdAsync(Guid appointmentId)
+    {
+        var a = _context.Appointments.FirstOrDefault(x => x.Id == appointmentId);
+        if (a == null) return Task.FromResult(Result<AppointmentDto>.Fail("Không tìm thấy ca hẹn", "NOT_FOUND"));
+
+        var exp = _context.Experts.FirstOrDefault(e => e.Id == a.ExpertId || e.UserId == a.ExpertId);
+        var expUser = exp != null ? _context.Users.FirstOrDefault(u => u.Id == exp.UserId) : null;
+        var slot = _context.TimeSlots.FirstOrDefault(s => s.Id == a.TimeSlotId);
+
+        var dto = new AppointmentDto(
+            a.Id,
+            a.BookingCode,
+            a.AnonymousPseudonym,
+            expUser?.FullName ?? "Chuyên viên UniMind",
+            exp?.Title ?? "ThS.",
+            slot?.SlotDate.ToString("yyyy-MM-dd") ?? a.CreatedAt.ToString("yyyy-MM-dd"),
+            slot?.StartTime.ToString("HH:mm") ?? "08:30",
+            slot?.EndTime.ToString("HH:mm") ?? "09:30",
+            slot?.RoomName ?? "P.302",
+            a.ConsultationType.ToString(),
+            a.Status.ToString(),
+            a.ReasonNotes,
+            a.RejectionReason,
+            a.ClinicalNotes,
+            a.Dass21Summary,
+            a.RiskScore,
+            a.CreatedAt
+        );
+        return Task.FromResult(Result<AppointmentDto>.Ok(dto));
+    }
+
+    public async Task<Result> StartMeetingAsync(Guid appointmentId, Guid expertUserId)
+    {
+        var app = _context.Appointments.FirstOrDefault(a => a.Id == appointmentId);
+        if (app == null) return Result.Fail("Lịch hẹn không tồn tại", "NOT_FOUND");
+
+        app.IsMeetingActive = true;
+        app.MeetingStartedAt = DateTime.UtcNow;
+        if (app.Status == AppointmentStatus.Pending)
+        {
+            app.Status = AppointmentStatus.Confirmed;
+        }
+        app.UpdatedAt = DateTime.UtcNow;
+
+        var expert = _context.Experts.FirstOrDefault(e => e.Id == app.ExpertId);
+        var expertUser = expert != null ? _context.Users.FirstOrDefault(u => u.Id == expert.UserId) : null;
+        var expertName = expertUser?.FullName ?? expert?.Title ?? "Chuyên viên Tâm lý";
+
+        _context.AuditLogs.Add(new AuditLog
+        {
+            Id = Guid.NewGuid(),
+            ActionType = "EXPERT_START_MEETING",
+            ActorRole = "Expert",
+            ActorId = expertUserId,
+            Details = $"Chuyên viên {expertName} đã mở cuộc họp tư vấn trực tuyến cho ca hẹn #{app.BookingCode} ({app.AnonymousPseudonym})",
+            IpAddress = "127.0.0.1",
+            CreatedAt = DateTime.UtcNow
+        });
+
+        await _context.SaveChangesAsync();
+        return Result.Ok("Đã kích hoạt phòng tư vấn trực tuyến và gửi thông báo tới sinh viên đặt lịch");
+    }
+
+    public async Task<Result> EndMeetingAsync(Guid appointmentId)
+    {
+        var app = _context.Appointments.FirstOrDefault(a => a.Id == appointmentId);
+        if (app == null) return Result.Fail("Lịch hẹn không tồn tại", "NOT_FOUND");
+
+        app.IsMeetingActive = false;
+        app.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
+        return Result.Ok("Đã đóng phòng tư vấn trực tuyến");
+    }
+
+    public Task<Result<ActiveMeetingDto>> GetActiveMeetingForStudentAsync(Guid studentId)
+    {
+        var activeAppt = _context.Appointments
+            .Where(a => a.StudentId == studentId && a.IsMeetingActive && a.Status != AppointmentStatus.Completed && a.Status != AppointmentStatus.Cancelled)
+            .OrderByDescending(a => a.MeetingStartedAt)
+            .FirstOrDefault();
+
+        if (activeAppt == null)
+        {
+            return Task.FromResult(Result<ActiveMeetingDto>.Ok(new ActiveMeetingDto(false)));
+        }
+
+        var expert = _context.Experts.FirstOrDefault(e => e.Id == activeAppt.ExpertId);
+        var expertUser = expert != null ? _context.Users.FirstOrDefault(u => u.Id == expert.UserId) : null;
+
+        var dto = new ActiveMeetingDto(
+            HasActiveMeeting: true,
+            AppointmentId: activeAppt.Id,
+            BookingCode: activeAppt.BookingCode,
+            ExpertName: expertUser?.FullName ?? "Chuyên viên Tâm lý",
+            ExpertTitle: expert?.Title ?? "Chuyên viên",
+            RoomLocation: expert?.RoomLocation ?? "SafeRoom Online",
+            ConsultationType: activeAppt.ConsultationType.ToString(),
+            StartedAt: activeAppt.MeetingStartedAt
+        );
+
+        return Task.FromResult(Result<ActiveMeetingDto>.Ok(dto));
+    }
+
+    public Task<Result<bool>> VerifyMeetingParticipantAsync(Guid appointmentId, Guid userId)
+    {
+        var app = _context.Appointments.FirstOrDefault(a => a.Id == appointmentId);
+        if (app == null) return Task.FromResult(Result<bool>.Fail("Không tìm thấy ca hẹn", "NOT_FOUND"));
+
+        var expert = _context.Experts.FirstOrDefault(e => e.Id == app.ExpertId);
+        var user = _context.Users.FirstOrDefault(u => u.Id == userId);
+
+        bool isAllowed = app.StudentId == userId || 
+                         (expert != null && expert.UserId == userId) || 
+                         (user != null && user.Role == UserRole.Admin);
+
+        if (!isAllowed)
+        {
+            return Task.FromResult(Result<bool>.Fail("Bạn không phải là người tham gia được cấp quyền cho ca hẹn này.", "FORBIDDEN"));
+        }
+
+        return Task.FromResult(Result<bool>.Ok(true));
     }
 }
 
@@ -2012,6 +2208,16 @@ public class AdminService : IAdminService
         }
 
         post.ModeratedBy = adminUserId;
+        _context.AuditLogs.Add(new AuditLog
+        {
+            Id = Guid.NewGuid(),
+            ActionType = "ADMIN_MODERATE_POST",
+            ActorRole = "Admin",
+            ActorId = adminUserId,
+            Details = $"Admin kiểm duyệt bài viết #{post.Id.ToString()[..8]} ({post.AnonymousPseudonym}) - Hành động: {request.Action} - Lý do: {request.Reason ?? "Kiểm duyệt định kỳ"}",
+            IpAddress = "127.0.0.1",
+            CreatedAt = DateTime.UtcNow
+        });
         await _context.SaveChangesAsync();
         return Result.Ok("Đã cập nhật trạng thái kiểm duyệt");
     }
@@ -2032,6 +2238,15 @@ public class AdminService : IAdminService
         if (user == null) return Result.Fail("Không tìm thấy người dùng", "NOT_FOUND");
 
         user.IsActive = !user.IsActive;
+        _context.AuditLogs.Add(new AuditLog
+        {
+            Id = Guid.NewGuid(),
+            ActionType = "ADMIN_TOGGLE_USER_STATUS",
+            ActorRole = "Admin",
+            Details = $"Admin {(user.IsActive ? "mở khóa" : "khóa")} tài khoản: {user.FullName} ({user.Email}, MSSV: {user.MSSV})",
+            IpAddress = "127.0.0.1",
+            CreatedAt = DateTime.UtcNow
+        });
         await _context.SaveChangesAsync();
         return Result.Ok(user.IsActive ? "Đã mở khóa tài khoản" : "Đã khóa tài khoản");
     }
@@ -2066,6 +2281,15 @@ public class AdminService : IAdminService
         };
 
         _context.SensitiveKeywords.Add(item);
+        _context.AuditLogs.Add(new AuditLog
+        {
+            Id = Guid.NewGuid(),
+            ActionType = "ADMIN_ADD_KEYWORD",
+            ActorRole = "Admin",
+            Details = $"Thêm từ khóa nhạy cảm mới: \"{item.Keyword}\" (Trọng số rủi ro: {item.RiskWeight}/100, Phân loại: {item.Category})",
+            IpAddress = "127.0.0.1",
+            CreatedAt = DateTime.UtcNow
+        });
         await _context.SaveChangesAsync();
         return Result<SensitiveKeywordDto>.Ok(new SensitiveKeywordDto(item.Id, item.Keyword, item.Category, item.RiskWeight, item.AddedByRole, item.IsActive, item.CreatedAt), "Đã thêm từ khóa mới vào bộ lọc tự động");
     }
@@ -2076,6 +2300,15 @@ public class AdminService : IAdminService
         if (item == null) return Result.Fail("Không tìm thấy từ khóa", "NOT_FOUND");
 
         _context.SensitiveKeywords.Remove(item);
+        _context.AuditLogs.Add(new AuditLog
+        {
+            Id = Guid.NewGuid(),
+            ActionType = "ADMIN_DELETE_KEYWORD",
+            ActorRole = "Admin",
+            Details = $"Xóa từ khóa nhạy cảm: \"{item.Keyword}\"",
+            IpAddress = "127.0.0.1",
+            CreatedAt = DateTime.UtcNow
+        });
         await _context.SaveChangesAsync();
         return Result.Ok("Đã xóa từ khóa khỏi danh sách");
     }
@@ -2090,6 +2323,15 @@ public class AdminService : IAdminService
 
         user.Role = parsedRole;
         user.UpdatedAt = DateTime.UtcNow;
+        _context.AuditLogs.Add(new AuditLog
+        {
+            Id = Guid.NewGuid(),
+            ActionType = "ADMIN_UPDATE_ROLE",
+            ActorRole = "Admin",
+            Details = $"Cập nhật phân quyền tài khoản: {user.FullName} ({user.Email}) thành vai trò {parsedRole}",
+            IpAddress = "127.0.0.1",
+            CreatedAt = DateTime.UtcNow
+        });
         await _context.SaveChangesAsync();
 
         var dto = new UserDto(user.Id, user.MSSV, user.FullName, user.Email, user.Role.ToString(), user.Faculty, user.AnonymousCode, user.AvatarUrl);
@@ -2252,5 +2494,54 @@ public class AdminService : IAdminService
         );
 
         return Result<ExpertDto>.Ok(dto, "Thêm chuyên viên mới thành công!");
+    }
+
+    public Task<Result<List<ExpertPermissionDto>>> GetExpertsPermissionsAsync()
+    {
+        var list = new List<ExpertPermissionDto>();
+        foreach (var exp in _context.Experts)
+        {
+            var user = _context.Users.FirstOrDefault(u => u.Id == exp.UserId);
+            var perms = string.IsNullOrWhiteSpace(exp.Permissions)
+                ? new List<string> { "PERM_WORKSPACE", "PERM_SCHEDULE", "PERM_ANALYTICS", "PERM_MODERATION" }
+                : exp.Permissions.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+
+            list.Add(new ExpertPermissionDto(
+                exp.Id,
+                exp.UserId,
+                user?.FullName ?? exp.Title,
+                user?.Email ?? "expert@unimind.edu.vn",
+                exp.Title,
+                exp.Specialization,
+                perms
+            ));
+        }
+
+        return Task.FromResult(Result<List<ExpertPermissionDto>>.Ok(list));
+    }
+
+    public async Task<Result> UpdateExpertPermissionsAsync(Guid expertId, UpdateExpertPermissionsRequest request, Guid adminId)
+    {
+        var expert = _context.Experts.FirstOrDefault(e => e.Id == expertId);
+        if (expert == null)
+            return Result.Fail("Không tìm thấy thông tin chuyên viên", "NOT_FOUND");
+
+        var user = _context.Users.FirstOrDefault(u => u.Id == expert.UserId);
+        var cleanPerms = request.Permissions?.Distinct().ToList() ?? new List<string>();
+        expert.Permissions = string.Join(",", cleanPerms);
+
+        _context.AuditLogs.Add(new AuditLog
+        {
+            Id = Guid.NewGuid(),
+            ActionType = "ADMIN_UPDATE_EXPERT_PERMISSIONS",
+            ActorRole = "Admin",
+            ActorId = adminId,
+            Details = $"Admin phân quyền cho chuyên viên {user?.FullName ?? expert.Title}: [{string.Join(", ", cleanPerms)}]",
+            IpAddress = "127.0.0.1",
+            CreatedAt = DateTime.UtcNow
+        });
+
+        await _context.SaveChangesAsync();
+        return Result.Ok($"Đã cập nhật phân quyền cho chuyên viên {user?.FullName ?? expert.Title}");
     }
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Outlet, NavLink, useNavigate } from 'react-router-dom';
+import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../../features/auth/store/authStore';
 import { logout } from '../../features/auth/api/authApi';
 import ThemeToggle from '../../shared/components/ThemeToggle';
@@ -8,22 +8,33 @@ import '../../shared/styles/unimind-expert-theme.css';
 const THEME_KEY = 'unimind-expert-theme';
 const SIDEBAR_WIDTH = 250;
 
-const NAV_ITEMS = [
-  { to: '/expert/workspace',    label: 'Bàn làm việc' },
-  { to: '/expert/schedule',     label: 'Lịch hẹn & Duyệt ca' },
-  { to: '/expert/analytics',    label: 'Phân tích & Cảnh báo' },
-  { to: '/expert/moderation',   label: 'Kiểm duyệt bài viết' },
-  { to: '/expert/profile',      label: 'Hồ sơ chuyên viên' },
+const ALL_NAV_ITEMS = [
+  { to: '/expert/workspace',    label: 'Bàn làm việc',          permission: 'PERM_WORKSPACE' },
+  { to: '/expert/schedule',     label: 'Lịch hẹn & Duyệt ca',    permission: 'PERM_SCHEDULE' },
+  { to: '/expert/analytics',    label: 'Phân tích & Cảnh báo',   permission: 'PERM_ANALYTICS' },
+  { to: '/expert/moderation',   label: 'Kiểm duyệt bài viết',    permission: 'PERM_MODERATION' },
+  { to: '/expert/profile',      label: 'Hồ sơ chuyên viên',      permission: null },
 ];
 
 export default function ExpertLayout() {
   const { user, clearAuth } = useAuthStore();
   const navigate = useNavigate();
+  const location = useLocation();
   const [theme, setTheme] = useState(
     () => localStorage.getItem(THEME_KEY) || 'light'
   );
   const [isMobile, setIsMobile]   = useState(window.innerWidth < 768);
   const [sidebarOpen, setSidebar] = useState(false);
+
+  // Phân quyền chi tiết cho chuyên viên (Mặc định đầy đủ quyền nếu chưa cấu hình)
+  const userPerms = Array.isArray(user?.permissions) && user.permissions.length > 0
+    ? user.permissions
+    : ['PERM_WORKSPACE', 'PERM_SCHEDULE', 'PERM_ANALYTICS', 'PERM_MODERATION'];
+
+  const navItems = ALL_NAV_ITEMS.filter(item => !item.permission || userPerms.includes(item.permission));
+
+  const currentNavItem = ALL_NAV_ITEMS.find(item => item.to === location.pathname);
+  const isUnauthorized = currentNavItem?.permission && !userPerms.includes(currentNavItem.permission);
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth < 768);
@@ -106,14 +117,14 @@ export default function ExpertLayout() {
                 {user?.fullName || 'Chuyên viên'}
               </p>
               <p style={{ fontSize: 11, color: 'var(--e-primary)', margin: 0, fontWeight: 600 }}>
-                Chuyên viên Tâm lý
+                {userPerms.length < 4 ? `Được cấp ${userPerms.length}/4 quyền` : 'Chuyên viên Tâm lý'}
               </p>
             </div>
           </div>
 
           {/* Navigation */}
           <nav style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {NAV_ITEMS.map(item => (
+            {navItems.map(item => (
               <NavLink
                 key={item.to}
                 to={item.to}
@@ -198,7 +209,36 @@ export default function ExpertLayout() {
             transition: 'margin 0.25s ease',
           }}
         >
-          <Outlet />
+          {isUnauthorized ? (
+            <div style={{
+              maxWidth: 580,
+              margin: '60px auto',
+              textAlign: 'center',
+              background: 'var(--e-card)',
+              padding: '40px 32px',
+              borderRadius: 16,
+              border: '1px solid #fecdd3',
+              boxShadow: '0 10px 25px -5px rgba(225, 29, 72, 0.08)'
+            }}>
+              <div style={{ fontSize: 52, marginBottom: 16 }}>🛡️</div>
+              <h2 style={{ fontSize: 20, fontWeight: 800, color: '#e11d48', margin: '0 0 10px' }}>
+                Quyền truy cập bị giới hạn
+              </h2>
+              <p style={{ fontSize: 14, color: 'var(--e-text-muted)', lineHeight: 1.6, margin: '0 0 24px' }}>
+                Tài khoản của bạn chưa được Quản trị viên cấp quyền truy cập mục <strong>"{currentNavItem?.label}"</strong>.
+                Hệ thống tuân thủ phân quyền chức năng tối thiểu theo chuẩn Playbook. Vui lòng liên hệ Admin để được cấp quyền.
+              </p>
+              <button
+                onClick={() => navigate(navItems[0]?.to || '/expert/profile')}
+                className="expert-primary-btn"
+                style={{ padding: '10px 22px', borderRadius: 8, cursor: 'pointer', fontWeight: 700 }}
+              >
+                ← Quay lại trang được phép ({navItems[0]?.label || 'Hồ sơ'})
+              </button>
+            </div>
+          ) : (
+            <Outlet />
+          )}
         </main>
 
       </div>

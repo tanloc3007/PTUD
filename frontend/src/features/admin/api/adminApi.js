@@ -79,3 +79,19 @@ export async function getAdminReports() {
     return null;
   }
 }
+
+/** Lấy danh sách chuyên viên kèm phân quyền chức năng */
+export async function getExpertsPermissions() {
+  try {
+    const res = await axiosClient.get('/admin/experts/permissions');
+    return res.data;
+  } catch (err) {
+    return null;
+  }
+}
+
+/** Cập nhật phân quyền chức năng cho chuyên viên */
+export async function updateExpertPermissions(expertId, permissions) {
+  const res = await axiosClient.patch(`/admin/experts/${expertId}/permissions`, { permissions });
+  return res.data;
+}

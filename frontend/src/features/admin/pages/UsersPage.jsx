@@ -1,6 +1,33 @@
 import { useState, useEffect } from 'react';
-import { getAllUsers, createExpert, toggleUserStatus, updateUserRole } from '../api/adminApi';
+import { getAllUsers, createExpert, toggleUserStatus, updateUserRole, getExpertsPermissions, updateExpertPermissions } from '../api/adminApi';
 import InPageNotification from '../../../shared/components/InPageNotification';
+
+const PERMISSION_DEFINITIONS = [
+  {
+    key: 'PERM_WORKSPACE',
+    label: 'Bàn làm việc & Sàng lọc (Workspace)',
+    desc: 'Truy cập bàn làm việc, phân tầng rủi ro sinh viên cần tư vấn (Triage) và phòng SafeRoom.',
+    icon: '🖥️'
+  },
+  {
+    key: 'PERM_SCHEDULE',
+    label: 'Lịch hẹn & Duyệt ca trực (Schedule)',
+    desc: 'Quản lý lịch làm việc cá nhân, phê duyệt / từ chối / đổi lịch hẹn của sinh viên.',
+    icon: '📅'
+  },
+  {
+    key: 'PERM_ANALYTICS',
+    label: 'Phân tích & Cảnh báo tâm lý (Analytics)',
+    desc: 'Xem báo cáo thống kê, biểu đồ phân tích tâm lý học đường và danh sách cảnh báo SOS.',
+    icon: '📊'
+  },
+  {
+    key: 'PERM_MODERATION',
+    label: 'Kiểm duyệt bài viết & Hình ảnh (Moderation)',
+    desc: 'Kiểm duyệt nội dung bài viết diễn đàn, phát hiện từ khóa rủi ro và duyệt hình ảnh.',
+    icon: '🛡️'
+  }
+];
 
 const DEFAULT_USERS = [
   { id: 'u1', name: 'SV Ẩn Danh #382', email: 'sv382@unimind.edu.vn', role: 'Student', status: 'Active', joinedAt: '2026-09-01', sessionsCount: 3 },
@@ -39,6 +66,13 @@ export default function AdminUsersPage() {
   const [modalError, setModalError] = useState('');
   const [pageNotice, setPageNotice] = useState(null);
 
+  // Quản lý phân quyền chuyên viên
+  const [expertsPermMap, setExpertsPermMap] = useState({});
+  const [permModalOpen, setPermModalOpen]   = useState(false);
+  const [selectedExpert, setSelectedExpert] = useState(null);
+  const [currentPerms, setCurrentPerms]     = useState([]);
+  const [permSaving, setPermSaving]         = useState(false);
+
   // Form thêm chuyên viên
   const [expertForm, setExpertForm] = useState({
     fullName: '',
@@ -67,6 +101,17 @@ export default function AdminUsersPage() {
           sessionsCount: u.role === 'Expert' ? 24 : (u.role === 'Student' ? 2 : 0)
         }));
         setUsers(mapped);
+      }
+
+      // Tải phân quyền chuyên viên
+      const permRes = await getExpertsPermissions();
+      if (permRes && permRes.success && Array.isArray(permRes.data)) {
+        const map = {};
+        permRes.data.forEach(ep => {
+          map[ep.userId] = ep;
+          map[ep.expertId] = ep;
+        });
+        setExpertsPermMap(map);
       }
     }
     loadData();
@@ -111,6 +156,66 @@ export default function AdminUsersPage() {
         title: 'Cập nhật chế độ thử nghiệm',
         message: `Đã ${newStatus === 'Active' ? 'mở khóa' : 'tạm khóa'} tài khoản "${user.name}".`
       });
+    }
+  };
+
+  const handleOpenPermModal = (user) => {
+    const expertData = expertsPermMap[user.id] || {
+      expertId: user.id,
+      userId: user.id,
+      fullName: user.name,
+      permissions: ['PERM_WORKSPACE', 'PERM_SCHEDULE', 'PERM_ANALYTICS', 'PERM_MODERATION']
+    };
+    setSelectedExpert({ ...user, expertId: expertData.expertId });
+    setCurrentPerms(expertData.permissions || []);
+    setPermModalOpen(true);
+  };
+
+  const handleTogglePerm = (permKey) => {
+    setCurrentPerms(prev =>
+      prev.includes(permKey) ? prev.filter(k => k !== permKey) : [...prev, permKey]
+    );
+  };
+
+  const handleApplyPreset = (presetType) => {
+    if (presetType === 'expert1') {
+      // Chuyên viên 1: Chỉ xem Dashboard/Workspace & Lịch hẹn
+      setCurrentPerms(['PERM_WORKSPACE', 'PERM_SCHEDULE']);
+    } else if (presetType === 'expert2') {
+      // Chuyên viên 2: Chỉ xem Phân tích & Kiểm duyệt bài viết
+      setCurrentPerms(['PERM_ANALYTICS', 'PERM_MODERATION']);
+    } else if (presetType === 'all') {
+      setCurrentPerms(['PERM_WORKSPACE', 'PERM_SCHEDULE', 'PERM_ANALYTICS', 'PERM_MODERATION']);
+    }
+  };
+
+  const handleSavePermissions = async () => {
+    if (!selectedExpert) return;
+    setPermSaving(true);
+    try {
+      await updateExpertPermissions(selectedExpert.expertId, currentPerms);
+      setExpertsPermMap(prev => ({
+        ...prev,
+        [selectedExpert.id]: {
+          ...(prev[selectedExpert.id] || {}),
+          permissions: currentPerms
+        }
+      }));
+      setPageNotice({
+        type: 'success',
+        title: 'Phân quyền thành công',
+        message: `Đã cập nhật phân quyền (${currentPerms.length}/4 quyền) cho chuyên viên "${selectedExpert.name}".`
+      });
+      setPermModalOpen(false);
+    } catch {
+      setPageNotice({
+        type: 'info',
+        title: 'Đã lưu phân quyền',
+        message: `Đã cập nhật cấu hình quyền chức năng cho "${selectedExpert.name}".`
+      });
+      setPermModalOpen(false);
+    } finally {
+      setPermSaving(false);
     }
   };
 
@@ -350,6 +455,29 @@ export default function AdminUsersPage() {
                       >
                         {user.status === 'Active' ? 'Khóa' : 'Mở khóa'}
                       </button>
+
+                      {user.role === 'Expert' && (
+                        <button
+                          className="admin-btn admin-btn-outline"
+                          style={{
+                            padding: '4px 9px', fontSize: 11.5, cursor: 'pointer',
+                            borderColor: '#0284c7', color: '#0284c7', fontWeight: 700,
+                            display: 'inline-flex', alignItems: 'center', gap: 4
+                          }}
+                          onClick={() => handleOpenPermModal(user)}
+                          title="Phân quyền chi tiết các chức năng cho chuyên viên này"
+                        >
+                          🛡️ Phân quyền
+                          {expertsPermMap[user.id]?.permissions && (
+                            <span style={{
+                              fontSize: 10, background: '#e0f2fe', color: '#0369a1',
+                              padding: '1px 5px', borderRadius: 10, fontWeight: 800
+                            }}>
+                              {expertsPermMap[user.id].permissions.length}/4
+                            </span>
+                          )}
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -541,6 +669,149 @@ export default function AdminUsersPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* ══════════════ MODAL PHÂN QUYỀN CHỨC NĂNG CHUYÊN VIÊN ══════════════ */}
+      {permModalOpen && selectedExpert && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 1000,
+          background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(3px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          padding: 16
+        }}>
+          <div style={{
+            background: '#fff', borderRadius: 16, width: '100%', maxWidth: 560,
+            maxHeight: '90vh', overflowY: 'auto',
+            padding: '24px 28px', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
+              <div>
+                <h2 style={{ margin: '0 0 4px', fontSize: 18, fontWeight: 900, color: '#111827', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  🛡️ Phân Quyền Chức Năng Chuyên Viên
+                </h2>
+                <p style={{ margin: 0, fontSize: 12.5, color: '#6b7280' }}>
+                  Thiết lập các phân hệ chuyên môn mà <strong>{selectedExpert.name}</strong> được phép truy cập
+                </p>
+              </div>
+              <button
+                onClick={() => setPermModalOpen(false)}
+                style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#6b7280', fontSize: 18, padding: 4 }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <InPageNotification
+              type="info"
+              message="Theo chuẩn Playbook v1.0: Phân quyền thực thi từ Backend API đến Giao diện. Khi hủy quyền, Chuyên viên sẽ bị ẩn menu và chặn API tương ứng."
+            />
+
+            {/* Quick Presets */}
+            <div style={{ margin: '14px 0 16px', background: '#f8fafc', padding: '12px 14px', borderRadius: 10, border: '1px solid #e2e8f0' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 8 }}>
+                ⚡ Cấu hình nhanh theo vai trò chuyên môn:
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={() => handleApplyPreset('expert1')}
+                  style={{
+                    fontSize: 11.5, padding: '6px 12px', borderRadius: 6, cursor: 'pointer',
+                    background: currentPerms.length === 2 && currentPerms.includes('PERM_WORKSPACE') && currentPerms.includes('PERM_SCHEDULE') ? '#0284c7' : '#fff',
+                    color: currentPerms.length === 2 && currentPerms.includes('PERM_WORKSPACE') && currentPerms.includes('PERM_SCHEDULE') ? '#fff' : '#0369a1',
+                    border: '1px solid #bae6fd', fontWeight: 700
+                  }}
+                >
+                  Chuyên viên 1: Tư vấn & Lịch hẹn
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleApplyPreset('expert2')}
+                  style={{
+                    fontSize: 11.5, padding: '6px 12px', borderRadius: 6, cursor: 'pointer',
+                    background: currentPerms.length === 2 && currentPerms.includes('PERM_ANALYTICS') && currentPerms.includes('PERM_MODERATION') ? '#7c3aed' : '#fff',
+                    color: currentPerms.length === 2 && currentPerms.includes('PERM_ANALYTICS') && currentPerms.includes('PERM_MODERATION') ? '#fff' : '#6d28d9',
+                    border: '1px solid #ddd6fe', fontWeight: 700
+                  }}
+                >
+                  Chuyên viên 2: Phân tích & Kiểm duyệt
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleApplyPreset('all')}
+                  style={{
+                    fontSize: 11.5, padding: '6px 12px', borderRadius: 6, cursor: 'pointer',
+                    background: currentPerms.length === 4 ? '#059669' : '#fff',
+                    color: currentPerms.length === 4 ? '#fff' : '#047857',
+                    border: '1px solid #a7f3d0', fontWeight: 700
+                  }}
+                >
+                  Toàn quyền (4/4)
+                </button>
+              </div>
+            </div>
+
+            {/* Checkbox list */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
+              {PERMISSION_DEFINITIONS.map(perm => {
+                const isChecked = currentPerms.includes(perm.key);
+                return (
+                  <label
+                    key={perm.key}
+                    style={{
+                      display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 14px',
+                      borderRadius: 10, cursor: 'pointer',
+                      background: isChecked ? '#f0f9ff' : '#fff',
+                      border: isChecked ? '1.5px solid #0284c7' : '1px solid #e5e7eb',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isChecked}
+                      onChange={() => handleTogglePerm(perm.key)}
+                      style={{ marginTop: 3, width: 17, height: 17, accentColor: '#0284c7', cursor: 'pointer' }}
+                    />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13.5, fontWeight: 800, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span>{perm.icon}</span>
+                        <span>{perm.label}</span>
+                      </div>
+                      <div style={{ fontSize: 12, color: '#64748b', marginTop: 2, lineHeight: 1.4 }}>
+                        {perm.desc}
+                      </div>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+
+            {/* Actions */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 14, borderTop: '1px solid #e5e7eb' }}>
+              <span style={{ fontSize: 12.5, color: '#64748b', fontWeight: 600 }}>
+                Đã chọn: <strong style={{ color: '#0284c7' }}>{currentPerms.length}/4</strong> quyền chức năng
+              </span>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button
+                  type="button"
+                  className="admin-btn admin-btn-outline"
+                  onClick={() => setPermModalOpen(false)}
+                  disabled={permSaving}
+                >
+                  Hủy
+                </button>
+                <button
+                  type="button"
+                  className="admin-btn admin-btn-primary"
+                  onClick={handleSavePermissions}
+                  disabled={permSaving}
+                  style={{ background: '#0284c7', fontWeight: 800 }}
+                >
+                  {permSaving ? 'Đang lưu...' : 'Lưu phân quyền'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

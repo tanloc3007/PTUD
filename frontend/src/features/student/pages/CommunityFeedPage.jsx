@@ -3,13 +3,26 @@ import axiosClient from '../../auth/api/authApi';
 import { useAuthStore } from '../../auth/store/authStore';
 import InPageNotification from '../../../shared/components/InPageNotification';
 
+export const CATEGORY_MAP = {
+  'Áp lực học tập': 'Góc học tập',
+  'Mối quan hệ & Gia đình': 'Gia đình & Bạn bè',
+  'Chia sẻ tích cực': 'Chuyện thường ngày',
+  'Cô đơn & Lạc lõng': 'Góc tâm sự',
+  'Việc làm & Tài chính': 'Định hướng & Tương lai',
+};
+
+export function formatCategory(cat) {
+  if (!cat) return '';
+  return CATEGORY_MAP[cat] || cat;
+}
+
 const CATEGORIES = [
   { label: 'Tất cả',                 value: '' },
-  { label: 'Áp lực học tập',         value: 'Áp lực học tập' },
-  { label: 'Mối quan hệ & Gia đình', value: 'Mối quan hệ & Gia đình' },
-  { label: 'Chia sẻ tích cực',       value: 'Chia sẻ tích cực' },
-  { label: 'Cô đơn & Lạc lõng',     value: 'Cô đơn & Lạc lõng' },
-  { label: 'Việc làm & Tài chính',  value: 'Việc làm & Tài chính' },
+  { label: 'Góc học tập',             value: 'Góc học tập' },
+  { label: 'Gia đình & Bạn bè',      value: 'Gia đình & Bạn bè' },
+  { label: 'Chuyện thường ngày',      value: 'Chuyện thường ngày' },
+  { label: 'Góc tâm sự',             value: 'Góc tâm sự' },
+  { label: 'Định hướng & Tương lai', value: 'Định hướng & Tương lai' },
 ];
 
 function timeAgo(date) {
@@ -83,7 +96,7 @@ function PostCard({ post, onReact, onComment, onDelete, currentUser }) {
 
       {/* Category */}
       {post.categoryTag && (
-        <span className="s-badge s-badge-teal" style={{ alignSelf: 'flex-start' }}>{post.categoryTag}</span>
+        <span className="s-badge s-badge-teal" style={{ alignSelf: 'flex-start' }}>{formatCategory(post.categoryTag)}</span>
       )}
 
       {/* Content */}
@@ -145,15 +158,13 @@ function PostCard({ post, onReact, onComment, onDelete, currentUser }) {
       )}
 
       {/* Actions (Zero Icon Clutter: Pure Clean Text) */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 10, borderTop: '1px solid var(--s-border)', flexWrap: 'wrap', gap: 8 }}>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button className="s-btn-reaction" onClick={() => onReact(post.id, 'hug')}>
-            Thích ({post.hugCount})
-          </button>
-          <button className="s-btn-reaction" onClick={() => onReact(post.id, 'empathy')}>
-            Đồng cảm ({post.empathyCount})
-          </button>
-        </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingTop: 10, borderTop: '1px solid var(--s-border)', flexWrap: 'wrap' }}>
+        <button className="s-btn-reaction" onClick={() => onReact(post.id, 'hug')}>
+          Thích ({post.hugCount})
+        </button>
+        <button className="s-btn-reaction" onClick={() => onReact(post.id, 'empathy')}>
+          Đồng cảm ({post.empathyCount})
+        </button>
         <button className="s-btn-reaction" onClick={() => setExpanded(v => !v)}>
           Bình luận ({post.commentCount})
         </button>
@@ -204,122 +215,758 @@ function PostCard({ post, onReact, onComment, onDelete, currentUser }) {
   );
 }
 
-function CreatePostModal({ onClose, onSubmit }) {
+const BG_THEMES = [
+  { id: 'none', label: 'Mặc định', bg: '#ffffff', color: '#1e293b' },
+  { id: 'sunset', label: 'Hoàng hôn', bg: 'linear-gradient(135deg, #f97316 0%, #ef4444 100%)', color: '#ffffff' },
+  { id: 'midnight', label: 'Đêm tím', bg: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)', color: '#ffffff' },
+  { id: 'emerald', label: 'Ngọc bích', bg: 'linear-gradient(135deg, #0d9488 0%, #10b981 100%)', color: '#ffffff' },
+  { id: 'ocean', label: 'Đại dương', bg: 'linear-gradient(135deg, #0284c7 0%, #2563eb 100%)', color: '#ffffff' },
+  { id: 'rose', label: 'Cánh hồng', bg: 'linear-gradient(135deg, #ec4899 0%, #f43f5e 100%)', color: '#ffffff' },
+  { id: 'dark', label: 'Trầm tĩnh', bg: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)', color: '#ffffff' },
+];
+
+const FEELINGS_LIST = [
+  '😊 Hạnh phúc',
+  '☕ Thư thái',
+  '🌿 Bình yên',
+  '📚 Áp lực thi cử',
+  '😰 Lo lắng đồ án',
+  '😔 Mệt mỏi',
+  '🌧️ Cần được sẻ chia',
+  '💡 Có hy vọng',
+  '💪 Đang cố gắng',
+];
+
+const PRESET_IMAGES = [
+  { label: '🌿 Bầu trời xanh', url: 'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=800&q=80' },
+  { label: '🍵 Góc đọc sách', url: 'https://images.unsplash.com/photo-1544717305-2782549b5136?w=800&q=80' },
+  { label: '🌅 Bình minh', url: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=800&q=80' },
+  { label: '🌧️ Mưa êm dịu', url: 'https://images.unsplash.com/photo-1515694346937-94d85e41e6f0?w=800&q=80' },
+];
+
+function CreatePostModal({ onClose, onSubmit, currentUser }) {
   const [content, setContent] = useState('');
   const [category, setCategory] = useState(CATEGORIES[1].value);
   const [imageUrl, setImageUrl] = useState('');
+  const [selectedTheme, setSelectedTheme] = useState('none');
+  const [selectedFeeling, setSelectedFeeling] = useState('');
+  const [isAnonymous, setIsAnonymous] = useState(true);
+  const [enableAiSentiment, setEnableAiSentiment] = useState(true);
+  const [showImagePicker, setShowImagePicker] = useState(false);
+  const [showThemes, setShowThemes] = useState(false);
+  const [showFeelings, setShowFeelings] = useState(false);
   const [formError, setFormError] = useState('');
 
-  const PRESET_IMAGES = [
-    { label: '🌿 Bầu trời xanh', url: 'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=800&q=80' },
-    { label: '🍵 Góc đọc sách', url: 'https://images.unsplash.com/photo-1544717305-2782549b5136?w=800&q=80' },
-    { label: '🌅 Bình minh', url: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=800&q=80' },
-    { label: '🌧️ Mưa êm dịu', url: 'https://images.unsplash.com/photo-1515694346937-94d85e41e6f0?w=800&q=80' },
-  ];
+  const authorDisplayName = isAnonymous
+    ? (currentUser?.anonymousCode || 'Bạn Ẩn Danh')
+    : (currentUser?.fullName || 'Ngô Tấn Lộc');
+
+  const currentTheme = BG_THEMES.find(t => t.id === selectedTheme) || BG_THEMES[0];
+  const isGradientTheme = selectedTheme !== 'none' && !imageUrl;
 
   const handlePost = () => {
     if (!content.trim()) {
       setFormError('Vui lòng nhập nội dung trước khi đăng.');
       return;
     }
-    onSubmit({ content: content.trim(), category, imageUrl: imageUrl.trim() || null });
+    const finalContent = selectedFeeling ? `[${selectedFeeling}] ${content.trim()}` : content.trim();
+    onSubmit({
+      content: finalContent,
+      category,
+      imageUrl: imageUrl.trim() || null
+    });
     onClose();
   };
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div style={{ background: '#ffffff', borderRadius: 16, padding: '26px 28px', width: '100%', maxWidth: 540, maxHeight: '90vh', overflow: 'auto' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
-          <h2 style={{ fontSize: 17, fontWeight: 900, color: '#111827', margin: 0 }}>Chia sẻ ẩn danh</h2>
-          <button onClick={onClose} aria-label="Đóng" style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 18, color: '#6b7280', fontWeight: 700 }}>✕</button>
+    <div style={{
+      position: 'fixed',
+      inset: 0,
+      background: 'rgba(0, 0, 0, 0.65)',
+      backdropFilter: 'blur(6px)',
+      zIndex: 9999,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 16
+    }}>
+      <div style={{
+        background: '#ffffff',
+        borderRadius: 16,
+        width: 1020,
+        maxWidth: '96vw',
+        height: '88vh',
+        maxHeight: 740,
+        boxShadow: '0 24px 60px rgba(0,0,0,0.3)',
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+        animation: 'fadeInModal 0.2s ease-out'
+      }}>
+        
+        {/* ══════════════ MODAL HEADER (FACEBOOK STYLE) ══════════════ */}
+        <div style={{
+          height: 56,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '0 16px',
+          borderBottom: '1px solid #e5e7eb',
+          position: 'relative'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <button
+              onClick={onClose}
+              aria-label="Đóng"
+              style={{
+                width: 36, height: 36, borderRadius: '50%',
+                background: '#f1f5f9', border: 'none', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 18, color: '#475569', fontWeight: 800, transition: 'all 0.15s'
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = '#e2e8f0'}
+              onMouseLeave={e => e.currentTarget.style.background = '#f1f5f9'}
+            >
+              ✕
+            </button>
+            <div style={{
+              width: 32, height: 32, borderRadius: '50%',
+              background: '#0d9488', color: '#ffffff',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontWeight: 900, fontSize: 16
+            }}>
+              U
+            </div>
+          </div>
+
+          <h2 style={{
+            fontSize: 18,
+            fontWeight: 800,
+            color: '#0f172a',
+            margin: 0,
+            position: 'absolute',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            fontFamily: "'Plus Jakarta Sans', sans-serif"
+          }}>
+            Tạo bài viết
+          </h2>
+
+          <div style={{ display: 'flex', gap: 8 }}>
+            <span style={{ fontSize: 12, background: '#f0fdfa', color: '#0d9488', padding: '4px 10px', borderRadius: 20, fontWeight: 700 }}>
+              🛡️ Privacy-by-Design
+            </span>
+          </div>
         </div>
 
-        {formError && (
-          <InPageNotification type="warning" message={formError} onClose={() => setFormError('')} />
-        )}
+        {/* ══════════════ MODAL BODY: DUAL-PANEL (EDITOR + LIVE PREVIEW) ══════════════ */}
+        <div style={{
+          flex: 1,
+          display: 'grid',
+          gridTemplateColumns: '1.18fr 0.82fr',
+          overflow: 'hidden',
+          height: 'calc(100% - 56px)'
+        }}>
+          
+          {/* ───────────── CỘT TRÁI: FORM SOẠN THẢO BÀI VIẾT ───────────── */}
+          <div style={{
+            padding: '18px 22px',
+            overflowY: 'auto',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 14,
+            borderRight: '1px solid #e5e7eb'
+          }}>
+            
+            {/* User row & Audience Selector */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{
+                width: 44, height: 44, borderRadius: '50%',
+                background: 'linear-gradient(135deg, #0d9488 0%, #14b8a6 100%)',
+                color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontWeight: 900, fontSize: 18, flexShrink: 0
+              }}>
+                {authorDisplayName.charAt(0).toUpperCase()}
+              </div>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <strong style={{ fontSize: 14.5, color: '#0f172a' }}>
+                    {authorDisplayName}
+                  </strong>
+                  {selectedFeeling && (
+                    <span style={{ fontSize: 12.5, color: '#64748b', fontWeight: 600 }}>
+                      đang cảm thấy {selectedFeeling}
+                    </span>
+                  )}
+                </div>
 
-        <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 12.5, color: '#475569' }}>
-          💡 Bài viết được bảo vệ ẩn danh tuyệt đối. Bạn có thể tự do viết bằng <strong>Tiếng Việt</strong> hoặc <strong>Tiếng Anh (English)</strong>. Hệ thống AI Sentiment sẽ tự động thấu cảm đa ngôn ngữ.
-        </div>
+                <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
+                  {/* Chế độ danh tính */}
+                  <button
+                    type="button"
+                    onClick={() => setIsAnonymous(v => !v)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 4,
+                      background: '#f1f5f9', border: '1px solid #cbd5e1',
+                      borderRadius: 14, padding: '2px 8px', fontSize: 11.5,
+                      fontWeight: 700, color: '#334155', cursor: 'pointer'
+                    }}
+                  >
+                    <span>{isAnonymous ? '🔒 Ẩn danh toàn trường' : '👥 Công khai họ tên'}</span>
+                    <span>▾</span>
+                  </button>
 
-        <div style={{ marginBottom: 14 }}>
-          <label style={{ fontSize: 12.5, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 6 }}>Chủ đề bài viết</label>
-          <select value={category} onChange={e => setCategory(e.target.value)} className="s-input">
-            {CATEGORIES.slice(1).map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-          </select>
-        </div>
+                  {/* Chọn chủ đề */}
+                  <select
+                    value={category}
+                    onChange={e => setCategory(e.target.value)}
+                    style={{
+                      background: '#f0fdfa', border: '1px solid #99f6e4',
+                      borderRadius: 14, padding: '2px 8px', fontSize: 11.5,
+                      fontWeight: 700, color: '#0d9488', cursor: 'pointer', outline: 'none'
+                    }}
+                  >
+                    {CATEGORIES.slice(1).map(c => (
+                      <option key={c.value} value={c.value}>{c.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
 
-        <div style={{ marginBottom: 14 }}>
-          <label style={{ fontSize: 12.5, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 6 }}>Nội dung tâm sự</label>
-          <textarea
-            className="s-input s-textarea"
-            value={content}
-            onChange={e => { setContent(e.target.value); if (formError) setFormError(''); }}
-            placeholder="Bạn đang trăn trở điều gì? Hãy chia sẻ tự do cùng bạn bè (You can also write in English)..."
-            style={{ minHeight: 120 }}
-          />
-          <div style={{ textAlign: 'right', fontSize: 11, color: '#9ca3af', marginTop: 4 }}>{content.length}/2000 ký tự</div>
-        </div>
-
-        {/* Đính kèm hình ảnh */}
-        <div style={{ marginBottom: 18 }}>
-          <label style={{ fontSize: 12.5, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 6 }}>
-            Đính kèm hình ảnh minh họa (Tùy chọn)
-          </label>
-          <input
-            type="url"
-            className="s-input"
-            value={imageUrl}
-            onChange={e => setImageUrl(e.target.value)}
-            placeholder="Dán đường dẫn ảnh (URL) hoặc chọn ảnh mẫu bên dưới..."
-            style={{ marginBottom: 8 }}
-          />
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-            <span style={{ fontSize: 11.5, color: '#6b7280' }}>Ảnh tĩnh tâm mẫu:</span>
-            {PRESET_IMAGES.map(img => (
+            {/* Quick feature pill buttons (như trong ảnh Facebook) */}
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', padding: '4px 0' }}>
               <button
-                key={img.label}
                 type="button"
-                onClick={() => setImageUrl(img.url)}
+                onClick={() => setIsAnonymous(v => !v)}
                 style={{
-                  fontSize: 11.5, padding: '3px 8px', borderRadius: 6,
-                  border: '1px solid #cbd5e1', background: imageUrl === img.url ? '#e0f2fe' : '#f8fafc',
-                  color: imageUrl === img.url ? '#0369a1' : '#475569', cursor: 'pointer'
+                  display: 'flex', alignItems: 'center', gap: 4, padding: '5px 12px',
+                  borderRadius: 20, border: '1px solid #e2e8f0', background: isAnonymous ? '#f0fdfa' : '#fff',
+                  color: isAnonymous ? '#0d9488' : '#475569', fontSize: 12, fontWeight: 700, cursor: 'pointer'
                 }}
               >
-                {img.label}
+                <span>👥 Mọi người</span>
               </button>
-            ))}
-            {imageUrl && (
+
               <button
                 type="button"
-                onClick={() => setImageUrl('')}
-                style={{ fontSize: 11.5, padding: '3px 8px', borderRadius: 6, border: 'none', background: 'transparent', color: '#dc2626', cursor: 'pointer' }}
+                onClick={() => setShowFeelings(v => !v)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 4, padding: '5px 12px',
+                  borderRadius: 20, border: '1px solid #e2e8f0', background: selectedFeeling ? '#fef3c7' : '#fff',
+                  color: selectedFeeling ? '#b45309' : '#475569', fontSize: 12, fontWeight: 700, cursor: 'pointer'
+                }}
               >
-                Bỏ chọn ảnh
+                <span>😊 Cảm xúc/hoạt động</span>
               </button>
-            )}
-          </div>
-          {imageUrl && (
-            <div style={{ marginTop: 8, borderRadius: 8, overflow: 'hidden', maxHeight: 120, border: '1px solid #e2e8f0' }}>
-              <img src={imageUrl} alt="Xem trước" style={{ width: '100%', maxHeight: 120, objectFit: 'cover', display: 'block' }} onError={e => { e.currentTarget.style.display = 'none'; }} />
+
+              <button
+                type="button"
+                onClick={() => setShowImagePicker(v => !v)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 4, padding: '5px 12px',
+                  borderRadius: 20, border: '1px solid #e2e8f0', background: imageUrl ? '#f0fdfa' : '#fff',
+                  color: imageUrl ? '#0d9488' : '#475569', fontSize: 12, fontWeight: 700, cursor: 'pointer'
+                }}
+              >
+                <span>🖼️ Ảnh/video</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setCategory('Góc học tập')}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 4, padding: '5px 12px',
+                  borderRadius: 20, border: '1px solid #e2e8f0', background: '#fff',
+                  color: '#475569', fontSize: 12, fontWeight: 700, cursor: 'pointer'
+                }}
+              >
+                <span>📍 ĐH Lạc Hồng</span>
+              </button>
             </div>
-          )}
+
+            {/* Feelings Picker Popup */}
+            {showFeelings && (
+              <div style={{
+                background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: 12,
+                padding: '10px 12px', display: 'flex', gap: 6, flexWrap: 'wrap',
+                boxShadow: '0 4px 14px rgba(0,0,0,0.06)'
+              }}>
+                <span style={{ fontSize: 11.5, fontWeight: 700, color: '#64748b', width: '100%' }}>Chọn tâm trạng:</span>
+                {FEELINGS_LIST.map(f => (
+                  <button
+                    key={f}
+                    type="button"
+                    onClick={() => { setSelectedFeeling(f === selectedFeeling ? '' : f); setShowFeelings(false); }}
+                    style={{
+                      padding: '4px 8px', borderRadius: 14, fontSize: 11.5, border: '1px solid #e2e8f0',
+                      background: selectedFeeling === f ? '#0d9488' : '#f8fafc',
+                      color: selectedFeeling === f ? '#fff' : '#334155', cursor: 'pointer', fontWeight: 600
+                    }}
+                  >
+                    {f}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Content Textarea with Aa / Emoji */}
+            <div style={{
+              position: 'relative',
+              borderRadius: 12,
+              border: '1px solid #cbd5e1',
+              background: isGradientTheme ? currentTheme.bg : '#ffffff',
+              padding: isGradientTheme ? '28px 18px 46px' : '14px 14px 46px',
+              minHeight: 140,
+              display: 'flex',
+              flexDirection: 'column',
+              transition: 'background 0.3s ease'
+            }}>
+              <textarea
+                value={content}
+                onChange={e => { setContent(e.target.value); if (formError) setFormError(''); }}
+                placeholder={`${authorDisplayName} ơi, bạn đang nghĩ gì thế?`}
+                style={{
+                  width: '100%',
+                  background: 'transparent',
+                  border: 'none',
+                  outline: 'none',
+                  resize: 'none',
+                  fontSize: isGradientTheme ? 18 : 14.5,
+                  fontWeight: isGradientTheme ? 800 : 500,
+                  color: isGradientTheme ? '#ffffff' : '#0f172a',
+                  textAlign: isGradientTheme ? 'center' : 'left',
+                  minHeight: isGradientTheme ? 90 : 80,
+                  fontFamily: "'Plus Jakarta Sans', sans-serif",
+                  boxSizing: 'border-box'
+                }}
+              />
+
+              {/* Bottom toolbar inside textarea: Aa and Emoji button */}
+              <div style={{
+                position: 'absolute',
+                bottom: 10,
+                left: 12,
+                right: 12,
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center'
+              }}>
+                {/* Aa Button to pick Facebook status gradient theme */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowThemes(v => !v)}
+                    title="Đổi màu nền tâm trạng (Aa)"
+                    style={{
+                      width: 28, height: 28, borderRadius: 6,
+                      background: 'linear-gradient(135deg, #f97316 0%, #ec4899 50%, #6366f1 100%)',
+                      color: '#ffffff', fontWeight: 900, fontSize: 12, border: 'none',
+                      cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center'
+                    }}
+                  >
+                    Aa
+                  </button>
+
+                  {/* Themes palette picker */}
+                  {showThemes && (
+                    <div style={{ display: 'flex', gap: 5, background: '#ffffff', padding: '4px 6px', borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.15)', border: '1px solid #cbd5e1' }}>
+                      {BG_THEMES.map(t => (
+                        <div
+                          key={t.id}
+                          onClick={() => { setSelectedTheme(t.id); setShowThemes(false); }}
+                          title={t.label}
+                          style={{
+                            width: 20, height: 20, borderRadius: 4,
+                            background: t.bg, cursor: 'pointer',
+                            border: selectedTheme === t.id ? '2px solid #0f766e' : '1px solid #cbd5e1'
+                          }}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 11, color: isGradientTheme ? 'rgba(255,255,255,0.8)' : '#94a3b8' }}>
+                    {content.length}/2000
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setContent(c => c + ' 😊')}
+                    style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer' }}
+                  >
+                    🙂
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* ──────── THÊM ẢNH HOẶC KÉO THẢ (NHƯ HÌNH FACEBOOK) ──────── */}
+            <div style={{
+              border: '2px dashed #cbd5e1',
+              borderRadius: 12,
+              padding: '16px',
+              textAlign: 'center',
+              background: '#f8fafc',
+              position: 'relative'
+            }}>
+              {!imageUrl ? (
+                <div>
+                  <div style={{ fontSize: 24, marginBottom: 4 }}>🖼️</div>
+                  <strong style={{ fontSize: 13.5, color: '#1e293b', display: 'block', marginBottom: 2 }}>
+                    Thêm ảnh hoặc video
+                  </strong>
+                  <p style={{ fontSize: 11.5, color: '#64748b', margin: '0 0 10px' }}>
+                    hoặc dán đường dẫn ảnh / chọn ảnh tĩnh tâm mẫu
+                  </p>
+                  
+                  <div style={{ display: 'flex', gap: 6, justifyContent: 'center', flexWrap: 'wrap' }}>
+                    {PRESET_IMAGES.map(img => (
+                      <button
+                        key={img.label}
+                        type="button"
+                        onClick={() => { setImageUrl(img.url); setSelectedTheme('none'); }}
+                        style={{
+                          fontSize: 11, padding: '4px 8px', borderRadius: 6,
+                          border: '1px solid #cbd5e1', background: '#fff',
+                          color: '#475569', cursor: 'pointer', fontWeight: 600
+                        }}
+                      >
+                        {img.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <input
+                    type="url"
+                    placeholder="Hoặc dán URL ảnh tại đây (https://...)"
+                    value={imageUrl}
+                    onChange={e => { setImageUrl(e.target.value); if (e.target.value) setSelectedTheme('none'); }}
+                    style={{
+                      width: '90%', maxWidth: 360, marginTop: 10,
+                      padding: '6px 12px', fontSize: 11.5, borderRadius: 6,
+                      border: '1px solid #cbd5e1', outline: 'none'
+                    }}
+                  />
+                </div>
+              ) : (
+                <div style={{ position: 'relative' }}>
+                  <img
+                    src={imageUrl}
+                    alt="Đính kèm"
+                    style={{ width: '100%', maxHeight: 180, objectFit: 'cover', borderRadius: 8, display: 'block' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setImageUrl('')}
+                    style={{
+                      position: 'absolute', top: 8, right: 8,
+                      background: 'rgba(0,0,0,0.6)', color: '#fff',
+                      border: 'none', borderRadius: '50%', width: 26, height: 26,
+                      cursor: 'pointer', fontSize: 13, fontWeight: 900
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* ──────── 3 Ô HÀNH ĐỘNG NHANH (NHƯ HÌNH FACEBOOK) ──────── */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+              <div
+                onClick={() => setContent(c => c + ' #CanHoTroTamLy')}
+                style={{
+                  border: '1px solid #e2e8f0', borderRadius: 10, padding: '10px 8px',
+                  textAlign: 'center', cursor: 'pointer', background: '#ffffff', transition: 'all 0.15s'
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                onMouseLeave={e => e.currentTarget.style.background = '#ffffff'}
+              >
+                <div style={{ fontSize: 18, marginBottom: 2 }}>📞</div>
+                <strong style={{ fontSize: 12, color: '#334155', display: 'block' }}>Nhận cuộc gọi</strong>
+                <span style={{ fontSize: 10, color: '#94a3b8' }}>Kết nối SafeRoom</span>
+              </div>
+
+              <div
+                onClick={() => setShowThemes(v => !v)}
+                style={{
+                  border: '1px solid #e2e8f0', borderRadius: 10, padding: '10px 8px',
+                  textAlign: 'center', cursor: 'pointer', background: '#ffffff', transition: 'all 0.15s'
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                onMouseLeave={e => e.currentTarget.style.background = '#ffffff'}
+              >
+                <div style={{ fontSize: 18, marginBottom: 2 }}>🎞️</div>
+                <strong style={{ fontSize: 12, color: '#334155', display: 'block' }}>Ảnh GIF / Nền</strong>
+                <span style={{ fontSize: 10, color: '#94a3b8' }}>Màu tâm trạng</span>
+              </div>
+
+              <div
+                onClick={() => setContent(c => '[Cột mốc]: ' + c)}
+                style={{
+                  border: '1px solid #e2e8f0', borderRadius: 10, padding: '10px 8px',
+                  textAlign: 'center', cursor: 'pointer', background: '#ffffff', transition: 'all 0.15s'
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                onMouseLeave={e => e.currentTarget.style.background = '#ffffff'}
+              >
+                <div style={{ fontSize: 18, marginBottom: 2 }}>🚩</div>
+                <strong style={{ fontSize: 12, color: '#334155', display: 'block' }}>Cột mốc</strong>
+                <span style={{ fontSize: 10, color: '#94a3b8' }}>Học kỳ / Đồ án</span>
+              </div>
+            </div>
+
+            {/* ──────── PHẦN CHIA SẺ VÀ CÀI ĐẶT ──────── */}
+            <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                <div>
+                  <strong style={{ fontSize: 13, color: '#1e293b', display: 'block' }}>🌐 Đối tượng bài viết</strong>
+                  <span style={{ fontSize: 11.5, color: '#64748b' }}>
+                    {isAnonymous ? 'Chế độ ẩn danh (Bảo vệ MSSV & Tên thật)' : 'Công khai với toàn trường'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsAnonymous(v => !v)}
+                  style={{ background: 'none', border: 'none', color: '#0d9488', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
+                >
+                  Thay đổi ›
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <strong style={{ fontSize: 13, color: '#1e293b', display: 'block' }}>✨ Thêm nhãn AI Sentiment</strong>
+                  <span style={{ fontSize: 11.5, color: '#64748b' }}>Tự động phân loại cảm xúc & hỗ trợ đa ngôn ngữ</span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={enableAiSentiment}
+                  onChange={e => setEnableAiSentiment(e.target.checked)}
+                  style={{ width: 18, height: 18, cursor: 'pointer', accentColor: '#0d9488' }}
+                />
+              </div>
+            </div>
+
+            {formError && (
+              <InPageNotification type="warning" message={formError} onClose={() => setFormError('')} />
+            )}
+
+            {/* Nút Đăng bài */}
+            <div style={{ display: 'flex', gap: 10, marginTop: 'auto', paddingTop: 8 }}>
+              <button
+                type="button"
+                onClick={onClose}
+                style={{
+                  padding: '10px 18px', borderRadius: 8, border: '1px solid #cbd5e1',
+                  background: '#ffffff', color: '#475569', fontSize: 13, fontWeight: 700, cursor: 'pointer'
+                }}
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={handlePost}
+                disabled={!content.trim()}
+                style={{
+                  flex: 1, padding: '10px 20px', borderRadius: 8, border: 'none',
+                  background: content.trim() ? '#0d9488' : '#e2e8f0',
+                  color: content.trim() ? '#ffffff' : '#94a3b8',
+                  fontSize: 14, fontWeight: 800, cursor: content.trim() ? 'pointer' : 'not-allowed',
+                  transition: 'all 0.15s ease',
+                  boxShadow: content.trim() ? '0 4px 14px rgba(13,148,136,0.3)' : 'none'
+                }}
+              >
+                Đăng bài viết
+              </button>
+            </div>
+
+          </div>
+
+          {/* ───────────── CỘT PHẢI: BẢN XEM TRƯỚC (LIVE PREVIEW NHƯ HÌNH) ───────────── */}
+          <div style={{
+            background: '#f8fafc',
+            padding: '24px 28px',
+            overflowY: 'auto',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center'
+          }}>
+            <h3 style={{
+              fontSize: 16,
+              fontWeight: 800,
+              color: '#334155',
+              margin: '0 0 16px',
+              fontFamily: "'Plus Jakarta Sans', sans-serif"
+            }}>
+              Bản xem trước
+            </h3>
+
+            {/* PREVIEW POST CARD (FACEBOOK STYLE) */}
+            <div style={{
+              width: '100%',
+              maxWidth: 420,
+              background: '#ffffff',
+              borderRadius: 12,
+              border: '1px solid #e2e8f0',
+              boxShadow: '0 6px 24px rgba(0,0,0,0.06)',
+              overflow: 'hidden'
+            }}>
+              {/* Header card preview */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '14px 16px' }}>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <div style={{
+                    width: 40, height: 40, borderRadius: '50%',
+                    background: 'linear-gradient(135deg, #0d9488 0%, #14b8a6 100%)',
+                    color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontWeight: 900, fontSize: 16
+                  }}>
+                    {authorDisplayName.charAt(0).toUpperCase()}
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: '#0f172a', lineHeight: 1.3 }}>
+                      {authorDisplayName}
+                      {selectedFeeling && (
+                        <span style={{ fontWeight: 500, fontSize: 12.5, color: '#64748b', marginLeft: 4 }}>
+                          đang cảm thấy {selectedFeeling}
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 11.5, color: '#94a3b8', display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
+                      <span>Vừa xong</span>
+                      <span>•</span>
+                      <span>{isAnonymous ? '🔒 Ẩn danh' : '🌐 Công khai'}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ color: '#94a3b8', fontSize: 18, cursor: 'pointer' }}>•••</div>
+              </div>
+
+              {/* Category pill */}
+              <div style={{ padding: '0 16px 8px' }}>
+                <span style={{
+                  fontSize: 11, fontWeight: 700, color: '#0d9488',
+                  background: '#f0fdfa', border: '1px solid #ccfbf1',
+                  padding: '2px 8px', borderRadius: 12
+                }}>
+                  #{formatCategory(category)}
+                </span>
+              </div>
+
+              {/* Content body preview */}
+              {isGradientTheme ? (
+                <div style={{
+                  background: currentTheme.bg,
+                  padding: '36px 20px',
+                  textAlign: 'center',
+                  color: '#ffffff',
+                  fontSize: 18,
+                  fontWeight: 800,
+                  minHeight: 120,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  lineHeight: 1.5,
+                  wordBreak: 'break-word'
+                }}>
+                  {content || 'Nội dung chia sẻ sẽ hiển thị tại đây...'}
+                </div>
+              ) : (
+                <div style={{ padding: '6px 16px 14px', fontSize: 13.5, color: '#1e293b', lineHeight: 1.6, wordBreak: 'break-word' }}>
+                  {content ? (
+                    content
+                  ) : (
+                    <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>
+                      Nội dung bài viết tâm sự sẽ hiển thị trực quan ở đây...
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {/* Image preview */}
+              {imageUrl && (
+                <div style={{ width: '100%', background: '#000', maxHeight: 260, overflow: 'hidden' }}>
+                  <img
+                    src={imageUrl}
+                    alt="Xem trước ảnh"
+                    style={{ width: '100%', maxHeight: 260, objectFit: 'cover', display: 'block' }}
+                  />
+                </div>
+              )}
+
+              {/* Preview Reaction counts */}
+              <div style={{
+                display: 'flex', justifyContent: 'space-between',
+                padding: '10px 16px', fontSize: 11.5, color: '#64748b',
+                borderBottom: '1px solid #f1f5f9', marginTop: 4
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span>💙 1</span>
+                  <span>(Đồng cảm)</span>
+                </div>
+                <div>0 bình luận</div>
+              </div>
+
+              {/* Preview Action buttons (Thích, Bình luận, Chia sẻ) */}
+              <div style={{ display: 'flex', padding: '4px 8px' }}>
+                <button
+                  type="button"
+                  style={{
+                    flex: 1, padding: '8px', background: 'none', border: 'none',
+                    fontSize: 12.5, fontWeight: 700, color: '#64748b', display: 'flex',
+                    alignItems: 'center', justifyContent: 'center', gap: 6, cursor: 'default'
+                  }}
+                >
+                  <span>👍</span> Thích
+                </button>
+                <button
+                  type="button"
+                  style={{
+                    flex: 1, padding: '8px', background: 'none', border: 'none',
+                    fontSize: 12.5, fontWeight: 700, color: '#64748b', display: 'flex',
+                    alignItems: 'center', justifyContent: 'center', gap: 6, cursor: 'default'
+                  }}
+                >
+                  <span>💬</span> Bình luận
+                </button>
+                <button
+                  type="button"
+                  style={{
+                    flex: 1, padding: '8px', background: 'none', border: 'none',
+                    fontSize: 12.5, fontWeight: 700, color: '#64748b', display: 'flex',
+                    alignItems: 'center', justifyContent: 'center', gap: 6, cursor: 'default'
+                  }}
+                >
+                  <span>↗️</span> Chia sẻ
+                </button>
+              </div>
+            </div>
+
+            <p style={{
+              fontSize: 11.5,
+              color: '#94a3b8',
+              textAlign: 'center',
+              marginTop: 18,
+              maxWidth: 360,
+              lineHeight: 1.5
+            }}>
+              🔒 Bản xem trước thời gian thực. Thông tin của bạn được che giấu bí danh theo chuẩn bảo mật sinh viên UniMind.
+            </p>
+          </div>
+
         </div>
 
-        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <button onClick={onClose} className="s-btn" style={{ padding: '8px 18px', background: 'transparent', border: '1px solid #e5e7eb', color: '#6b7280', fontSize: 13, fontWeight: 700, borderRadius: 8, cursor: 'pointer' }}>
-            Hủy bỏ
-          </button>
-          <button
-            onClick={handlePost}
-            className="s-btn s-btn-primary"
-            style={{ padding: '8px 20px', fontSize: 13 }}
-          >
-            Đăng bài ẩn danh
-          </button>
-        </div>
       </div>
+
+      <style>{`
+        @keyframes fadeInModal {
+          from { opacity: 0; transform: scale(0.96); }
+          to { opacity: 1; transform: scale(1); }
+        }
+      `}</style>
     </div>
   );
 }
@@ -457,6 +1104,67 @@ export default function CommunityFeedPage() {
         />
       )}
 
+      {/* ══════════════ FACEBOOK-STYLE QUICK POST TRIGGER BOX ══════════════ */}
+      <div style={{
+        background: '#ffffff',
+        borderRadius: 14,
+        border: '1px solid #e5e7eb',
+        padding: '14px 16px',
+        marginBottom: 20,
+        boxShadow: '0 2px 10px rgba(0,0,0,0.03)',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingBottom: 12, borderBottom: '1px solid #f1f5f9' }}>
+          <div style={{
+            width: 40, height: 40, borderRadius: '50%',
+            background: 'linear-gradient(135deg, #0d9488 0%, #14b8a6 100%)',
+            color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontWeight: 800, fontSize: 16, flexShrink: 0
+          }}>
+            {(user?.fullName || user?.anonymousCode || 'U').charAt(0).toUpperCase()}
+          </div>
+          <div
+            onClick={() => setShowCreate(true)}
+            style={{
+              flex: 1,
+              background: '#f1f5f9',
+              borderRadius: 24,
+              padding: '10px 18px',
+              color: '#64748b',
+              fontSize: 13.5,
+              cursor: 'pointer',
+              transition: 'all 0.15s ease',
+            }}
+            onMouseEnter={e => e.currentTarget.style.background = '#e2e8f0'}
+            onMouseLeave={e => e.currentTarget.style.background = '#f1f5f9'}
+          >
+            {user?.fullName || user?.anonymousCode || 'Bạn'} ơi, bạn đang nghĩ gì thế? Chia sẻ ẩn danh cùng UniMind...
+          </div>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-around', paddingTop: 10 }}>
+          <button
+            type="button"
+            onClick={() => setShowCreate(true)}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', fontSize: 12.5, fontWeight: 700, color: '#0d9488' }}
+          >
+            <span>🖼️</span> Thêm ảnh/video
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowCreate(true)}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', fontSize: 12.5, fontWeight: 700, color: '#f59e0b' }}
+          >
+            <span>😊</span> Cảm xúc/hoạt động
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowCreate(true)}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', fontSize: 12.5, fontWeight: 700, color: '#6366f1' }}
+          >
+            <span>🔒</span> Ẩn danh bảo mật
+          </button>
+        </div>
+      </div>
+
       {/* Category filter: Clean Text Pills */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 22 }}>
         {CATEGORIES.map(cat => (
@@ -504,7 +1212,7 @@ export default function CommunityFeedPage() {
       )}
 
       {showCreate && (
-        <CreatePostModal onClose={() => setShowCreate(false)} onSubmit={handleCreate} />
+        <CreatePostModal onClose={() => setShowCreate(false)} onSubmit={handleCreate} currentUser={user} />
       )}
     </div>
   );

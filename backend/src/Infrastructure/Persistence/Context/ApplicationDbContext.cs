@@ -385,6 +385,25 @@ public class ApplicationDbContext : IApplicationDbContext
             }
         }
 
+        // 14. AuditLogs
+        using (var cmd = new SqlCommand("SELECT Id, ActionType, Details, ActorRole, ActorId, IpAddress, CreatedAt FROM dbo.AuditLogs ORDER BY CreatedAt DESC", conn))
+        using (var reader = cmd.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                AuditLogs.Add(new AuditLog
+                {
+                    Id = reader.GetGuid(0),
+                    ActionType = reader.GetString(1),
+                    Details = reader.GetString(2),
+                    ActorRole = reader.GetString(3),
+                    ActorId = reader.IsDBNull(4) ? null : reader.GetGuid(4),
+                    IpAddress = reader.IsDBNull(5) ? null : reader.GetString(5),
+                    CreatedAt = reader.GetDateTime(6)
+                });
+            }
+        }
+
         // Wire relation between Questions and Tests
         foreach (var test in PsychologicalTests)
         {
@@ -656,8 +675,12 @@ public class ApplicationDbContext : IApplicationDbContext
                 using var cmd = new SqlCommand(@"
                     IF NOT EXISTS (SELECT 1 FROM dbo.Experts WHERE Id = @Id)
                     BEGIN
-                        INSERT INTO dbo.Experts (Id, UserId, Title, AcademicDegree, Specialization, ExperienceYears, RoomLocation, Bio, Rating, TotalConsultations, IsAvailable, CreatedAt)
-                        VALUES (@Id, @UserId, @Title, @AcademicDegree, @Specialization, @ExperienceYears, @RoomLocation, @Bio, @Rating, @TotalConsultations, @IsAvailable, @CreatedAt)
+                        INSERT INTO dbo.Experts (Id, UserId, Title, AcademicDegree, Specialization, ExperienceYears, RoomLocation, Bio, Rating, TotalConsultations, IsAvailable, Permissions, CreatedAt)
+                        VALUES (@Id, @UserId, @Title, @AcademicDegree, @Specialization, @ExperienceYears, @RoomLocation, @Bio, @Rating, @TotalConsultations, @IsAvailable, @Permissions, @CreatedAt)
+                    END
+                    ELSE
+                    BEGIN
+                        UPDATE dbo.Experts SET Permissions = @Permissions WHERE Id = @Id
                     END", conn);
 
                 cmd.Parameters.AddWithValue("@Id", exp.Id);
@@ -671,6 +694,7 @@ public class ApplicationDbContext : IApplicationDbContext
                 cmd.Parameters.AddWithValue("@Rating", exp.Rating);
                 cmd.Parameters.AddWithValue("@TotalConsultations", exp.TotalConsultations);
                 cmd.Parameters.AddWithValue("@IsAvailable", exp.IsAvailable);
+                cmd.Parameters.AddWithValue("@Permissions", exp.Permissions);
                 cmd.Parameters.AddWithValue("@CreatedAt", exp.CreatedAt);
                 await cmd.ExecuteNonQueryAsync(cancellationToken);
             }
@@ -737,6 +761,26 @@ public class ApplicationDbContext : IApplicationDbContext
                 using var delCmd = new SqlCommand($"DELETE FROM dbo.CommunityComments WHERE PostId NOT IN ({postIds}); DELETE FROM dbo.CommunityPosts WHERE Id NOT IN ({postIds});", conn);
                 await delCmd.ExecuteNonQueryAsync(cancellationToken);
             }
+
+            // 13. Sync AuditLogs
+            foreach (var log in AuditLogs)
+            {
+                using var cmd = new SqlCommand(@"
+                    IF NOT EXISTS (SELECT 1 FROM dbo.AuditLogs WHERE Id = @Id)
+                    BEGIN
+                        INSERT INTO dbo.AuditLogs (Id, ActionType, Details, ActorRole, ActorId, IpAddress, CreatedAt)
+                        VALUES (@Id, @ActionType, @Details, @ActorRole, @ActorId, @IpAddress, @CreatedAt)
+                    END", conn);
+
+                cmd.Parameters.AddWithValue("@Id", log.Id);
+                cmd.Parameters.AddWithValue("@ActionType", log.ActionType);
+                cmd.Parameters.AddWithValue("@Details", log.Details);
+                cmd.Parameters.AddWithValue("@ActorRole", log.ActorRole);
+                cmd.Parameters.AddWithValue("@ActorId", (object?)log.ActorId ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@IpAddress", (object?)log.IpAddress ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@CreatedAt", log.CreatedAt);
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
         }
         catch (Exception ex)
         {
@@ -784,11 +828,11 @@ public class ApplicationDbContext : IApplicationDbContext
         var expDemoTableId = Guid.Parse("44444444-4444-4444-4444-444444444440");
         Experts.AddRange(new[]
         {
-            new Expert { Id = expDemoTableId, UserId = expDemoId, Title = "ThS. Tâm lý", AcademicDegree = "Thạc sĩ Tâm lý học Lâm sàng", Specialization = "Tâm lý Học đường & Hướng nghiệp", ExperienceYears = 5, RoomLocation = "P.302 (Tầng 3)", Rating = 5.0, TotalConsultations = 100 },
-            new Expert { Id = expHaTableId, UserId = expHaId, Title = "ThS. Tâm lý", AcademicDegree = "Thạc sĩ Tâm lý học Lâm sàng ĐHQG • Chứng chỉ Tâm Lý Trị liệu", Specialization = "Áp lực học tập & Đồ án, Trầm cảm", ExperienceYears = 8, RoomLocation = "P.302 (Tầng 3)", Rating = 4.98, TotalConsultations = 1420 },
-            new Expert { Id = expLanTableId, UserId = expLanId, Title = "TS. Tâm lý", AcademicDegree = "Tiến sĩ Trị liệu Nhận thức Hành vi (CBT) • Chuyên gia can thiệp", Specialization = "Trầm cảm, Lo âu & Khủng hoảng", ExperienceYears = 11, RoomLocation = "P.302 (Tầng 3)", Rating = 5.0, TotalConsultations = 2100 },
-            new Expert { Id = expBaoTableId, UserId = expBaoId, Title = "ThS.", AcademicDegree = "Thạc sĩ Tâm lý Phát triển & Nghề nghiệp", Specialization = "Định hướng tương lai & Nghề nghiệp", ExperienceYears = 6, RoomLocation = "P.302 (Tầng 3)", Rating = 4.95, TotalConsultations = 980 },
-            new Expert { Id = expTamTableId, UserId = expTamId, Title = "ThS.", AcademicDegree = "Thạc sĩ Tâm lý Lâm sàng • Cố vấn SafeRoom SOS", Specialization = "Khủng hoảng tâm lý cấp tính, Rối loạn âu lo", ExperienceYears = 9, RoomLocation = "P.305 (Khu B)", Rating = 4.97, TotalConsultations = 1850 }
+            new Expert { Id = expDemoTableId, UserId = expDemoId, Title = "ThS. Tâm lý", AcademicDegree = "Thạc sĩ Tâm lý học Lâm sàng", Specialization = "Tâm lý Học đường & Hướng nghiệp", ExperienceYears = 5, RoomLocation = "P.302 (Tầng 3)", Rating = 5.0, TotalConsultations = 100, Permissions = "PERM_WORKSPACE,PERM_SCHEDULE,PERM_ANALYTICS,PERM_MODERATION" },
+            new Expert { Id = expHaTableId, UserId = expHaId, Title = "ThS. Tâm lý", AcademicDegree = "Thạc sĩ Tâm lý học Lâm sàng ĐHQG • Chứng chỉ Tâm Lý Trị liệu", Specialization = "Áp lực học tập & Đồ án, Trầm cảm", ExperienceYears = 8, RoomLocation = "P.302 (Tầng 3)", Rating = 4.98, TotalConsultations = 1420, Permissions = "PERM_WORKSPACE,PERM_SCHEDULE" },
+            new Expert { Id = expLanTableId, UserId = expLanId, Title = "TS. Tâm lý", AcademicDegree = "Tiến sĩ Trị liệu Nhận thức Hành vi (CBT) • Chuyên gia can thiệp", Specialization = "Trầm cảm, Lo âu & Khủng hoảng", ExperienceYears = 11, RoomLocation = "P.302 (Tầng 3)", Rating = 5.0, TotalConsultations = 2100, Permissions = "PERM_ANALYTICS,PERM_MODERATION" },
+            new Expert { Id = expBaoTableId, UserId = expBaoId, Title = "ThS.", AcademicDegree = "Thạc sĩ Tâm lý Phát triển & Nghề nghiệp", Specialization = "Định hướng tương lai & Nghề nghiệp", ExperienceYears = 6, RoomLocation = "P.302 (Tầng 3)", Rating = 4.95, TotalConsultations = 980, Permissions = "PERM_WORKSPACE,PERM_SCHEDULE,PERM_ANALYTICS" },
+            new Expert { Id = expTamTableId, UserId = expTamId, Title = "ThS.", AcademicDegree = "Thạc sĩ Tâm lý Lâm sàng • Cố vấn SafeRoom SOS", Specialization = "Khủng hoảng tâm lý cấp tính, Rối loạn âu lo", ExperienceYears = 9, RoomLocation = "P.305 (Khu B)", Rating = 4.97, TotalConsultations = 1850, Permissions = "PERM_WORKSPACE,PERM_SCHEDULE,PERM_MODERATION" }
         });
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow);

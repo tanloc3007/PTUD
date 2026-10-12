@@ -2,10 +2,19 @@ import { useState, useEffect } from 'react';
 import axiosClient from '../../auth/api/authApi';
 import InPageNotification from '../../../shared/components/InPageNotification';
 
+const CATEGORY_MAP = {
+  'Áp lực học tập': 'Góc học tập',
+  'Mối quan hệ & Gia đình': 'Gia đình & Bạn bè',
+  'Chia sẻ tích cực': 'Chuyện thường ngày',
+  'Cô đơn & Lạc lõng': 'Góc tâm sự',
+  'Việc làm & Tài chính': 'Định hướng & Tương lai',
+};
+const formatCategory = (cat) => CATEGORY_MAP[cat] || cat;
+
 const MOCK_POSTS = [
-  { id: 'p1', code: 'Cún Mưa Rào #512', content: 'Còn đúng 3 tuần nữa là đến hạn bảo vệ đồ án... code vẫn lỗi...', cat: 'Áp lực học tập', status: 'Approved', score: 42, createdAt: new Date(Date.now() - 3600000) },
+  { id: 'p1', code: 'Cún Mưa Rào #512', content: 'Còn đúng 3 tuần nữa là đến hạn bảo vệ đồ án... code vẫn lỗi...', cat: 'Góc học tập', status: 'Approved', score: 42, createdAt: new Date(Date.now() - 3600000) },
   { id: 'p4', code: 'Ẩn Danh #902', content: 'Không muốn sống tiếp, buông bỏ tất cả...', cat: 'Khủng hoảng', status: 'Flagged', score: 94, createdAt: new Date(Date.now() - 7200000), isCrisis: true },
-  { id: 'p2', code: 'Bồ Công Anh #119', content: 'Lần đầu tiên sống xa nhà...', cat: 'Cô đơn & Lạc lõng', status: 'Approved', score: 28, createdAt: new Date(Date.now() - 86400000) },
+  { id: 'p2', code: 'Bồ Công Anh #119', content: 'Lần đầu tiên sống xa nhà...', cat: 'Góc tâm sự', status: 'Approved', score: 28, createdAt: new Date(Date.now() - 86400000) },
 ];
 
 export default function AdminModerationPage() {
@@ -22,7 +31,7 @@ export default function AdminModerationPage() {
             id: p.id,
             code: p.anonymousPseudonym || 'Bạn Ẩn Yên',
             content: p.content,
-            cat: p.categoryTag || 'Chia sẻ',
+            cat: formatCategory(p.categoryTag) || 'Chia sẻ',
             status: p.moderationStatus || 'Approved',
             score: p.riskScore ?? 0,
             imageUrl: p.imageUrl,
@@ -39,7 +48,7 @@ export default function AdminModerationPage() {
                   id: p.id,
                   code: p.anonymousPseudonym || 'Bạn Ẩn Yên',
                   content: p.content,
-                  cat: p.categoryTag || 'Chia sẻ',
+                  cat: formatCategory(p.categoryTag) || 'Chia sẻ',
                   status: p.moderationStatus || 'Approved',
                   score: p.riskScore ?? 0,
                   imageUrl: p.imageUrl,

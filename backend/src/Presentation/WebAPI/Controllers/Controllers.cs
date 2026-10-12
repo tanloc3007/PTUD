@@ -428,6 +428,17 @@ public class AppointmentsController : ControllerBase
     }
 
     /// <summary>
+    /// Lấy chi tiết thông tin ca hẹn theo ID
+    /// </summary>
+    [HttpGet("{appointmentId:guid}")]
+    public async Task<ActionResult<Result<AppointmentDto>>> GetAppointmentById(Guid appointmentId)
+    {
+        var result = await _appointmentService.GetAppointmentByIdAsync(appointmentId);
+        if (!result.Success) return NotFound(result);
+        return Ok(result);
+    }
+
+    /// <summary>
     /// Chuyên viên phê duyệt hoặc từ chối ca hẹn
     /// </summary>
     [HttpPatch("{appointmentId:guid}/status")]
@@ -444,6 +455,50 @@ public class AppointmentsController : ControllerBase
     public async Task<ActionResult<Result<AppointmentDto>>> CompleteSession(Guid appointmentId, [FromBody] CompleteSessionRequest request)
     {
         var result = await _appointmentService.CompleteSessionAsync(appointmentId, request);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Chuyên viên mở phòng cuộc họp trực tuyến (Kích hoạt thông báo cho sinh viên đặt lịch)
+    /// </summary>
+    [HttpPost("{appointmentId:guid}/start-meeting")]
+    public async Task<ActionResult<Result>> StartMeeting(Guid appointmentId, [FromQuery] Guid? expertId = null)
+    {
+        var targetExpertId = expertId ?? Request.GetUserIdFromRequest() ?? Guid.Parse("33333333-3333-3333-3333-333333333331");
+        var result = await _appointmentService.StartMeetingAsync(appointmentId, targetExpertId);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Kết thúc cuộc họp trực tuyến
+    /// </summary>
+    [HttpPost("{appointmentId:guid}/end-meeting")]
+    public async Task<ActionResult<Result>> EndMeeting(Guid appointmentId)
+    {
+        var result = await _appointmentService.EndMeetingAsync(appointmentId);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Kiểm tra xem sinh viên hiện tại có ca hẹn nào đang được chuyên viên mở cuộc họp hay không
+    /// </summary>
+    [HttpGet("student/{studentId:guid}/active-meeting")]
+    public async Task<ActionResult<Result<ActiveMeetingDto>>> GetActiveMeetingForStudent(Guid studentId)
+    {
+        var result = await _appointmentService.GetActiveMeetingForStudentAsync(studentId);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Xác thực quyền tham gia cuộc họp (Chỉ sinh viên đặt lịch hoặc chuyên viên phụ trách mới được vào)
+    /// </summary>
+    [HttpGet("{appointmentId:guid}/verify-participant")]
+    public async Task<ActionResult<Result<bool>>> VerifyMeetingParticipant(Guid appointmentId, [FromQuery] Guid? userId = null)
+    {
+        var targetUserId = userId ?? Request.GetUserIdFromRequest() ?? Guid.Empty;
+        var result = await _appointmentService.VerifyMeetingParticipantAsync(appointmentId, targetUserId);
+        if (!result.Success) return StatusCode(403, result);
         return Ok(result);
     }
 }
@@ -747,6 +802,28 @@ public class AdminController : ControllerBase
     public async Task<ActionResult<Result<ExpertDto>>> CreateExpert([FromBody] CreateExpertRequest request)
     {
         var result = await _adminService.CreateExpertAsync(request);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Lấy danh sách chuyên viên kèm các quyền chức năng được phân quyền
+    /// </summary>
+    [HttpGet("experts/permissions")]
+    public async Task<ActionResult<Result<List<ExpertPermissionDto>>>> GetExpertsPermissions()
+    {
+        var result = await _adminService.GetExpertsPermissionsAsync();
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Admin cập nhật phân quyền chi tiết cho chuyên viên
+    /// </summary>
+    [HttpPatch("experts/{expertId:guid}/permissions")]
+    public async Task<ActionResult<Result>> UpdateExpertPermissions(Guid expertId, [FromBody] UpdateExpertPermissionsRequest request, [FromQuery] Guid? adminId = null)
+    {
+        var targetAdminId = adminId ?? Request.GetUserIdFromRequest() ?? Guid.Parse("11111111-1111-1111-1111-111111111111");
+        var result = await _adminService.UpdateExpertPermissionsAsync(expertId, request, targetAdminId);
         if (!result.Success) return BadRequest(result);
         return Ok(result);
     }

@@ -24,8 +24,6 @@ const FACULTIES = [
   'Khác',
 ];
 
-const COURSES = ['2021', '2022', '2023', '2024', '2025', '2026'];
-
 export default function RegisterPage() {
   const navigate  = useNavigate();
   const { setAuth } = useAuthStore();
@@ -38,7 +36,7 @@ export default function RegisterPage() {
   const [form, setForm] = useState({
     studentId:   '',
     faculty:     '',
-    yearOfStudy: '2024',
+    yearOfStudy: '',
     email:       '',
     password:    '',
     confirmPass: '',
@@ -53,7 +51,7 @@ export default function RegisterPage() {
   const validateStep1 = () => {
     if (!form.studentId.trim()) return 'Vui lòng nhập Mã số sinh viên (MSSV).';
     if (!form.faculty)          return 'Vui lòng chọn khoa đang theo học.';
-    if (!form.yearOfStudy)      return 'Vui lòng chọn hoặc điền khóa học (ví dụ: 2023, 2024, 2025).';
+    if (!form.yearOfStudy.trim()) return 'Vui lòng nhập khóa học (ví dụ: 2024, 2023, K24...).';
     if (!form.email.includes('@')) return 'Email liên lạc không hợp lệ.';
     return '';
   };
@@ -228,32 +226,16 @@ export default function RegisterPage() {
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                     <label style={{ ...labelStyle, margin: 0 }}>Khóa học (Năm tuyển sinh) <span style={{ color: '#ef4444' }}>*</span></label>
-                    <span style={{ fontSize: 11, color: '#0d9488', fontWeight: 700 }}>VD: 2023, 2024, 2025</span>
-                  </div>
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
-                    {COURSES.map(c => (
-                      <button
-                        key={c}
-                        type="button"
-                        onClick={() => set('yearOfStudy', c)}
-                        style={{
-                          padding: '7px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer',
-                          border: `1.5px solid ${form.yearOfStudy === c ? '#0d9488' : '#e5e7eb'}`,
-                          background: form.yearOfStudy === c ? '#f0fdfa' : '#fff',
-                          color: form.yearOfStudy === c ? '#0d9488' : '#6b7280',
-                          fontFamily: "'Manrope', sans-serif",
-                        }}
-                      >
-                        Khóa {c}
-                      </button>
-                    ))}
+                    <span style={{ fontSize: 11, color: '#0d9488', fontWeight: 700 }}>VD: 2024, 2025, K24...</span>
                   </div>
                   <input
-                    style={{ ...inputStyle, padding: '8px 12px', fontSize: 13 }}
-                    placeholder="Hoặc nhập năm khóa học khác (VD: 2020, 2023, 2025...)"
+                    type="text"
+                    style={inputStyle}
+                    placeholder="Nhập khóa học hoặc năm tuyển sinh (VD: 2024, K24...)"
                     value={form.yearOfStudy}
                     onChange={e => set('yearOfStudy', e.target.value)}
                   />
+                  <p style={hintStyle}>Nhập năm tuyển sinh hoặc khóa học của bạn để định danh lớp sinh viên.</p>
                 </div>
 
                 {/* Email */}

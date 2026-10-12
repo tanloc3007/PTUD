@@ -8,6 +8,12 @@ const ACTION_META = {
   KEYWORD_ADDED:         { icon: '🔍', color: '#d97706', bg: '#fffbeb', border: '#fde68a', label: 'Thêm từ khóa' },
   CRISIS_TRIAGE_FLAGGED: { icon: '🚨', color: '#dc2626', bg: '#fef2f2', border: '#fecaca', label: 'Cảnh báo AI Triage' },
   ROLE_CHANGED:          { icon: '🔒', color: '#4338ca', bg: '#eef2ff', border: '#c7d2fe', label: 'Thay đổi quyền' },
+  ADMIN_MODERATE_POST:   { icon: '🛡️', color: '#e11d48', bg: '#fff1f2', border: '#fecdd3', label: 'Admin duyệt bài' },
+  ADMIN_TOGGLE_USER_STATUS: { icon: '🔒', color: '#dc2626', bg: '#fef2f2', border: '#fecaca', label: 'Khóa / Mở tài khoản' },
+  ADMIN_ADD_KEYWORD:     { icon: '➕', color: '#d97706', bg: '#fffbeb', border: '#fde68a', label: 'Thêm từ khóa nguy cơ' },
+  ADMIN_DELETE_KEYWORD:  { icon: '🗑️', color: '#64748b', bg: '#f8fafc', border: '#cbd5e1', label: 'Xóa từ khóa' },
+  ADMIN_UPDATE_ROLE:     { icon: '👑', color: '#4338ca', bg: '#eef2ff', border: '#c7d2fe', label: 'Cấp vai trò người dùng' },
+  MODERATE_IMAGE:        { icon: '🖼️', color: '#8b5cf6', bg: '#f5f3ff', border: '#ddd6fe', label: 'Kiểm duyệt ảnh' },
   SYSTEM:                { icon: '⚙️', color: '#475569', bg: '#f8fafc', border: '#cbd5e1', label: 'Hệ thống' },
 };
 

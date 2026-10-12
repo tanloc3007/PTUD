@@ -26,7 +26,7 @@ public record RegisterRequest(
     string? YearOfStudy = null
 );
 public record AuthResponse(string Token, UserDto User);
-public record UserDto(Guid Id, string? MSSV, string FullName, string Email, string Role, string? Faculty, string AnonymousCode, string? AvatarUrl);
+public record UserDto(Guid Id, string? MSSV, string FullName, string Email, string Role, string? Faculty, string AnonymousCode, string? AvatarUrl, List<string>? Permissions = null);
 
 // 2. MOOD JOURNAL DTOs
 public record CreateMoodJournalRequest(
@@ -479,4 +479,27 @@ public record UpdateExpertProfileRequest(
 );
 
 public record UpdateUserRoleRequest(string Role);
+
+public record UpdateExpertPermissionsRequest(List<string> Permissions);
+
+public record ExpertPermissionDto(
+    Guid ExpertId,
+    Guid UserId,
+    string FullName,
+    string Email,
+    string Title,
+    string Specialization,
+    List<string> Permissions
+);
+
+public record ActiveMeetingDto(
+    bool HasActiveMeeting,
+    Guid? AppointmentId = null,
+    string? BookingCode = null,
+    string? ExpertName = null,
+    string? ExpertTitle = null,
+    string? RoomLocation = null,
+    string? ConsultationType = null,
+    DateTime? StartedAt = null
+);
 

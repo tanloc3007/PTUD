@@ -99,6 +99,11 @@ export default function ConsultationRoomPage() {
     setIsMeetingStarted(true);
     setSessionSeconds(0);
     setShowNotebook(false);
+
+    // Kích hoạt trạng thái mở cuộc họp trên server để gửi thông báo cho sinh viên đặt lịch
+    if (target.id) {
+      axiosClient.post(`/appointments/${target.id}/start-meeting`).catch(() => {});
+    }
     setMessages([
       {
         id: 1,
@@ -188,6 +193,19 @@ export default function ConsultationRoomPage() {
     }
   };
 
+  const handleCloseMeeting = async () => {
+    const targetId = selectedAppt?.id || appointmentId;
+    if (targetId) {
+      await axiosClient.post(`/appointments/${targetId}/end-meeting`).catch(() => {});
+    }
+    setIsMeetingStarted(false);
+    setNotice({
+      type: 'info',
+      title: 'Đã đóng phòng họp',
+      message: 'Phòng họp đã được đóng. Thông báo gửi đến sinh viên đã được gỡ bỏ.'
+    });
+  };
+
   // Tạo mã phòng Jitsi Meet trực tuyến Internet dựa trên bookingCode
   const roomName = `UniMind_Consultation_${(selectedAppt?.bookingCode || 'ST_LIVE').replace(/[^a-zA-Z0-9]/g, '_')}`;
   const jitsiUrl = `https://meet.jit.si/${roomName}#config.prejoinPageEnabled=false&config.disableDeepLinking=true&config.startWithAudioMuted=false&config.startWithVideoMuted=false`;
@@ -257,6 +275,15 @@ export default function ConsultationRoomPage() {
                 }}
               >
                 📝 {showNotebook ? 'Ẩn Sổ Tay' : 'Mở Sổ Tay Lâm Sàng'}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleCloseMeeting}
+                className="e-btn e-btn-ghost"
+                style={{ fontSize: 13, padding: '7px 14px', color: '#b91c1c', borderColor: '#fca5a5' }}
+              >
+                🚪 Đóng phòng họp
               </button>
 
               <button

@@ -45,6 +45,11 @@ public interface IAppointmentService
     Task<Result<List<AppointmentDto>>> GetExpertAppointmentsAsync(Guid expertId);
     Task<Result<AppointmentDto>> UpdateStatusAsync(Guid appointmentId, UpdateAppointmentStatusRequest request);
     Task<Result<AppointmentDto>> CompleteSessionAsync(Guid appointmentId, CompleteSessionRequest request);
+    Task<Result<AppointmentDto>> GetAppointmentByIdAsync(Guid appointmentId);
+    Task<Result> StartMeetingAsync(Guid appointmentId, Guid expertUserId);
+    Task<Result> EndMeetingAsync(Guid appointmentId);
+    Task<Result<ActiveMeetingDto>> GetActiveMeetingForStudentAsync(Guid studentId);
+    Task<Result<bool>> VerifyMeetingParticipantAsync(Guid appointmentId, Guid userId);
 }
 
 public interface IExpertWorkspaceService
@@ -77,5 +82,7 @@ public interface IAdminService
     Task<Result<List<SensitiveKeywordDto>>> GetSensitiveKeywordsAsync();
     Task<Result<SensitiveKeywordDto>> AddSensitiveKeywordAsync(AddSensitiveKeywordRequest request);
     Task<Result> DeleteSensitiveKeywordAsync(Guid keywordId);
+    Task<Result<List<ExpertPermissionDto>>> GetExpertsPermissionsAsync();
+    Task<Result> UpdateExpertPermissionsAsync(Guid expertId, UpdateExpertPermissionsRequest request, Guid adminId);
 }
 
