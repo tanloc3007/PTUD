@@ -34,6 +34,8 @@ public interface ICommunityService
     Task<Result> DeletePostAsync(Guid postId, Guid requestingUserId, bool isStaffOrAdmin);
     Task<Result<PostDto>> ModeratePostImageAsync(Guid postId, ModerateImageRequest request, Guid moderatorUserId);
     Task<Result<CommentDto>> AddCommentAsync(Guid userId, Guid postId, CreateCommentRequest request, bool isExpert);
+    Task<Result> ModerateCommentAsync(Guid commentId, ModerateCommentRequest request, Guid adminUserId);
+    Task<Result<List<CommentDto>>> GetFlaggedCommentsAsync();
     Task<Result<PostDto>> ReactAsync(Guid postId, string reactionType);
 }
 
@@ -43,6 +45,7 @@ public interface IAppointmentService
     Task<Result<AppointmentDto>> BookAppointmentAsync(Guid studentId, BookAppointmentRequest request);
     Task<Result<List<AppointmentDto>>> GetStudentAppointmentsAsync(Guid studentId);
     Task<Result<List<AppointmentDto>>> GetExpertAppointmentsAsync(Guid expertId);
+    Task<Result<List<BookedSlotDto>>> GetExpertBookedSlotsAsync(Guid expertId);
     Task<Result<AppointmentDto>> UpdateStatusAsync(Guid appointmentId, UpdateAppointmentStatusRequest request);
     Task<Result<AppointmentDto>> CompleteSessionAsync(Guid appointmentId, CompleteSessionRequest request);
     Task<Result<AppointmentDto>> GetAppointmentByIdAsync(Guid appointmentId);
@@ -50,6 +53,10 @@ public interface IAppointmentService
     Task<Result> EndMeetingAsync(Guid appointmentId);
     Task<Result<ActiveMeetingDto>> GetActiveMeetingForStudentAsync(Guid studentId);
     Task<Result<bool>> VerifyMeetingParticipantAsync(Guid appointmentId, Guid userId);
+    Task<Result> SendMeetingSignalAsync(Guid appointmentId, MeetingSignalRequest request);
+    Task<Result<List<MeetingSignalDto>>> GetMeetingSignalsAsync(Guid appointmentId, long sinceTimestamp, string? recipientRole = null);
+    Task<Result<MeetingChatDto>> SendMeetingChatMessageAsync(Guid appointmentId, SendMeetingChatRequest request);
+    Task<Result<List<MeetingChatDto>>> GetMeetingChatMessagesAsync(Guid appointmentId);
 }
 
 public interface IExpertWorkspaceService
@@ -75,6 +82,8 @@ public interface IAdminService
     Task<Result<List<AuditLogEmployeeOptionDto>>> GetAuditLogFilterOptionsAsync();
     Task<Result<List<PostDto>>> GetModerationQueueAsync();
     Task<Result> ModeratePostAsync(Guid postId, ModeratePostRequest request, Guid adminUserId);
+    Task<Result<List<CommentDto>>> GetFlaggedCommentsAsync();
+    Task<Result> ModerateCommentAsync(Guid commentId, ModerateCommentRequest request, Guid adminUserId);
     Task<Result<List<UserDto>>> GetAllUsersAsync();
     Task<Result> ToggleUserStatusAsync(Guid userId);
     Task<Result<UserDto>> UpdateUserRoleAsync(Guid userId, string newRole);
@@ -82,6 +91,7 @@ public interface IAdminService
     Task<Result<List<SensitiveKeywordDto>>> GetSensitiveKeywordsAsync();
     Task<Result<SensitiveKeywordDto>> AddSensitiveKeywordAsync(AddSensitiveKeywordRequest request);
     Task<Result> DeleteSensitiveKeywordAsync(Guid keywordId);
+    Task<Result<ModerationTestDto>> TestModerationAsync(string content);
     Task<Result<List<ExpertPermissionDto>>> GetExpertsPermissionsAsync();
     Task<Result> UpdateExpertPermissionsAsync(Guid expertId, UpdateExpertPermissionsRequest request, Guid adminId);
 }

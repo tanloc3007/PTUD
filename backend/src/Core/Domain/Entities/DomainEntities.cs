@@ -197,6 +197,7 @@ public class CommunityComment
     public Guid UserId { get; set; }
     public string AuthorPseudonym { get; set; } = string.Empty;
     public string Content { get; set; } = string.Empty;
+    public string? ImageUrl { get; set; }
     public bool IsExpertComment { get; set; }
     public string? ExpertTitle { get; set; }
     public bool IsSensitiveHiddenFromStudents { get; set; } // Ẩn với sinh viên, hiển thị cho Admin/Expert

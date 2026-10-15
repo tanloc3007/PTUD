@@ -1,3 +1,7 @@
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using UniMind.Application.Common.Interfaces;
 using UniMind.Domain.Entities;
 
@@ -5,6 +9,11 @@ namespace UniMind.Infrastructure.ExternalServices.AI;
 
 public class AISentimentService : IAISentimentService
 {
+    private readonly HttpClient _httpClient;
+    private readonly string _apiKey;
+    private readonly string _primaryModel;
+    private readonly List<string> _fallbackModels;
+
     // Từ điển cảm xúc chuẩn tiếng Việt và tiếng Anh cho NLP đa ngữ
     private static readonly HashSet<string> PositiveWords = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -42,7 +51,113 @@ public class AISentimentService : IAISentimentService
         "no way out", "better off dead", "goodbye world"
     };
 
+    public AISentimentService(string? apiKey = null, string? model = null)
+    {
+        _httpClient = new HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(6) // Đảm bảo phản hồi nhanh, không nghẽn luồng
+        };
+
+        _apiKey = !string.IsNullOrWhiteSpace(apiKey)
+            ? apiKey
+            : (Environment.GetEnvironmentVariable("GEMINI_API_KEY") ?? string.Empty);
+
+        _primaryModel = !string.IsNullOrWhiteSpace(model)
+            ? model
+            : "gemini-3.5-flash-lite";
+
+        _fallbackModels = new List<string> { "gemini-flash-latest", "gemini-3.5-flash" };
+    }
+
+    /// <summary>
+    /// Kiểm duyệt song song: Kết hợp kiểm tra từ khóa DB + Phân tích ngữ cảnh sâu qua Gemini AI
+    /// </summary>
+    public async Task<SentimentAnalysisResult> AnalyzeAsync(string text, IEnumerable<SensitiveKeyword> activeKeywords, CancellationToken cancellationToken = default)
+    {
+        // 1. Phân tích luật từ khóa & khủng hoảng trực tiếp (Rule-based Dictionary)
+        var ruleResult = AnalyzeRuleBased(text, activeKeywords);
+
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return ruleResult;
+        }
+
+        // 2. Gọi AI phân tích song song (Contextual & Semantic AI Check)
+        GeminiModerationResponse? aiModeration = null;
+        try
+        {
+            aiModeration = await CallGeminiModerationAsync(text, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            // Dự phòng sự cố: Nếu mạng gián đoạn hoặc API ngoài bị nghẽn, ghi log và giữ an toàn bằng bộ lọc từ khóa
+            Console.WriteLine($"[UniMind AI Warning] Gemini AI moderation fallback: {ex.Message}");
+        }
+
+        // 3. Hợp nhất kết quả kiểm duyệt song song (Hybrid Moderation Decision)
+        bool keywordTriggered = ruleResult.ContainsSensitiveKeywords || ruleResult.IsExtremeCrisis;
+        bool aiTriggered = aiModeration != null && (aiModeration.IsSensitive || aiModeration.RiskScore >= 75);
+
+        int combinedRisk = Math.Max(ruleResult.RiskScore, aiModeration?.RiskScore ?? 0);
+        bool combinedCrisis = ruleResult.IsExtremeCrisis || (aiModeration?.RiskScore >= 85) || string.Equals(aiModeration?.Category, "SelfHarm", StringComparison.OrdinalIgnoreCase);
+
+        var mergedKeywords = new List<string>(ruleResult.TriggeredKeywords);
+        if (aiTriggered && !string.IsNullOrWhiteSpace(aiModeration?.Reason))
+        {
+            var aiBadge = $"[AI: {aiModeration.Category ?? "Nhạy cảm"}] {aiModeration.Reason}";
+            if (!mergedKeywords.Contains(aiBadge))
+            {
+                mergedKeywords.Add(aiBadge);
+            }
+        }
+
+        string source = (keywordTriggered && aiTriggered) 
+            ? "KeywordAndAI" 
+            : (aiTriggered ? "AIOnly" : (keywordTriggered ? "KeywordOnly" : "Clean"));
+
+        string finalSentiment = (combinedCrisis || combinedRisk >= 75)
+            ? "ExtremeNegative"
+            : (!string.IsNullOrWhiteSpace(aiModeration?.SentimentLabel) ? aiModeration.SentimentLabel : ruleResult.SentimentLabel);
+
+        double finalScore = aiModeration != null && aiModeration.SentimentScore.HasValue
+            ? Math.Round((ruleResult.SentimentScore + aiModeration.SentimentScore.Value) / 2.0, 2)
+            : ruleResult.SentimentScore;
+
+        string finalAdvice = !string.IsNullOrWhiteSpace(aiModeration?.EmpatheticAdvice)
+            ? aiModeration.EmpatheticAdvice
+            : ruleResult.EmpatheticAdvice;
+
+        return new SentimentAnalysisResult
+        {
+            SentimentScore = finalScore,
+            SentimentLabel = finalSentiment,
+            RiskScore = combinedRisk,
+            ContainsSensitiveKeywords = ruleResult.ContainsSensitiveKeywords,
+            TriggeredKeywords = mergedKeywords,
+            IsExtremeCrisis = combinedCrisis,
+            EmpatheticAdvice = finalAdvice,
+            BreathingExerciseSuggestion = ruleResult.BreathingExerciseSuggestion,
+            IsAiFlagged = aiTriggered,
+            AiCategory = aiModeration?.Category,
+            AiReason = aiModeration?.Reason,
+            AiConfidence = aiModeration?.Confidence ?? (aiTriggered ? 90 : 0),
+            ModerationSource = source
+        };
+    }
+
     public SentimentAnalysisResult Analyze(string text, IEnumerable<SensitiveKeyword> activeKeywords)
+    {
+        try
+        {
+            return AnalyzeAsync(text, activeKeywords).GetAwaiter().GetResult();
+        }
+        catch
+        {
+            return AnalyzeRuleBased(text, activeKeywords);
+        }
+    }
+
+    private SentimentAnalysisResult AnalyzeRuleBased(string text, IEnumerable<SensitiveKeyword> activeKeywords)
     {
         if (string.IsNullOrWhiteSpace(text))
         {
@@ -128,7 +243,6 @@ public class AISentimentService : IAISentimentService
             label = "Neutral";
         }
 
-        // 7. Nhận diện ngôn ngữ & Sinh lời khuyên lâm sàng
         bool isEnglish = IsEnglishText(text);
         string advice = GenerateAdvice(label, isExtremeCrisis, triggeredKeywords, isEnglish);
         string breathingAdvice = isEnglish
@@ -144,8 +258,145 @@ public class AISentimentService : IAISentimentService
             TriggeredKeywords = triggeredKeywords,
             IsExtremeCrisis = isExtremeCrisis,
             EmpatheticAdvice = advice,
-            BreathingExerciseSuggestion = breathingAdvice
+            BreathingExerciseSuggestion = breathingAdvice,
+            ModerationSource = "KeywordOnly"
         };
+    }
+
+    /// <summary>
+    /// Gửi nội dung bài viết/bình luận đến Google Gemini AI để phân tích ngữ cảnh, độ nhạy cảm và phát hiện nguy cơ
+    /// </summary>
+    private async Task<GeminiModerationResponse?> CallGeminiModerationAsync(string text, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(_apiKey))
+        {
+            return null;
+        }
+
+        var modelsToTry = new List<string> { _primaryModel };
+        modelsToTry.AddRange(_fallbackModels.Where(m => m != _primaryModel));
+
+        string prompt = $@"Bạn là trợ lý AI chuyên nghiệp về an toàn nội dung và tâm lý học đường của nền tảng UniMind (Đại học Lạc Hồng).
+Nhiệm vụ của bạn: Phân tích sâu ngữ cảnh đoạn văn bản sau đây (từ sinh viên chia sẻ hoặc bình luận).
+Phát hiện các yếu tố nhạy cảm ngầm hoặc trực tiếp:
+1. Ý định tự tử, tự làm hại bản thân (SelfHarm), bế tắc muốn từ bỏ cuộc sống.
+2. Quấy rối, bôi nhọ, xúc phạm, bắt nạt trực tuyến (Bullying/Harassment).
+3. Bạo lực, kích động thù hằn, nội dung phản cảm học đường (Violence/Toxicity).
+4. Khủng hoảng trầm cảm nặng nề cần chuyên viên can thiệp (Depression).
+
+Nội dung cần kiểm duyệt:
+""{text.Replace("\"", "\\\"")}""
+
+YÊU CẦU: Trả về kết quả ĐÚNG định dạng JSON sau (không kèm lời chào hay ký tự thừa):
+{{
+  ""isSensitive"": true hoặc false,
+  ""category"": ""SelfHarm"" hoặc ""Bullying"" hoặc ""Violence"" hoặc ""Depression"" hoặc ""None"",
+  ""riskScore"": số nguyên từ 0 đến 100,
+  ""confidence"": số nguyên từ 0 đến 100,
+  ""reason"": ""Giải thích ngắn gọn lý do bằng tiếng Việt vì sao nhạy cảm hoặc an toàn"",
+  ""sentimentLabel"": ""Positive"" hoặc ""Neutral"" hoặc ""Negative"" hoặc ""ExtremeNegative"",
+  ""sentimentScore"": số thực từ -1.0 đến 1.0,
+  ""empatheticAdvice"": ""Lời khuyên tâm lý thấu cảm, nhẹ nhàng dành cho sinh viên""
+}}";
+
+        var payload = new
+        {
+            contents = new[]
+            {
+                new
+                {
+                    parts = new[]
+                    {
+                        new { text = prompt }
+                    }
+                }
+            }
+        };
+
+        var jsonPayload = JsonSerializer.Serialize(payload);
+
+        foreach (var model in modelsToTry)
+        {
+            try
+            {
+                var url = $"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={_apiKey}";
+                using var request = new HttpRequestMessage(HttpMethod.Post, url)
+                {
+                    Content = new StringContent(jsonPayload, Encoding.UTF8, "application/json")
+                };
+
+                using var response = await _httpClient.SendAsync(request, cancellationToken);
+                if (response.IsSuccessStatusCode)
+                {
+                    var responseJson = await response.Content.ReadAsStringAsync(cancellationToken);
+                    return ParseGeminiResponse(responseJson);
+                }
+
+                // Nếu 503 (High demand) hoặc 404, thử model tiếp theo trong danh sách dự phòng
+                if ((int)response.StatusCode == 503 || (int)response.StatusCode == 404)
+                {
+                    continue;
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[UniMind AI] Model {model} request failed: {ex.Message}");
+            }
+        }
+
+        return null;
+    }
+
+    private static GeminiModerationResponse? ParseGeminiResponse(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            if (root.TryGetProperty("candidates", out var candidates) && candidates.GetArrayLength() > 0)
+            {
+                var first = candidates[0];
+                if (first.TryGetProperty("content", out var content) &&
+                    content.TryGetProperty("parts", out var parts) &&
+                    parts.GetArrayLength() > 0)
+                {
+                    var rawText = parts[0].GetProperty("text").GetString()?.Trim();
+                    if (!string.IsNullOrWhiteSpace(rawText))
+                    {
+                        // Xóa markdown block ```json ... ``` nếu Gemini bọc
+                        if (rawText.StartsWith("```json", StringComparison.OrdinalIgnoreCase))
+                        {
+                            rawText = rawText.Substring(7);
+                        }
+                        if (rawText.StartsWith("```"))
+                        {
+                            rawText = rawText.Substring(3);
+                        }
+                        if (rawText.EndsWith("```"))
+                        {
+                            rawText = rawText.Substring(0, rawText.Length - 3);
+                        }
+                        rawText = rawText.Trim();
+
+                        var options = new JsonSerializerOptions
+                        {
+                            PropertyNameCaseInsensitive = true
+                        };
+                        return JsonSerializer.Deserialize<GeminiModerationResponse>(rawText, options);
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[UniMind AI] JSON parse failed: {ex.Message}");
+        }
+
+        return null;
     }
 
     private static bool IsEnglishText(string text)
@@ -182,5 +433,32 @@ public class AISentimentService : IAISentimentService
             "Negative" => "Dường như những áp lực học đường hoặc cảm giác mệt mỏi đang làm hao tổn năng lượng của bạn. Hãy cho phép bản thân nghỉ ngơi 15 phút, uống một ngụm nước ấm và thử bài tập thở 4-7-8 để điều hòa nhịp tim nhé.",
             _ => "UniMind luôn lắng nghe và thấu cảm cùng bạn. Dành vài phút tĩnh tâm mỗi ngày là cách tuyệt vời để chăm sóc sức khỏe tinh thần bản thân."
         };
+    }
+
+    public class GeminiModerationResponse
+    {
+        [JsonPropertyName("isSensitive")]
+        public bool IsSensitive { get; set; }
+
+        [JsonPropertyName("category")]
+        public string? Category { get; set; }
+
+        [JsonPropertyName("riskScore")]
+        public int RiskScore { get; set; }
+
+        [JsonPropertyName("confidence")]
+        public int Confidence { get; set; }
+
+        [JsonPropertyName("reason")]
+        public string? Reason { get; set; }
+
+        [JsonPropertyName("sentimentLabel")]
+        public string? SentimentLabel { get; set; }
+
+        [JsonPropertyName("sentimentScore")]
+        public double? SentimentScore { get; set; }
+
+        [JsonPropertyName("empatheticAdvice")]
+        public string? EmpatheticAdvice { get; set; }
     }
 }

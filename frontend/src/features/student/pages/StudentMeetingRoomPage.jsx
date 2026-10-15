@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axiosClient from '../../auth/api/authApi';
 import { useAuthStore } from '../../auth/store/authStore';
+import SafeCallMeetingRoom from '../../../shared/components/SafeCallMeetingRoom';
 
 export default function StudentMeetingRoomPage() {
   const { id: appointmentId } = useParams();
@@ -189,11 +190,12 @@ export default function StudentMeetingRoomPage() {
           boxSizing: 'border-box'
         }}>
           <p style={{ fontSize: 12.5, fontWeight: 700, color: '#334155', margin: '0 0 6px' }}>
-            🔒 Quy tắc an toàn UniMind:
+            🔒 Quy tắc an toàn &amp; Bảo mật UniMind WebRTC:
           </p>
           <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: '#64748b', lineHeight: 1.6 }}>
             <li>Chỉ sinh viên sở hữu ca hẹn mới nhận được thông báo và vào được phòng họp.</li>
             <li>Không một sinh viên nào khác có thể nhìn thấy hoặc truy cập phòng này.</li>
+            <li>Công nghệ WebRTC P2P nội bộ: Kết nối trực tiếp giữa trình duyệt của bạn và chuyên viên, không qua trung gian bên thứ 3.</li>
             <li>Dữ liệu cuộc họp không lưu trữ hình ảnh hay âm thanh ra ngoài hệ thống.</li>
           </ul>
         </div>
@@ -221,137 +223,43 @@ export default function StudentMeetingRoomPage() {
     );
   }
 
-  // Tên phòng Jitsi Meet khớp chuẩn với chuyên viên
   const bookingCode = appointment?.bookingCode || 'ST_LIVE';
-  const cleanCode = bookingCode.replace(/[^a-zA-Z0-9]/g, '_');
-  const roomName = `UniMind_Consultation_${cleanCode}`;
-  const studentDisplay = encodeURIComponent(user?.anonymousCode || user?.fullName || 'Sinh viên Ẩn danh');
-  const jitsiUrl = `https://meet.jit.si/${roomName}#config.prejoinPageEnabled=false&config.disableDeepLinking=true&config.startWithAudioMuted=false&config.startWithVideoMuted=false&userInfo.displayName="${studentDisplay}"`;
 
   return (
     <div style={{ width: '100%', maxWidth: 1360, margin: '0 auto', boxSizing: 'border-box' }}>
       
-      {/* ══════════════ TOP BAR PHÒNG HỌP ══════════════ */}
-      <div style={{
-        background: '#ffffff',
-        borderRadius: 16,
-        padding: '16px 20px',
-        marginBottom: 16,
-        border: '1px solid #e5e7eb',
-        boxShadow: '0 4px 20px -5px rgba(0,0,0,0.05)',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        flexWrap: 'wrap',
-        gap: 12
-      }}>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <span style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              background: '#f0fdf4',
-              color: '#16a34a',
-              border: '1px solid #bbf7d0',
-              padding: '3px 10px',
-              borderRadius: 20,
-              fontSize: 11.5,
-              fontWeight: 800
-            }}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#22c55e', animation: 'pulse 1.5s infinite' }} />
-              ĐANG KẾT NỐI TRỰC TIẾP
-            </span>
-            <span style={{ fontSize: 12, fontWeight: 700, color: '#6b7280' }}>
-              Mã ca: <strong style={{ color: '#0f766e' }}>{bookingCode}</strong>
-            </span>
-            <span style={{ fontSize: 12, fontWeight: 700, color: '#6b7280' }}>
-              • Thời gian: <strong style={{ color: '#111827' }}>{formatTime(sessionSeconds)}</strong>
-            </span>
-          </div>
-
-          <h1 style={{
-            fontSize: 19,
-            fontWeight: 900,
-            color: '#111827',
-            margin: '6px 0 2px',
-            fontFamily: "'Plus Jakarta Sans', sans-serif"
-          }}>
-            Phòng Tư Vấn Trực Tuyến với {appointment?.expertName || 'Chuyên viên Tâm lý'}
-          </h1>
-          <p style={{ fontSize: 12.5, color: '#6b7280', margin: 0 }}>
-            {appointment?.expertTitle ? `${appointment.expertTitle} • ` : ''}Không gian bảo mật ẩn danh 1-1 • Mọi chia sẻ của bạn đều được tôn trọng và bảo vệ.
-          </p>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <button
-            onClick={() => setShowHelpDrawer(v => !v)}
-            style={{
-              padding: '8px 14px',
-              borderRadius: 10,
-              background: showHelpDrawer ? '#f0fdfa' : '#ffffff',
-              border: '1.5px solid #0f766e',
-              color: '#0f766e',
-              fontSize: 12.5,
-              fontWeight: 800,
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              transition: 'all 0.15s ease'
-            }}
-          >
-            🌿 {showHelpDrawer ? 'Đóng Thư Giãn' : 'Hít Thở Thư Giãn'}
-          </button>
-
-          <button
-            onClick={handleLeaveMeeting}
-            style={{
-              padding: '8px 16px',
-              borderRadius: 10,
-              background: '#fee2e2',
-              border: '1.5px solid #fca5a5',
-              color: '#b91c1c',
-              fontSize: 12.5,
-              fontWeight: 800,
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              transition: 'all 0.15s ease'
-            }}
-            onMouseEnter={e => e.currentTarget.style.background = '#fecaca'}
-            onMouseLeave={e => e.currentTarget.style.background = '#fee2e2'}
-          >
-            🚪 Rời phòng họp
-          </button>
-        </div>
-      </div>
-
-      {/* ══════════════ KHUNG PHÒNG HỌP VIDEO JITSI MEET ══════════════ */}
-      <div style={{
-        position: 'relative',
-        width: '100%',
-        height: '76vh',
-        minHeight: 520,
-        background: '#0a0f1d',
-        borderRadius: 20,
-        overflow: 'hidden',
-        border: '1px solid rgba(15, 118, 110, 0.25)',
-        boxShadow: '0 20px 50px -15px rgba(15, 23, 42, 0.25)',
-      }}>
-        {/* Iframe Jitsi Meet */}
-        <iframe
-          src={jitsiUrl}
-          title="Student Live Consultation Room"
-          allow="camera; microphone; display-capture; autoplay; clipboard-write"
-          style={{
-            width: '100%',
-            height: '100%',
-            border: 'none',
-            display: 'block'
-          }}
+      {/* ══════════════ KHUNG PHÒNG HỌP VIDEO SAFECALL WEBRTC TRỰC TIẾP ══════════════ */}
+      <div style={{ position: 'relative', width: '100%' }}>
+        <SafeCallMeetingRoom
+          appointmentId={appointmentId}
+          bookingCode={bookingCode}
+          currentUserRole="student"
+          currentUserName={user?.anonymousCode || user?.fullName || 'Sinh viên Ẩn danh'}
+          peerName={appointment?.expertName || 'Chuyên viên Tâm lý'}
+          sessionSeconds={sessionSeconds}
+          onLeaveOrEnd={handleLeaveMeeting}
+          isHost={false}
+          extraHeaderActions={
+            <button
+              type="button"
+              onClick={() => setShowHelpDrawer(v => !v)}
+              style={{
+                fontSize: 12,
+                padding: '6px 14px',
+                borderRadius: 8,
+                background: showHelpDrawer ? '#0d9488' : 'rgba(255,255,255,0.1)',
+                color: '#fff',
+                border: '1px solid rgba(255,255,255,0.2)',
+                fontWeight: 800,
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6
+              }}
+            >
+              🌿 {showHelpDrawer ? 'Đóng Thư Giãn' : 'Hít Thở 4-7-8'}
+            </button>
+          }
         />
 
         {/* ══════════════ MINI POPUP HỖ TRỢ HÍT THỞ (DRAWER NỔI BẬT) ══════════════ */}

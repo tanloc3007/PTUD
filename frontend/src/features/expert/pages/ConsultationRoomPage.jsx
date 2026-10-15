@@ -3,6 +3,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import axiosClient from '../../auth/api/authApi';
 import { useAuthStore } from '../../auth/store/authStore';
 import InPageNotification from '../../../shared/components/InPageNotification';
+import SafeCallMeetingRoom from '../../../shared/components/SafeCallMeetingRoom';
 
 export default function ConsultationRoomPage() {
   const [searchParams] = useSearchParams();
@@ -20,7 +21,7 @@ export default function ConsultationRoomPage() {
 
   // Meeting State
   const [isMeetingStarted, setIsMeetingStarted] = useState(false);
-  const [meetingMode, setMeetingMode] = useState('internet'); // 'internet' (Jitsi Live WebRTC) | 'private' (Anonymous Audio)
+  const [meetingMode, setMeetingMode] = useState('video'); // 'video' (WebRTC Video HD P2P) | 'private' (Anonymous Voice WebRTC)
   const [sessionSeconds, setSessionSeconds] = useState(0);
 
   // Clinical Notebook Drawer/Popup State (Chỉ là 1 nút nhắc để mở khung nhỏ)
@@ -108,7 +109,7 @@ export default function ConsultationRoomPage() {
       {
         id: 1,
         sender: 'system',
-        text: `🔒 Đã khởi tạo phòng tư vấn Internet an toàn cho ${target.studentAnonymousCode || 'Sinh viên'}. Mã ca: ${target.bookingCode || 'ST-LIVE'}.`,
+        text: `🔒 Đã khởi tạo phòng tư vấn WebRTC P2P nội bộ cho ${target.studentAnonymousCode || 'Sinh viên'}. Mã ca: ${target.bookingCode || 'ST-LIVE'}. (100% tự tổ chức, không qua bên thứ 3)`,
         time: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
       },
       {
@@ -206,10 +207,6 @@ export default function ConsultationRoomPage() {
     });
   };
 
-  // Tạo mã phòng Jitsi Meet trực tuyến Internet dựa trên bookingCode
-  const roomName = `UniMind_Consultation_${(selectedAppt?.bookingCode || 'ST_LIVE').replace(/[^a-zA-Z0-9]/g, '_')}`;
-  const jitsiUrl = `https://meet.jit.si/${roomName}#config.prejoinPageEnabled=false&config.disableDeepLinking=true&config.startWithAudioMuted=false&config.startWithVideoMuted=false`;
-
   return (
     <div className="expert-page-shell" style={{ width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}>
       
@@ -235,13 +232,13 @@ export default function ConsultationRoomPage() {
               display: 'inline-block'
             }} />
             <h1 style={{ fontSize: 22, fontWeight: 900, color: 'var(--e-text, #0f172a)', margin: 0, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
-              {isMeetingStarted ? 'Phòng Tư Vấn Trực Tuyến Internet (Đang Kết Nối)' : 'Trung Tâm Quản Lý Cuộc Họp Tư Vấn'}
+              {isMeetingStarted ? 'Phòng Tư Vấn WebRTC P2P Nội Bộ (Đang Kết Nối)' : 'Trung Tâm Quản Lý Cuộc Họp Tư Vấn'}
             </h1>
           </div>
           <p style={{ fontSize: 13, color: 'var(--e-text-muted, #64748b)', margin: '4px 0 0' }}>
             {isMeetingStarted
-              ? `Tham vấn trực tuyến cùng: ${selectedAppt?.studentAnonymousCode || 'Sinh viên'} • Thời lượng: ${formatTime(sessionSeconds)}`
-              : 'Xem lịch hẹn đã duyệt của sinh viên và khởi động phòng họp trực tuyến'}
+              ? `Tham vấn trực tuyến cùng: ${selectedAppt?.studentAnonymousCode || 'Sinh viên'} • Thời lượng: ${formatTime(sessionSeconds)} • Công nghệ WebRTC P2P tự tổ chức`
+              : 'Xem lịch hẹn đã duyệt của sinh viên và khởi động phòng họp WebRTC nội bộ không qua bên thứ 3'}
           </p>
         </div>
 
@@ -351,15 +348,15 @@ export default function ConsultationRoomPage() {
                   <span style={{ fontSize: 13, color: 'var(--e-text)', fontWeight: 600 }}>Chế độ cuộc họp:</span>
                   <button
                     type="button"
-                    onClick={() => setMeetingMode('internet')}
+                    onClick={() => setMeetingMode('video')}
                     style={{
                       padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: 'pointer',
-                      border: `1.5px solid ${meetingMode === 'internet' ? '#0284c7' : '#cbd5e1'}`,
-                      background: meetingMode === 'internet' ? '#0284c7' : '#fff',
-                      color: meetingMode === 'internet' ? '#fff' : '#475569'
+                      border: `1.5px solid ${meetingMode === 'video' ? '#0284c7' : '#cbd5e1'}`,
+                      background: meetingMode === 'video' ? '#0284c7' : '#fff',
+                      color: meetingMode === 'video' ? '#fff' : '#475569'
                     }}
                   >
-                    🌐 Video Call Internet (Jitsi WebRTC)
+                    🎥 Video Call HD (WebRTC P2P)
                   </button>
                   <button
                     type="button"
@@ -371,7 +368,7 @@ export default function ConsultationRoomPage() {
                       color: meetingMode === 'private' ? '#fff' : '#475569'
                     }}
                   >
-                    🔒 Ẩn Danh Riêng Tư (Voice/SafeRoom)
+                    🔒 Ẩn Danh Riêng Tư (Voice WebRTC)
                   </button>
                 </div>
 
@@ -390,7 +387,7 @@ export default function ConsultationRoomPage() {
                     borderRadius: 10,
                   }}
                 >
-                  <span>🌐</span> Bắt Đầu Cuộc Họp Trực Tuyến Internet
+                  <span>🔒</span> Mở Phòng Tư Vấn WebRTC Nội Bộ (Tự Tổ Chức)
                 </button>
               </div>
             </div>
@@ -488,106 +485,37 @@ export default function ConsultationRoomPage() {
       ) : (
         /* ══════════════ VIEW 2: PHÒNG HỌP TRỰC TUYẾN INTERNET ══════════════ */
         <div style={{ position: 'relative', width: '100%' }}>
-          
-          {/* Main Video & Meeting Container */}
-          <div style={{
-            background: '#090d16',
-            borderRadius: 16,
-            overflow: 'hidden',
-            border: '1px solid rgba(255,255,255,0.12)',
-            boxShadow: '0 12px 36px rgba(0,0,0,0.3)',
-            height: '74vh',
-            minHeight: 480,
-            display: 'flex',
-            flexDirection: 'column',
-            position: 'relative'
-          }}>
-            {/* Top Bar inside Meeting */}
-            <div style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              padding: '10px 16px',
-              background: 'rgba(15, 23, 42, 0.85)',
-              backdropFilter: 'blur(8px)',
-              borderBottom: '1px solid rgba(255,255,255,0.1)',
-              zIndex: 10
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ fontSize: 12, color: '#fff', fontWeight: 800 }}>
-                  🧑‍🎓 {selectedAppt?.studentAnonymousCode || 'Sinh viên Ẩn danh'}
-                </span>
-                <span style={{ fontSize: 11, background: '#0284c7', color: '#fff', padding: '2px 8px', borderRadius: 4, fontWeight: 700 }}>
-                  Phòng Internet WebRTC
-                </span>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <button
-                  type="button"
-                  onClick={() => setMeetingMode(m => m === 'internet' ? 'private' : 'internet')}
-                  style={{
-                    fontSize: 11.5,
-                    padding: '4px 10px',
-                    borderRadius: 6,
-                    border: '1px solid rgba(255,255,255,0.2)',
-                    background: 'rgba(255,255,255,0.1)',
-                    color: '#fff',
-                    cursor: 'pointer'
-                  }}
-                >
-                  {meetingMode === 'internet' ? 'Chuyển sang Chế độ Riêng tư' : 'Chuyển sang Jitsi Internet Live'}
-                </button>
-                <span style={{ background: '#ef4444', color: '#fff', fontSize: 11, fontWeight: 800, padding: '3px 8px', borderRadius: 4 }}>
-                  TRỰC TUYẾN • {formatTime(sessionSeconds)}
-                </span>
-              </div>
-            </div>
-
-            {/* Video Body */}
-            <div style={{ flex: 1, position: 'relative', width: '100%', height: '100%' }}>
-              {meetingMode === 'internet' ? (
-                /* NHÚNG PHÒNG HỌP INTERNET JITSI MEET CHUẨN WEBRTC */
-                <iframe
-                  src={jitsiUrl}
-                  title="Internet Video Consultation Room"
-                  allow="camera; microphone; display-capture; autoplay; clipboard-write"
-                  style={{
-                    width: '100%',
-                    height: '100%',
-                    border: 'none',
-                    display: 'block'
-                  }}
-                />
-              ) : (
-                /* Chế độ riêng tư âm thanh */
-                <div style={{
-                  height: '100%',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
+          <SafeCallMeetingRoom
+            appointmentId={selectedAppt?.id || appointmentId}
+            bookingCode={selectedAppt?.bookingCode || 'ST-LIVE'}
+            currentUserRole="expert"
+            currentUserName={user?.fullName || 'Chuyên viên Tâm lý'}
+            peerName={selectedAppt?.studentAnonymousCode || 'Sinh viên Ẩn danh'}
+            sessionSeconds={sessionSeconds}
+            onLeaveOrEnd={handleCloseMeeting}
+            isHost={true}
+            extraHeaderActions={
+              <button
+                type="button"
+                onClick={() => setShowNotebook(v => !v)}
+                style={{
+                  fontSize: 12,
+                  padding: '5px 12px',
+                  borderRadius: 8,
+                  background: showNotebook ? '#0284c7' : 'rgba(255,255,255,0.1)',
                   color: '#fff',
-                  textAlign: 'center',
-                  padding: 20
-                }}>
-                  <div style={{
-                    width: 80, height: 80, borderRadius: '50%', background: '#0284c7',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 32,
-                    fontWeight: 900, marginBottom: 14, boxShadow: '0 0 24px rgba(2,132,199,0.5)'
-                  }}>
-                    {selectedAppt?.studentAnonymousCode?.charAt(0) || 'S'}
-                  </div>
-                  <h3 style={{ margin: '0 0 6px', fontSize: 18, fontWeight: 800 }}>
-                    Phiên Tham Vấn Âm Thanh Ẩn Danh
-                  </h3>
-                  <p style={{ margin: 0, fontSize: 13, opacity: 0.8, maxWidth: 400 }}>
-                    Kênh thoại bảo mật trực tuyến qua mạng Internet. Danh tính sinh viên được bảo vệ tuyệt đối.
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
+                  border: '1px solid rgba(255,255,255,0.2)',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6
+                }}
+              >
+                📝 {showNotebook ? 'Ẩn Sổ Tay' : 'Sổ Tay Lâm Sàng'}
+              </button>
+            }
+          />
 
           {/* ══════════════ KHUNG NHỎ SỔ TAY LÂM SÀNG (DRAWER/POP-UP GỌN GÀNG THEO YÊU CẦU HÌNH 2) ══════════════ */}
           {showNotebook && (

@@ -183,7 +183,7 @@ Tuân thủ **Mẫu 02 (Actor Matrix)** & **Mẫu 05 (Module Permission)** trong
      - Endpoint `GET /api/appointments/{id}/verify-participant` kiểm tra danh tính trước khi cho phép vào phòng.
      - Nếu bất kỳ sinh viên nào khác cố tình sao chép đường dẫn cuộc họp để truy cập trái phép, hệ thống lập tức trả về mã lỗi **403 Forbidden** và hiển thị màn hình từ chối màu đỏ: *"Quyền truy cập bị từ chối - Bạn không phải là sinh viên của ca hẹn này"*.
   5. **Tích hợp WebRTC & Tiện ích Thư giãn cho Sinh viên**:
-     - Phòng họp nhúng WebRTC trực tuyến Jitsi Meet đồng bộ giữa chuyên viên và sinh viên.
+     - Phòng họp nhúng WebRTC trực tuyến WebRTC P2P T? T? Ch?c đồng bộ giữa chuyên viên và sinh viên.
      - Cổng sinh viên tích hợp thanh công cụ thư giãn với bài tập thở $4-7-8$ đếm nhịp trực quan giúp sinh viên giải tỏa áp lực và bình tĩnh trong suốt phiên tham vấn.
      - Chuyên viên có thể bấm **"🚪 Đóng phòng họp"** hoặc **"⏹️ Kết thúc phiên"** kèm lưu Sổ tay lâm sàng để tự động kết thúc phiên và gỡ bỏ thông báo ở phía sinh viên.
 
@@ -211,7 +211,7 @@ Tuân thủ **Mẫu 02 (Actor Matrix)** & **Mẫu 05 (Module Permission)** trong
 - `frontend/src/features/student/pages/TestPage.jsx`: Chuẩn hóa 21 câu hỏi, phân loại DASS-21 Lovibond, cảnh báo tư vấn.
 - `frontend/src/features/student/pages/CommunityFeedPage.jsx`: Thêm form đính kèm ảnh, nút xóa bài, hiển thị ảnh có kiểm duyệt.
 - `frontend/src/features/student/pages/JournalPage.jsx`: Hỗ trợ viết nhật ký song ngữ Anh - Việt.
-- `frontend/src/features/student/pages/StudentMeetingRoomPage.jsx`: **(MỚI)** Phòng họp trực tuyến bảo mật cho sinh viên, xác thực quyền Zero-Trust (403), WebRTC Jitsi, tiện ích thư giãn 4-7-8.
+- `frontend/src/features/student/pages/StudentMeetingRoomPage.jsx`: **(MỚI)** Phòng họp trực tuyến bảo mật cho sinh viên, xác thực quyền Zero-Trust (403), WebRTC WebRTC P2P, tiện ích thư giãn 4-7-8.
 - `frontend/src/app/layouts/StudentLayout.jsx`: **(MỚI)** Polling kiểm tra cuộc họp chủ động, Banner thông báo nổi bật độc quyền cho sinh viên của ca hẹn, Topbar indicator.
 - `frontend/src/app/router/AppRoutes.jsx`: Đăng ký tuyến đường bảo vệ `/student/meeting/:id`.
 - `frontend/src/features/expert/pages/ConsultationRoomPage.jsx`: Kích hoạt `start-meeting`, `end-meeting`, nút đóng phòng và kết thúc phiên.
@@ -235,7 +235,7 @@ Tuân thủ **Mẫu 02 (Actor Matrix)** & **Mẫu 05 (Module Permission)** trong
 1. **Kiểm tra Cuộc họp Tư vấn mới (Không cần mã mời - Push Notification & Zero-Trust)**:
    - **Bước 1**: Đăng nhập tài khoản Chuyên viên (`expert` / `123456`), vào trang Phòng tư vấn (`/expert/consultation`), chọn một ca hẹn của sinh viên và bấm **"🌐 Bắt Đầu Cuộc Họp Trực Tuyến Internet"**.
    - **Bước 2**: Đăng nhập tài khoản Sinh viên của ca hẹn đó (`student` / `123456`). Trong vòng vài giây, màn hình sinh viên xuất hiện **Floating Banner thông báo nổi bật**: *"Chuyên viên đang đợi bạn! Cuộc họp đang mở"*, kèm nút bấm **"🎥 Tham gia ngay"**.
-   - **Bước 3**: Sinh viên bấm **"Tham gia ngay"** $\rightarrow$ Hệ thống đưa thẳng vào phòng họp `/student/meeting/{id}` mà **không cần nhập bất kỳ mã mời nào**. Sinh viên và Chuyên viên kết nối video/audio qua WebRTC Jitsi Meet.
+   - **Bước 3**: Sinh viên bấm **"Tham gia ngay"** $\rightarrow$ Hệ thống đưa thẳng vào phòng họp `/student/meeting/{id}` mà **không cần nhập bất kỳ mã mời nào**. Sinh viên và Chuyên viên kết nối video/audio qua WebRTC WebRTC P2P T? T? Ch?c.
    - **Bước 4 (Thử nghiệm Bảo mật 403 Forbidden)**: Đăng nhập một tài khoản Sinh viên khác hoặc cố gõ URL phòng họp của ca hẹn này $\rightarrow$ Hệ thống lập tức hiển thị màn hình đỏ từ chối: *"Quyền truy cập bị từ chối - Bạn không phải là sinh viên của ca hẹn này (403 Forbidden)"*.
    - **Bước 5**: Chuyên viên bấm **"🚪 Đóng phòng họp"** hoặc **"⏹️ Kết thúc phiên"** $\rightarrow$ Thông báo trên máy sinh viên tự động biến mất.
 2. **Kiểm tra Phân quyền Chuyên viên**: Đăng nhập Admin (`admin` / `123456`) -> Vào `/admin/users` -> Bấm nút **"🛡️ Phân quyền"** trên Chuyên viên -> Thử áp dụng Preset `Chuyên viên 1 (Chỉ Workspace & Lịch hẹn)` hoặc `Chuyên viên 2 (Chỉ Phân tích & Kiểm duyệt)` -> Đăng nhập tài khoản Chuyên viên đó kiểm tra thanh menu bên trái tương ứng.

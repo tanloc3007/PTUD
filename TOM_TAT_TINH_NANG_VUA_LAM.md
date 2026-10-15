@@ -10,7 +10,7 @@
 * **Cách làm mới**:
   * Khi Chuyên viên bấm **"🌐 Bắt đầu cuộc họp trực tuyến"** tại `/expert/consultation`, hệ thống lưu trạng thái `IsMeetingActive = true` và `ActiveMeetingRoomUrl`.
   * Giao diện Sinh viên (`StudentLayout.jsx`) liên tục kiểm tra nếu có ca hẹn của mình đang mở thì hiển thị ngay **Banner nổi màu xanh lá**: *"Chuyên viên đang đợi bạn! Cuộc họp đang mở"* kèm nút **"🎥 Tham gia ngay"**.
-  * Sinh viên bấm nút là vào thẳng phòng họp trực tuyến (WebRTC Jitsi Meet tích hợp sẵn).
+  * Sinh viên bấm nút là vào thẳng phòng họp trực tuyến (WebRTC P2P thuần túy 100% tự tổ chức, không phụ thuộc bên thứ 3).
   * **Bảo mật Zero-Trust (403 Forbidden)**: Tại trang `StudentMeetingRoomPage.jsx`, hệ thống kiểm tra nếu sinh viên đăng nhập không phải là người đặt lịch ca hẹn này thì lập tức chặn lại và hiện màn hình đỏ từ chối truy cập.
 * **Tệp chỉnh sửa/tạo mới**:
   * `frontend/src/features/student/pages/StudentMeetingRoomPage.jsx` *(Mới)*
@@ -107,3 +107,31 @@
    * Vào `/student/community` $\rightarrow$ Thấy thanh lọc: *Góc học tập, Gia đình & Bạn bè, Chuyện thường ngày, Góc tâm sự, Định hướng & Tương lai*.
    * Nhìn xuống chân bài đăng $\rightarrow$ Thấy 3 nút `Thích`, `Đồng cảm`, `Bình luận` nằm chung bên trái.
    * Bấm vào ô đăng bài $\rightarrow$ Trải nghiệm giao diện 2 cột có Live Preview trực quan.
+
+---
+
+## 9. Đăng Bình luận Kèm Ảnh Chuẩn Facebook & Kiểm duyệt AI Từ khóa Nhạy cảm
+
+* **Bình luận phong cách Facebook**:
+  * **Khung nhập bình luận**: Thiết kế bo tròn dạng pill (`#f0f2f5`), hiển thị avatar của sinh viên, có nút icon 📷 để chọn và upload ảnh trực tiếp lên **Cloudinary** (`kh0hrw3c`).
+  * **Xem trước ảnh (Preview)**: Sau khi chọn ảnh, hiển thị khung ảnh thu nhỏ kèm nút `✕` để xóa ảnh trước khi bấm gửi. Cho phép gửi bình luận chỉ có chữ, chỉ có ảnh hoặc cả chữ và ảnh.
+  * **Bong bóng bình luận (Speech bubble)**: Giao diện bo tròn mềm mại giống Facebook, hiển thị avatar người bình luận, tên biệt danh ẩn danh, nhãn "Chuyên viên Tâm lý 🎓" (nếu là chuyên gia), nội dung chữ, ảnh đính kèm có thể nhấp để phóng to toàn màn hình, thời gian (`1 phút trước`, `Vừa xong`), nút `Thích` và `Phản hồi`.
+* **Cơ chế Kiểm duyệt AI & Từ khóa Nhạy cảm**:
+  * Khi sinh viên gửi bình luận có chứa từ khóa nhạy cảm (tự tử, chết đi, tiêu cực nặng,...) hoặc AI phát hiện nguy cơ cao ($RiskScore \ge 75$):
+    * Bình luận được tự động gán trạng thái `Flagged` và ẩn khỏi sinh viên thông thường (`IsSensitiveHiddenFromStudents = true`).
+    * Tự động sinh cảnh báo can thiệp nguy cơ vào bảng `dbo.NlpRiskAlerts`.
+    * Sinh viên nhận được thông báo nhẹ nhàng: *"Bình luận đang được kiểm duyệt bởi chuyên gia tâm lý"*.
+* **Giao diện Kiểm duyệt dành cho Admin & Chuyên viên**:
+  * Bổ sung tab **"Bình luận cần duyệt"** tại trang `/admin/moderation` và `/expert/moderation`.
+  * Hiển thị danh sách bình luận bị gắn cờ, kèm ảnh đính kèm và từ khóa phát hiện.
+  * Hỗ trợ 3 nút xử lý nhanh: **`✓ Duyệt hiển thị`**, **`👁️ Tạm ẩn`**, **`✕ Từ chối vi phạm`**.
+* **Tệp chỉnh sửa/triển khai**:
+  * `backend/src/Core/Domain/Entities/DomainEntities.cs`
+  * `backend/src/Core/Application/Common/Models/Dtos.cs`
+  * `backend/src/Core/Application/Features/Services.cs`
+  * `backend/src/Core/Application/Features/ServiceImplementations.cs`
+  * `backend/src/Infrastructure/Persistence/Context/ApplicationDbContext.cs`
+  * `backend/src/Presentation/WebAPI/Controllers/Controllers.cs`
+  * `frontend/src/features/student/pages/CommunityFeedPage.jsx`
+  * `frontend/src/features/admin/pages/ModerationPage.jsx`
+  * `frontend/src/features/expert/pages/ModerationPage.jsx`

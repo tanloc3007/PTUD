@@ -325,6 +325,27 @@ public class CommunityController : ControllerBase
         if (!result.Success) return NotFound(result);
         return Ok(result);
     }
+
+    /// <summary>
+    /// Danh sách bình luận bị gắn cờ / ẩn vì chứa từ ngữ nhạy cảm
+    /// </summary>
+    [HttpGet("flagged-comments")]
+    public async Task<ActionResult<Result<List<CommentDto>>>> GetFlaggedComments()
+    {
+        var result = await _communityService.GetFlaggedCommentsAsync();
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Kiểm duyệt bình luận (Duyệt, ẩn, từ chối)
+    /// </summary>
+    [HttpPost("comments/{commentId:guid}/moderate")]
+    public async Task<ActionResult<Result>> ModerateComment(Guid commentId, [FromBody] ModerateCommentRequest request, [FromQuery] Guid? moderatorId = null)
+    {
+        var targetModId = moderatorId ?? Request.GetUserIdFromRequest() ?? Guid.Parse("33333333-3333-3333-3333-333333333331");
+        var result = await _communityService.ModerateCommentAsync(commentId, request, targetModId);
+        return Ok(result);
+    }
 }
 
 [ApiController]
@@ -358,7 +379,7 @@ public class AppointmentsController : ControllerBase
         var result = await _appointmentService.BookAppointmentAsync(studentId, request);
         if (!result.Success)
         {
-            if (result.ErrorCode == "DOUBLE_BOOKING_DETECTED")
+            if (result.ErrorCode == "DOUBLE_BOOKING_DETECTED" || result.ErrorCode == "STUDENT_DOUBLE_BOOKING")
                 return Conflict(result);
             return BadRequest(result);
         }
@@ -372,7 +393,7 @@ public class AppointmentsController : ControllerBase
         var result = await _appointmentService.BookAppointmentAsync(targetStudentId, request);
         if (!result.Success)
         {
-            if (result.ErrorCode == "DOUBLE_BOOKING_DETECTED")
+            if (result.ErrorCode == "DOUBLE_BOOKING_DETECTED" || result.ErrorCode == "STUDENT_DOUBLE_BOOKING")
                 return Conflict(result);
             return BadRequest(result);
         }
@@ -424,6 +445,16 @@ public class AppointmentsController : ControllerBase
     public async Task<ActionResult<Result<List<AppointmentDto>>>> GetExpertAppointments(Guid expertId)
     {
         var result = await _appointmentService.GetExpertAppointmentsAsync(expertId);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Lấy danh sách toàn bộ các khung giờ đã có người đặt của chuyên viên (để frontend ẩn đi)
+    /// </summary>
+    [HttpGet("expert/{expertId:guid}/booked-slots")]
+    public async Task<ActionResult<Result<List<BookedSlotDto>>>> GetExpertBookedSlots(Guid expertId)
+    {
+        var result = await _appointmentService.GetExpertBookedSlotsAsync(expertId);
         return Ok(result);
     }
 
@@ -499,6 +530,46 @@ public class AppointmentsController : ControllerBase
         var targetUserId = userId ?? Request.GetUserIdFromRequest() ?? Guid.Empty;
         var result = await _appointmentService.VerifyMeetingParticipantAsync(appointmentId, targetUserId);
         if (!result.Success) return StatusCode(403, result);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Gửi tín hiệu WebRTC (Join, Offer, Answer, ICE, State) giữa Chuyên viên và Sinh viên
+    /// </summary>
+    [HttpPost("{appointmentId:guid}/webrtc/signal")]
+    public async Task<ActionResult<Result>> SendMeetingSignal(Guid appointmentId, [FromBody] MeetingSignalRequest request)
+    {
+        var result = await _appointmentService.SendMeetingSignalAsync(appointmentId, request);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Nhận tín hiệu WebRTC mới nhất cho phiên tư vấn trực tiếp
+    /// </summary>
+    [HttpGet("{appointmentId:guid}/webrtc/signals")]
+    public async Task<ActionResult<Result<List<MeetingSignalDto>>>> GetMeetingSignals(Guid appointmentId, [FromQuery] long since = 0, [FromQuery] string? recipientRole = null)
+    {
+        var result = await _appointmentService.GetMeetingSignalsAsync(appointmentId, since, recipientRole);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Gửi tin nhắn trò chuyện trực tiếp bên trong phòng họp tư vấn
+    /// </summary>
+    [HttpPost("{appointmentId:guid}/chat")]
+    public async Task<ActionResult<Result<MeetingChatDto>>> SendMeetingChat(Guid appointmentId, [FromBody] SendMeetingChatRequest request)
+    {
+        var result = await _appointmentService.SendMeetingChatMessageAsync(appointmentId, request);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Lấy lịch sử tin nhắn trong phòng họp tư vấn
+    /// </summary>
+    [HttpGet("{appointmentId:guid}/chat")]
+    public async Task<ActionResult<Result<List<MeetingChatDto>>>> GetMeetingChat(Guid appointmentId)
+    {
+        var result = await _appointmentService.GetMeetingChatMessagesAsync(appointmentId);
         return Ok(result);
     }
 }
@@ -709,6 +780,27 @@ public class AdminController : ControllerBase
     }
 
     /// <summary>
+    /// Danh sách bình luận bị gắn cờ / ẩn vì chứa từ ngữ nhạy cảm (cho Admin)
+    /// </summary>
+    [HttpGet("flagged-comments")]
+    public async Task<ActionResult<Result<List<CommentDto>>>> GetFlaggedComments()
+    {
+        var result = await _adminService.GetFlaggedCommentsAsync();
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Admin duyệt, ẩn hoặc xóa bình luận vi phạm
+    /// </summary>
+    [HttpPost("comments/{commentId:guid}/moderate")]
+    public async Task<ActionResult<Result>> ModerateComment(Guid commentId, [FromBody] ModerateCommentRequest request, [FromQuery] Guid? adminId = null)
+    {
+        var targetAdminId = adminId ?? Request.GetUserIdFromRequest() ?? Guid.Parse("11111111-1111-1111-1111-111111111111");
+        var result = await _adminService.ModerateCommentAsync(commentId, request, targetAdminId);
+        return Ok(result);
+    }
+
+    /// <summary>
     /// Quản lý danh sách toàn bộ người dùng hệ thống
     /// </summary>
     [HttpGet("users")]
@@ -792,6 +884,16 @@ public class AdminController : ControllerBase
     public async Task<ActionResult<Result>> DeleteSensitiveKeyword(Guid keywordId)
     {
         var result = await _adminService.DeleteSensitiveKeywordAsync(keywordId);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Thử nghiệm kiểm duyệt song song (Từ khóa DB + Google Gemini AI)
+    /// </summary>
+    [HttpPost("moderation/test")]
+    public async Task<ActionResult<Result<ModerationTestDto>>> TestModeration([FromBody] ModerationTestRequest request)
+    {
+        var result = await _adminService.TestModerationAsync(request.Content);
         return Ok(result);
     }
 

@@ -54,6 +54,20 @@ public class ApplicationDbContext : IApplicationDbContext
         using var conn = new SqlConnection(connStr);
         conn.Open();
 
+        using (var alterCmd = new SqlCommand(@"
+            IF OBJECT_ID('dbo.CommunityComments', 'U') IS NOT NULL AND COL_LENGTH('dbo.CommunityComments', 'ImageUrl') IS NULL 
+                ALTER TABLE dbo.CommunityComments ADD ImageUrl NVARCHAR(MAX) NULL;
+
+            IF OBJECT_ID('dbo.Experts', 'U') IS NOT NULL AND COL_LENGTH('dbo.Experts', 'Permissions') IS NULL 
+                ALTER TABLE dbo.Experts ADD Permissions NVARCHAR(MAX) NULL;
+
+            IF OBJECT_ID('dbo.NlpRiskAlerts', 'U') IS NOT NULL AND COL_LENGTH('dbo.NlpRiskAlerts', 'CommentId') IS NULL 
+                ALTER TABLE dbo.NlpRiskAlerts ADD CommentId UNIQUEIDENTIFIER NULL;
+        ", conn))
+        {
+            try { alterCmd.ExecuteNonQuery(); } catch { }
+        }
+
         // 1. Users
         using (var cmd = new SqlCommand("SELECT Id, MSSV, FullName, Email, PasswordHash, Role, Faculty, AvatarUrl, AnonymousCode, IsActive, CreatedAt, UpdatedAt FROM dbo.Users", conn))
         using (var reader = cmd.ExecuteReader())
@@ -224,7 +238,7 @@ public class ApplicationDbContext : IApplicationDbContext
         }
 
         // 7. CommunityComments
-        using (var cmd = new SqlCommand("SELECT Id, PostId, UserId, AuthorPseudonym, Content, IsExpertComment, ExpertTitle, IsSensitiveHiddenFromStudents, DetectedKeywords, ModerationStatus, CreatedAt FROM dbo.CommunityComments", conn))
+        using (var cmd = new SqlCommand("SELECT Id, PostId, UserId, AuthorPseudonym, Content, IsExpertComment, ExpertTitle, IsSensitiveHiddenFromStudents, DetectedKeywords, ModerationStatus, CreatedAt, ImageUrl FROM dbo.CommunityComments", conn))
         using (var reader = cmd.ExecuteReader())
         {
             while (reader.Read())
@@ -244,7 +258,8 @@ public class ApplicationDbContext : IApplicationDbContext
                     IsSensitiveHiddenFromStudents = reader.GetBoolean(7),
                     DetectedKeywords = reader.IsDBNull(8) ? null : reader.GetString(8),
                     ModerationStatus = modStatus,
-                    CreatedAt = reader.GetDateTime(10)
+                    CreatedAt = reader.GetDateTime(10),
+                    ImageUrl = reader.FieldCount > 11 && !reader.IsDBNull(11) ? reader.GetString(11) : null
                 });
             }
         }
@@ -494,21 +509,60 @@ public class ApplicationDbContext : IApplicationDbContext
                     IF NOT EXISTS (SELECT 1 FROM dbo.CommunityComments WHERE Id = @Id)
                     BEGIN
                         INSERT INTO dbo.CommunityComments
-                        (Id, PostId, UserId, AuthorPseudonym, Content, IsExpertComment, ExpertTitle, IsSensitiveHiddenFromStudents, DetectedKeywords, ModerationStatus, CreatedAt)
-                        VALUES (@Id, @PostId, @UserId, @AuthorPseudonym, @Content, @IsExpertComment, @ExpertTitle, @IsSensitiveHiddenFromStudents, @DetectedKeywords, @ModerationStatus, @CreatedAt)
+                        (Id, PostId, UserId, AuthorPseudonym, Content, IsExpertComment, ExpertTitle, IsSensitiveHiddenFromStudents, DetectedKeywords, ModerationStatus, CreatedAt, ImageUrl)
+                        VALUES (@Id, @PostId, @UserId, @AuthorPseudonym, @Content, @IsExpertComment, @ExpertTitle, @IsSensitiveHiddenFromStudents, @DetectedKeywords, @ModerationStatus, @CreatedAt, @ImageUrl)
+                    END
+                    ELSE
+                    BEGIN
+                        UPDATE dbo.CommunityComments SET
+                            ModerationStatus = @ModerationStatus,
+                            IsSensitiveHiddenFromStudents = @IsSensitiveHiddenFromStudents,
+                            ImageUrl = @ImageUrl
+                        WHERE Id = @Id
                     END", conn);
 
                 cmd.Parameters.AddWithValue("@Id", comment.Id);
                 cmd.Parameters.AddWithValue("@PostId", comment.PostId);
                 cmd.Parameters.AddWithValue("@UserId", comment.UserId);
                 cmd.Parameters.AddWithValue("@AuthorPseudonym", comment.AuthorPseudonym);
-                cmd.Parameters.AddWithValue("@Content", comment.Content);
+                cmd.Parameters.AddWithValue("@Content", comment.Content ?? string.Empty);
                 cmd.Parameters.AddWithValue("@IsExpertComment", comment.IsExpertComment);
                 cmd.Parameters.AddWithValue("@ExpertTitle", (object?)comment.ExpertTitle ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@IsSensitiveHiddenFromStudents", comment.IsSensitiveHiddenFromStudents);
                 cmd.Parameters.AddWithValue("@DetectedKeywords", (object?)comment.DetectedKeywords ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@ModerationStatus", comment.ModerationStatus.ToString());
                 cmd.Parameters.AddWithValue("@CreatedAt", comment.CreatedAt);
+                cmd.Parameters.AddWithValue("@ImageUrl", (object?)comment.ImageUrl ?? DBNull.Value);
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            // 2.5 Sync TimeSlots
+            foreach (var slot in TimeSlots)
+            {
+                using var cmd = new SqlCommand(@"
+                    IF NOT EXISTS (SELECT 1 FROM dbo.TimeSlots WHERE Id = @Id)
+                    BEGIN
+                        INSERT INTO dbo.TimeSlots
+                        (Id, ExpertId, SlotDate, StartTime, EndTime, LocationType, RoomName, IsBooked, CreatedAt)
+                        VALUES (@Id, @ExpertId, @SlotDate, @StartTime, @EndTime, @LocationType, @RoomName, @IsBooked, @CreatedAt)
+                    END
+                    ELSE
+                    BEGIN
+                        UPDATE dbo.TimeSlots SET
+                            IsBooked = @IsBooked,
+                            EndTime = @EndTime
+                        WHERE Id = @Id
+                    END", conn);
+
+                cmd.Parameters.AddWithValue("@Id", slot.Id);
+                cmd.Parameters.AddWithValue("@ExpertId", slot.ExpertId);
+                cmd.Parameters.AddWithValue("@SlotDate", slot.SlotDate.ToDateTime(TimeOnly.MinValue));
+                cmd.Parameters.AddWithValue("@StartTime", slot.StartTime.ToTimeSpan());
+                cmd.Parameters.AddWithValue("@EndTime", slot.EndTime.ToTimeSpan());
+                cmd.Parameters.AddWithValue("@LocationType", slot.LocationType.ToString());
+                cmd.Parameters.AddWithValue("@RoomName", slot.RoomName ?? "P.302");
+                cmd.Parameters.AddWithValue("@IsBooked", slot.IsBooked);
+                cmd.Parameters.AddWithValue("@CreatedAt", slot.CreatedAt);
                 await cmd.ExecuteNonQueryAsync(cancellationToken);
             }
 

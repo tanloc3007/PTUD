@@ -5,12 +5,15 @@ import InPageNotification from '../../../shared/components/InPageNotification';
 
 export default function ExpertModerationPage() {
   const { user } = useAuthStore();
+  const [activeSection, setActiveSection] = useState('posts'); // 'posts' | 'comments'
   const [posts, setPosts] = useState([]);
+  const [flaggedComments, setFlaggedComments] = useState([]);
   const [filter, setFilter] = useState('all');
   const [commenting, setCommenting] = useState(null);
   const [commentText, setCommentText] = useState('');
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState(null);
+  const [previewImage, setPreviewImage] = useState(null);
 
   const loadPosts = () => {
     setLoading(true);
@@ -21,7 +24,6 @@ export default function ExpertModerationPage() {
         }
       })
       .catch(() => {
-        // fallback to moderation-queue if needed
         axiosClient.get('/admin/moderation-queue')
           .then(res2 => {
             if (res2.data?.data && Array.isArray(res2.data.data)) {
@@ -33,8 +35,27 @@ export default function ExpertModerationPage() {
       .finally(() => setLoading(false));
   };
 
+  const loadFlaggedComments = () => {
+    axiosClient.get('/community/flagged-comments')
+      .then(res => {
+        if (res.data?.data && Array.isArray(res.data.data)) {
+          setFlaggedComments(res.data.data);
+        }
+      })
+      .catch(() => {
+        axiosClient.get('/admin/flagged-comments')
+          .then(res2 => {
+            if (res2.data?.data && Array.isArray(res2.data.data)) {
+              setFlaggedComments(res2.data.data);
+            }
+          })
+          .catch(() => {});
+      });
+  };
+
   useEffect(() => {
     loadPosts();
+    loadFlaggedComments();
   }, []);
 
   const filtered = filter === 'all'
@@ -114,14 +135,35 @@ export default function ExpertModerationPage() {
     }
   };
 
+  const handleModerateComment = async (commentId, action, author) => {
+    try {
+      await axiosClient.post(`/community/comments/${commentId}/moderate`, {
+        action,
+        reason: `Chuyên gia tâm lý kiểm duyệt: ${action}`
+      });
+    } catch { /* optimistic */ }
+
+    setFlaggedComments(prev => prev.map(c => c.id === commentId ? {
+      ...c,
+      moderationStatus: action === 'approve' ? 'Approved' : action === 'hide' ? 'Hidden' : 'Rejected',
+      isSensitiveHiddenFromStudents: action !== 'approve'
+    } : c));
+
+    setNotice({
+      type: action === 'approve' ? 'success' : 'warning',
+      title: 'Kiểm duyệt bình luận thành công',
+      message: `Bình luận của "${author}" đã chuyển sang trạng thái: ${action === 'approve' ? 'Đã duyệt công khai' : action === 'hide' ? 'Tạm ẩn' : 'Từ chối vi phạm'}.`
+    });
+  };
+
   return (
     <div className="expert-page-shell">
       <div className="expert-page-header" style={{ marginBottom: 20 }}>
         <h1 style={{ fontSize: 22, fontWeight: 900, color: 'var(--e-text)', margin: '0 0 4px', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
-          Kiểm Duyệt &amp; Hỗ Trợ Bài Viết Sinh Viên
+          Kiểm Duyệt Nội Dung &amp; Bình Luận Sinh Viên
         </h1>
         <p style={{ fontSize: 13, color: 'var(--e-text-muted)', margin: 0 }}>
-          Rà soát các bài viết cộng đồng từ CSDL và đưa ra nhận xét chuyên môn, nâng đỡ cảm xúc
+          Rà soát các bài viết và bình luận cộng đồng chứa từ khóa nhạy cảm, đưa ra nhận xét chuyên môn và nâng đỡ cảm xúc
         </p>
       </div>
 
@@ -134,30 +176,64 @@ export default function ExpertModerationPage() {
         />
       )}
 
-      {/* Filter pills */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
-        {[
-          { v: 'all', l: `Tất cả bài viết (${posts.length})` },
-          { v: 'flagged', l: `Cần lưu ý (${posts.filter(p => p.hasKeywordsAlert || p.isExtremeCrisis || p.riskScore >= 60 || p.imageModerationStatus === 'Flagged').length})` },
-          { v: 'has_image', l: `Có hình ảnh (${posts.filter(p => !!p.imageUrl).length})` },
-          { v: 'approved', l: 'Đã phê duyệt' },
-          { v: 'hidden', l: 'Đã ẩn' }
-        ].map(f => (
-          <button
-            key={f.v}
-            type="button"
-            onClick={() => setFilter(f.v)}
-            style={{
-              padding: '7px 16px', borderRadius: 8, fontSize: 12.5, fontWeight: 700, cursor: 'pointer', fontFamily: "'Manrope', sans-serif",
-              border: `1.5px solid ${filter === f.v ? 'var(--e-primary)' : 'var(--e-border)'}`,
-              background: filter === f.v ? 'var(--e-primary-soft)' : 'var(--e-surface)',
-              color: filter === f.v ? 'var(--e-primary)' : 'var(--e-text-muted)',
-            }}
-          >
-            {f.l}
-          </button>
-        ))}
+      {/* Main Section Toggle */}
+      <div style={{ display: 'flex', gap: 10, marginBottom: 18, borderBottom: '1px solid var(--e-border)', paddingBottom: 10 }}>
+        <button
+          type="button"
+          onClick={() => setActiveSection('posts')}
+          style={{
+            padding: '8px 18px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer',
+            border: 'none', transition: 'all 0.15s ease',
+            background: activeSection === 'posts' ? 'var(--e-primary)' : 'var(--e-surface)',
+            color: activeSection === 'posts' ? '#ffffff' : 'var(--e-text-muted)'
+          }}
+        >
+          📝 Bài viết sinh viên ({posts.length})
+        </button>
+        <button
+          type="button"
+          onClick={() => { setActiveSection('comments'); loadFlaggedComments(); }}
+          style={{
+            padding: '8px 18px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer',
+            border: 'none', transition: 'all 0.15s ease',
+            background: activeSection === 'comments' ? 'var(--e-primary)' : 'var(--e-surface)',
+            color: activeSection === 'comments' ? '#ffffff' : 'var(--e-text-muted)',
+            display: 'flex', alignItems: 'center', gap: 6
+          }}
+        >
+          <span>💬 Bình luận cần duyệt ({flaggedComments.length})</span>
+          {flaggedComments.some(c => c.moderationStatus === 'Flagged' || c.isSensitiveHiddenFromStudents) && (
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444' }} />
+          )}
+        </button>
       </div>
+
+      {activeSection === 'posts' ? (
+        <>
+          {/* Filter pills */}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
+            {[
+              { v: 'all', l: `Tất cả bài viết (${posts.length})` },
+              { v: 'flagged', l: `Cần lưu ý (${posts.filter(p => p.hasKeywordsAlert || p.isExtremeCrisis || p.riskScore >= 60 || p.imageModerationStatus === 'Flagged').length})` },
+              { v: 'has_image', l: `Có hình ảnh (${posts.filter(p => !!p.imageUrl).length})` },
+              { v: 'approved', l: 'Đã phê duyệt' },
+              { v: 'hidden', l: 'Đã ẩn' }
+            ].map(f => (
+              <button
+                key={f.v}
+                type="button"
+                onClick={() => setFilter(f.v)}
+                style={{
+                  padding: '7px 16px', borderRadius: 8, fontSize: 12.5, fontWeight: 700, cursor: 'pointer', fontFamily: "'Manrope', sans-serif",
+                  border: `1.5px solid ${filter === f.v ? 'var(--e-primary)' : 'var(--e-border)'}`,
+                  background: filter === f.v ? 'var(--e-primary-soft)' : 'var(--e-surface)',
+                  color: filter === f.v ? 'var(--e-primary)' : 'var(--e-text-muted)',
+                }}
+              >
+                {f.l}
+              </button>
+            ))}
+          </div>
 
       {loading ? (
         <div style={{ textAlign: 'center', padding: '36px', color: 'var(--e-text-muted)' }}>
@@ -328,11 +404,126 @@ export default function ExpertModerationPage() {
             );
           })}
 
-          {filtered.length === 0 && (
-            <div style={{ textAlign: 'center', padding: '36px', color: 'var(--e-text-muted)', background: 'var(--e-surface)', borderRadius: 10, border: '1px solid var(--e-border)' }}>
-              Không tìm thấy bài viết nào trong danh mục này.
+            {filtered.length === 0 && (
+              <div style={{ textAlign: 'center', padding: '36px', color: 'var(--e-text-muted)', background: 'var(--e-surface)', borderRadius: 10, border: '1px solid var(--e-border)' }}>
+                Không tìm thấy bài viết nào trong danh mục này.
+              </div>
+            )}
+          </div>
+        )}
+        </>
+      ) : (
+        /* Tab: Flagged Comments */
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {flaggedComments.length === 0 ? (
+            <div className="e-card" style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--e-text-muted)' }}>
+              <p style={{ fontSize: 15, fontWeight: 700, margin: '0 0 6px', color: 'var(--e-text)' }}>Không có bình luận nào bị gắn cờ</p>
+              <p style={{ fontSize: 13, margin: 0 }}>Hệ thống AI và bộ lọc từ khóa nhạy cảm không phát hiện bình luận vi phạm nào.</p>
             </div>
+          ) : (
+            flaggedComments.map(c => {
+              const isFlagged = c.isSensitiveHiddenFromStudents || c.moderationStatus === 'Flagged';
+              return (
+                <div key={c.id} className="e-card" style={{ borderLeft: `3px solid ${isFlagged ? '#dc2626' : 'var(--e-primary)'}` }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+                    <div>
+                      <strong style={{ fontSize: 14, color: 'var(--e-text)' }}>{c.authorPseudonym}</strong>
+                      <span style={{ fontSize: 11.5, color: 'var(--e-text-muted)', marginLeft: 8 }}>
+                        {c.createdAt ? new Date(c.createdAt).toLocaleString('vi-VN') : ''}
+                      </span>
+                      {c.isExpertComment && (
+                        <span style={{ fontSize: 10.5, background: '#dcfce7', color: '#15803d', padding: '2px 8px', borderRadius: 6, fontWeight: 700, marginLeft: 8 }}>
+                          Chuyên viên
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      {c.detectedKeywords && (
+                        <span style={{ fontSize: 11, background: '#fee2e2', color: '#b91c1c', padding: '2px 8px', borderRadius: 6, fontWeight: 700 }}>
+                          Từ khóa: {c.detectedKeywords}
+                        </span>
+                      )}
+                      <span style={{
+                        fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6,
+                        background: c.moderationStatus === 'Approved' ? '#dcfce7' : c.moderationStatus === 'Hidden' ? '#f1f5f9' : '#fef3c7',
+                        color: c.moderationStatus === 'Approved' ? '#15803d' : c.moderationStatus === 'Hidden' ? '#64748b' : '#b45309'
+                      }}>
+                        {c.moderationStatus === 'Approved' ? 'Đã duyệt' : c.moderationStatus === 'Hidden' ? 'Đã ẩn' : 'Chờ duyệt'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {c.content && (
+                    <p style={{ fontSize: 13.5, color: 'var(--e-text)', lineHeight: 1.6, margin: '0 0 10px', background: 'var(--e-bg-soft)', padding: '10px 14px', borderRadius: 8, border: '1px solid var(--e-border)' }}>
+                      {c.content}
+                    </p>
+                  )}
+
+                  {/* Comment Attached Image */}
+                  {c.imageUrl && (
+                    <div style={{ marginBottom: 12 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--e-text-muted)', display: 'block', marginBottom: 4 }}>Ảnh bình luận đính kèm:</span>
+                      <img
+                        src={c.imageUrl}
+                        alt="Ảnh bình luận"
+                        onClick={() => setPreviewImage(c.imageUrl)}
+                        title="Xem ảnh phóng to"
+                        style={{ maxHeight: 140, maxWidth: 220, borderRadius: 8, objectFit: 'cover', border: '1px solid var(--e-border)', cursor: 'zoom-in' }}
+                      />
+                    </div>
+                  )}
+
+                  {/* Actions */}
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <button
+                      className="e-btn e-btn-primary"
+                      style={{ padding: '6px 14px', fontSize: 12 }}
+                      onClick={() => handleModerateComment(c.id, 'approve', c.authorPseudonym)}
+                    >
+                      ✓ Duyệt hiển thị
+                    </button>
+                    <button
+                      className="e-btn e-btn-outline"
+                      style={{ padding: '6px 14px', fontSize: 12 }}
+                      onClick={() => handleModerateComment(c.id, 'hide', c.authorPseudonym)}
+                    >
+                      👁️ Tạm ẩn
+                    </button>
+                    <button
+                      className="e-btn e-btn-danger"
+                      style={{ padding: '6px 14px', fontSize: 12 }}
+                      onClick={() => handleModerateComment(c.id, 'reject', c.authorPseudonym)}
+                    >
+                      ✕ Từ chối vi phạm
+                    </button>
+                  </div>
+                </div>
+              );
+            })
           )}
+        </div>
+      )}
+
+      {/* Enlarged image preview modal */}
+      {previewImage && (
+        <div
+          onClick={() => setPreviewImage(null)}
+          style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+        >
+          <div style={{ position: 'relative', maxWidth: '90vw', maxHeight: '90vh' }} onClick={e => e.stopPropagation()}>
+            <img src={previewImage} alt="Phóng to" style={{ maxWidth: '100%', maxHeight: '85vh', borderRadius: 12, objectFit: 'contain' }} />
+            <button
+              type="button"
+              onClick={() => setPreviewImage(null)}
+              style={{
+                position: 'absolute', top: -12, right: -12, width: 32, height: 32, borderRadius: '50%',
+                background: '#ffffff', color: '#0f172a', border: 'none', cursor: 'pointer',
+                fontWeight: 800, fontSize: 16, boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
+              }}
+            >
+              ✕
+            </button>
+          </div>
         </div>
       )}
     </div>

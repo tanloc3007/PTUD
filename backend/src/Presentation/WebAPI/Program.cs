@@ -1,6 +1,7 @@
 using UniMind.Application.Common.Interfaces;
 using UniMind.Application.Features;
 using UniMind.Infrastructure.ExternalServices.AI;
+using UniMind.Infrastructure.ExternalServices.Cloudinary;
 using UniMind.Infrastructure.ExternalServices.Security;
 using UniMind.Infrastructure.Persistence.Context;
 using UniMind.WebAPI.Middlewares;
@@ -11,6 +12,7 @@ builder.WebHost.UseUrls("http://localhost:5080");
 // 1. ADD SERVICES
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddHttpClient();
 
 // 2. SWAGGER CONFIGURATION
 builder.Services.AddSwaggerGen();
@@ -31,7 +33,13 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
 builder.Services.AddSingleton<IApplicationDbContext>(sp => new ApplicationDbContext(connectionString));
 builder.Services.AddSingleton<IPasswordHasher, PasswordHasher>();
 builder.Services.AddSingleton<IJwtProvider, JwtProvider>();
-builder.Services.AddSingleton<IAISentimentService, AISentimentService>();
+builder.Services.AddSingleton<ICloudinaryService>(sp =>
+    new CloudinaryService(
+        builder.Configuration["Cloudinary:CloudName"],
+        builder.Configuration["Cloudinary:ApiKey"],
+        builder.Configuration["Cloudinary:ApiSecret"]));
+builder.Services.AddSingleton<IAISentimentService>(sp => 
+    new AISentimentService(builder.Configuration["Gemini:ApiKey"], builder.Configuration["Gemini:Model"]));
 
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IMoodJournalService, MoodJournalService>();

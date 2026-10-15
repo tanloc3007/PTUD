@@ -3,7 +3,22 @@ import axiosClient from '../../auth/api/authApi';
 import { useAuthStore } from '../../auth/store/authStore';
 import InPageNotification from '../../../shared/components/InPageNotification';
 
-const DEFAULT_HOURS = ['08:30', '09:45', '11:00', '13:30', '14:45', '16:00'];
+const STANDARD_SLOTS = [
+  { time: '08:00', endTime: '09:30', label: '08:00 - 09:30 (Ca sáng 1)' },
+  { time: '09:45', endTime: '11:15', label: '09:45 - 11:15 (Ca sáng 2)' },
+  { time: '13:30', endTime: '15:00', label: '13:30 - 15:00 (Ca chiều 1)' },
+  { time: '15:15', endTime: '16:45', label: '15:15 - 16:45 (Ca chiều 2)' },
+  { time: '17:00', endTime: '18:30', label: '17:00 - 18:30 (Ca chiều tối)' },
+];
+
+export const formatDateToYMD = (d) => {
+  if (!d) return '';
+  const date = new Date(d);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 
 const MOCK_EXPERTS = [
   {
@@ -15,9 +30,9 @@ const MOCK_EXPERTS = [
     rating: 5.0,
     totalConsultations: 100,
     availableSlots: [
-      { id: 's01', startTime: '08:30', endTime: '09:30', isBooked: false },
-      { id: 's02', startTime: '10:00', endTime: '11:00', isBooked: false },
-      { id: 's03', startTime: '14:00', endTime: '15:00', isBooked: false },
+      { id: 's01', startTime: '08:00', endTime: '09:30', isBooked: false },
+      { id: 's02', startTime: '09:45', endTime: '11:15', isBooked: false },
+      { id: 's03', startTime: '13:30', endTime: '15:00', isBooked: false },
     ]
   },
   {
@@ -29,9 +44,9 @@ const MOCK_EXPERTS = [
     rating: 4.98,
     totalConsultations: 1420,
     availableSlots: [
-      { id: 's1', startTime: '08:30', endTime: '09:30', isBooked: false },
-      { id: 's2', startTime: '09:45', endTime: '10:45', isBooked: false },
-      { id: 's3', startTime: '14:00', endTime: '15:00', isBooked: false },
+      { id: 's1', startTime: '08:00', endTime: '09:30', isBooked: false },
+      { id: 's2', startTime: '09:45', endTime: '11:15', isBooked: false },
+      { id: 's3', startTime: '13:30', endTime: '15:00', isBooked: false },
     ]
   },
   {
@@ -43,8 +58,8 @@ const MOCK_EXPERTS = [
     rating: 5.0,
     totalConsultations: 2100,
     availableSlots: [
-      { id: 's4', startTime: '09:00', endTime: '10:00', isBooked: false },
-      { id: 's5', startTime: '14:30', endTime: '15:30', isBooked: false },
+      { id: 's4', startTime: '08:00', endTime: '09:30', isBooked: false },
+      { id: 's5', startTime: '13:30', endTime: '15:00', isBooked: false },
     ]
   },
   {
@@ -56,8 +71,8 @@ const MOCK_EXPERTS = [
     rating: 4.95,
     totalConsultations: 980,
     availableSlots: [
-      { id: 's6', startTime: '10:00', endTime: '11:00', isBooked: false },
-      { id: 's7', startTime: '15:30', endTime: '16:30', isBooked: false },
+      { id: 's6', startTime: '09:45', endTime: '11:15', isBooked: false },
+      { id: 's7', startTime: '15:15', endTime: '16:45', isBooked: false },
     ]
   },
 ];
@@ -170,13 +185,30 @@ export default function BookingPage() {
   // Tải các ca đã được đặt của chuyên gia đang chọn (Để chống trùng lịch 100%)
   useEffect(() => {
     if (selected?.id) {
-      axiosClient.get(`/appointments/expert/${selected.id}`)
-        .then(r => {
-          if (r.data?.data && Array.isArray(r.data.data)) {
-            setExpertBookings(r.data.data);
-          }
-        })
-        .catch(() => {});
+      Promise.all([
+        axiosClient.get(`/appointments/expert/${selected.id}/booked-slots`).catch(() => ({ data: null })),
+        axiosClient.get(`/appointments/expert/${selected.id}`).catch(() => ({ data: null }))
+      ]).then(([resBooked, resAppts]) => {
+        const list = [];
+        if (resBooked?.data?.data && Array.isArray(resBooked.data.data)) {
+          list.push(...resBooked.data.data);
+        }
+        if (resAppts?.data?.data && Array.isArray(resAppts.data.data)) {
+          resAppts.data.data.forEach(a => {
+            if (a.status !== 'Cancelled' && a.status !== 'Rejected') {
+              list.push({
+                date: a.date,
+                startTime: a.startTime,
+                endTime: a.endTime,
+                status: a.status
+              });
+            }
+          });
+        }
+        setExpertBookings(list);
+      });
+    } else {
+      setExpertBookings([]);
     }
   }, [selected?.id]);
 
@@ -247,41 +279,74 @@ export default function BookingPage() {
   const availableSlotsForDate = useMemo(() => {
     if (!selected) return [];
 
-    const dateStr = selectedDate ? selectedDate.toISOString().split('T')[0] : '';
-    const rawSlots = selected.availableSlots || selected.slots || [];
+    const dateStr = formatDateToYMD(selectedDate);
 
-    // Danh sách các giờ đã bị book bởi người khác trong ngày này
+    const normTime = (t) => {
+      if (!t) return '';
+      const clean = String(t).trim().split('-')[0].trim();
+      const parts = clean.split(':');
+      if (parts.length < 2) return clean;
+      return `${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}`;
+    };
+
+    const normDate = (d) => {
+      if (!d) return '';
+      return String(d).split('T')[0].trim();
+    };
+
+    // Danh sách các ca đã được sinh viên khác đặt trong ngày này (Pending, Confirmed)
     const bookedTimesOnThisDate = new Set();
     expertBookings.forEach(b => {
-      if (b.date === dateStr && (b.status === 'Confirmed' || b.status === 'Pending')) {
-        const t = (b.startTime || '').substring(0, 5);
+      if (normDate(b.date) === dateStr && b.status !== 'Cancelled' && b.status !== 'Rejected') {
+        const t = normTime(b.startTime || b.time);
         if (t) bookedTimesOnThisDate.add(t);
       }
     });
 
-    if (rawSlots.length > 0) {
-      return rawSlots.map(s => {
-        const timeStr = typeof s === 'string' ? s : (s.startTime || '08:30');
-        const endStr  = typeof s === 'object' && s.endTime ? ` - ${s.endTime}` : '';
-        const isSlotBookedInDb = s.isBooked || bookedTimesOnThisDate.has(timeStr.substring(0, 5));
-        return {
-          id: typeof s === 'object' ? s.id : null,
-          time: timeStr,
-          label: `${timeStr}${endStr}`,
-          isBooked: isSlotBookedInDb
-        };
-      });
-    }
-
-    return DEFAULT_HOURS.map(h => {
-      const isBooked = bookedTimesOnThisDate.has(h);
-      return {
-        id: null,
-        time: h,
-        label: `${h} - ${parseInt(h) + 1}:30`,
-        isBooked: isBooked
-      };
+    // Cũng kiểm tra các slot đã book từ thông tin chuyên viên (nếu có)
+    const rawSlots = selected.availableSlots || selected.slots || [];
+    rawSlots.forEach(s => {
+      if (s.isBooked && (!s.date || normDate(s.date) === dateStr)) {
+        const t = normTime(s.startTime || s.time);
+        if (t) bookedTimesOnThisDate.add(t);
+      }
     });
+
+    // Toàn bộ các khung giờ tiêu chuẩn mỗi ngày của UniMind
+    const slotMap = new Map();
+    STANDARD_SLOTS.forEach(s => {
+      const key = normTime(s.time);
+      slotMap.set(key, {
+        id: null,
+        time: s.time,
+        endTime: s.endTime,
+        label: s.label
+      });
+    });
+
+    // Thêm các khung giờ riêng do chuyên gia thiết lập (nếu có trong DB cho ngày này)
+    rawSlots.forEach(s => {
+      if (!s.isBooked && (!s.date || normDate(s.date) === dateStr)) {
+        const key = normTime(s.startTime || s.time);
+        if (key) {
+          const endT = s.endTime || '09:30';
+          const isRealGuid = typeof s.id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s.id);
+          slotMap.set(key, {
+            id: isRealGuid ? s.id : null,
+            time: s.startTime || key,
+            endTime: endT,
+            label: s.label || `${s.startTime || key} - ${endT}`
+          });
+        }
+      }
+    });
+
+    const allCandidateSlots = Array.from(slotMap.values()).sort((a, b) => a.time.localeCompare(b.time));
+
+    // RÀNG BUỘC CHỐNG TRÙNG LỊCH BẬC CAO THEO YÊU CẦU:
+    // "nếu ca nào của chuyên viên đã có người khác đặt rồi thì không hiện lên cho sinh viên đặt nữa"
+    // -> LỌC BỎ HOÀN TOÀN CÁC KHUNG GIỜ ĐÃ CÓ NGƯỜI ĐẶT
+    return allCandidateSlots.filter(s => !bookedTimesOnThisDate.has(normTime(s.time)));
   }, [selected, selectedDate, expertBookings]);
 
   const handleConfirm = async () => {
@@ -290,8 +355,8 @@ export default function BookingPage() {
 
     try {
       const studentId = user?.id || '22222222-2222-2222-2222-222222222221';
-      const dateStr = selectedDate ? selectedDate.toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
-      const timeStr = selectedSlot?.time || selectedSlot?.label?.split(' - ')[0] || '08:30';
+      const dateStr = formatDateToYMD(selectedDate) || formatDateToYMD(new Date());
+      const timeStr = selectedSlot?.time ? `${selectedSlot.time} - ${selectedSlot.endTime || '09:30'}` : (selectedSlot?.label || '08:00 - 09:30');
 
       // Xây dựng ghi chú lý do đính kèm tóm tắt cảm xúc & trắc nghiệm DASS-21
       let fullReason = note.trim() || 'Sinh viên đặt lịch tư vấn tâm lý học đường';
@@ -304,9 +369,13 @@ export default function BookingPage() {
         fullReason += moodSummary;
       }
 
+      // Chỉ gửi timeSlotId nếu thực sự là GUID hợp lệ từ DB; ngược lại gửi null
+      const isValidGuid = (id) => typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+      const slotGuid = isValidGuid(selectedSlot?.id) ? selectedSlot.id : null;
+
       const payload = {
         expertId: selected.id,
-        timeSlotId: selectedSlot?.id || null,
+        timeSlotId: slotGuid,
         date: dateStr,
         time: timeStr,
         anonymousPseudonym: user?.anonymousCode || user?.fullName || 'Bạn Ẩn Yên #396',
@@ -319,8 +388,11 @@ export default function BookingPage() {
       setSuccess(true);
       loadMyBookings();
 
-      // Cập nhật lại danh sách booked slots của chuyên gia để lập tức khóa khung giờ vừa đặt
-      setExpertBookings(prev => [...prev, { date: dateStr, startTime: timeStr, status: 'Pending' }]);
+      // Cập nhật ngay lập tức danh sách booked slots của chuyên gia để tự động ẩn khung giờ vừa đặt
+      setExpertBookings(prev => [
+        ...prev,
+        { date: dateStr, startTime: selectedSlot?.time || '08:00', endTime: selectedSlot?.endTime || '09:30', status: 'Pending' }
+      ]);
 
       setTimeout(() => {
         setSuccess(false);
@@ -331,7 +403,13 @@ export default function BookingPage() {
         setActiveTab('history');
       }, 2300);
     } catch (err) {
-      const msg = err.response?.data?.message || err.message || 'Không thể đặt lịch do trùng khung giờ hoặc lỗi hệ thống. Vui lòng chọn khung giờ khác.';
+      let msg = err.response?.data?.message;
+      if (!msg && err.response?.data?.errors) {
+        msg = Object.values(err.response.data.errors).flat().join(', ');
+      }
+      if (!msg) {
+        msg = err.message || 'Không thể đặt lịch do trùng khung giờ hoặc lỗi hệ thống. Vui lòng chọn khung giờ khác.';
+      }
       setBookingError(msg);
     } finally {
       setSubmitting(false);
@@ -403,10 +481,32 @@ export default function BookingPage() {
                     <span>Hình thức: {b.consultationType === 'Online' ? 'Trực tuyến' : 'Trực tiếp'}</span>
                   </p>
                 </div>
-                <div>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
                   <span className={`s-badge ${b.status === 'Confirmed' ? 's-badge-success' : b.status === 'Completed' ? 's-badge-info' : b.status === 'Pending' ? 's-badge-warning' : 's-badge-error'}`}>
                     {b.status === 'Confirmed' ? 'Đã duyệt' : b.status === 'Completed' ? 'Hoàn tất' : b.status === 'Pending' ? 'Chờ duyệt' : 'Đã hủy'}
                   </span>
+                  {b.isMeetingActive && b.status !== 'Completed' && b.status !== 'Cancelled' && (
+                    <a
+                      href={`/student/meeting/${b.id}`}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        padding: '6px 12px',
+                        background: '#0d9488',
+                        color: '#ffffff',
+                        borderRadius: 8,
+                        fontSize: 12,
+                        fontWeight: 800,
+                        textDecoration: 'none',
+                        boxShadow: '0 2px 8px rgba(13, 148, 136, 0.3)',
+                        transition: 'all 0.15s ease'
+                      }}
+                    >
+                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#4ade80' }} />
+                      🔴 Vào phòng trực tiếp
+                    </a>
+                  )}
                 </div>
               </div>
             ))
@@ -601,62 +701,75 @@ export default function BookingPage() {
                 </div>
               </div>
 
-              {/* Chọn giờ & CHỐNG TRÙNG LỊCH TRỰC QUAN */}
+              {/* Chọn giờ & CHỐNG TRÙNG LỊCH TRỰC QUAN (ẨN HOÀN TOÀN CÁC CA ĐÃ CÓ NGƯỜI ĐẶT) */}
               <div style={{ marginBottom: 24 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
                   <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--s-text-muted)', margin: 0 }}>
                     Chọn khung giờ tư vấn:
                   </p>
                   <div style={{ fontSize: 12, display: 'flex', gap: 10 }}>
-                    <span style={{ color: '#16a34a', fontWeight: 700 }}>
-                      ✓ {availableSlotsForDate.filter(s => !s.isBooked).length} ca khả dụng
-                    </span>
-                    <span style={{ color: '#ef4444', fontWeight: 700 }}>
-                      ✕ {availableSlotsForDate.filter(s => s.isBooked).length} ca đã kín lịch
+                    <span style={{ color: '#0d9488', fontWeight: 700 }}>
+                      ✓ {availableSlotsForDate.length} ca khả dụng (Đã tự động ẩn các ca kín lịch)
                     </span>
                   </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 10 }}>
-                  {availableSlotsForDate.map(slot => {
-                    const isSlotSel = selectedSlot?.time === slot.time || selectedSlot?.label === slot.label;
-                    const isBooked = slot.isBooked;
+                {availableSlotsForDate.length === 0 ? (
+                  <div style={{
+                    padding: '24px 20px',
+                    borderRadius: 12,
+                    background: '#fef2f2',
+                    border: '1.5px solid #fecaca',
+                    textAlign: 'center',
+                    color: '#991b1b'
+                  }}>
+                    <p style={{ fontWeight: 800, fontSize: 14, margin: '0 0 6px' }}>
+                      ⚠️ Chuyên viên đã kín lịch trong ngày này
+                    </p>
+                    <p style={{ fontSize: 12.5, margin: 0, color: '#b91c1c', lineHeight: 1.5 }}>
+                      Tất cả các ca tư vấn của {selected?.fullName || 'chuyên viên'} trong ngày {selectedDate?.toLocaleDateString('vi-VN')} đã có sinh viên khác đăng ký. Toàn bộ các khung giờ này đã được ẩn tự động để tránh trùng lịch. Vui lòng chọn một ngày khác hoặc chọn chuyên viên khác để đặt lịch.
+                    </p>
+                  </div>
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 10 }}>
+                    {availableSlotsForDate.map(slot => {
+                      const isSlotSel = selectedSlot?.time === slot.time || selectedSlot?.label === slot.label;
 
-                    return (
-                      <button
-                        type="button"
-                        key={slot.label}
-                        disabled={isBooked}
-                        onClick={() => !isBooked && setSlot(slot)}
-                        style={{
-                          padding: '12px 14px', borderRadius: 10,
-                          cursor: isBooked ? 'not-allowed' : 'pointer',
-                          fontFamily: "'Manrope', sans-serif",
-                          border: `2px solid ${isBooked ? '#e2e8f0' : isSlotSel ? 'var(--s-primary)' : 'var(--s-border)'}`,
-                          background: isBooked ? '#f1f5f9' : isSlotSel ? 'var(--s-primary)' : 'var(--s-surface)',
-                          color: isBooked ? '#94a3b8' : isSlotSel ? '#ffffff' : 'var(--s-text)',
-                          fontWeight: 700, fontSize: 13,
-                          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
-                          opacity: isBooked ? 0.6 : 1,
-                          transition: 'all 0.15s',
-                        }}
-                      >
-                        <span style={{ fontSize: 13.5, textDecoration: isBooked ? 'line-through' : 'none' }}>
-                          {slot.label}
-                        </span>
-                        <span style={{
-                          fontSize: 10.5,
-                          fontWeight: 800,
-                          color: isBooked ? '#ef4444' : isSlotSel ? '#ffffff' : '#0d9488',
-                          background: isBooked ? '#fee2e2' : isSlotSel ? 'rgba(255,255,255,0.2)' : '#f0fdfa',
-                          padding: '2px 8px', borderRadius: 4
-                        }}>
-                          {isBooked ? 'ĐÃ CÓ NGƯỜI ĐẶT' : 'KHẢ DỤNG'}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
+                      return (
+                        <button
+                          type="button"
+                          key={slot.label}
+                          onClick={() => setSlot(slot)}
+                          style={{
+                            padding: '12px 14px', borderRadius: 10,
+                            cursor: 'pointer',
+                            fontFamily: "'Manrope', sans-serif",
+                            border: `2px solid ${isSlotSel ? 'var(--s-primary)' : 'var(--s-border)'}`,
+                            background: isSlotSel ? 'var(--s-primary)' : 'var(--s-surface)',
+                            color: isSlotSel ? '#ffffff' : 'var(--s-text)',
+                            fontWeight: 700, fontSize: 13,
+                            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+                            boxShadow: isSlotSel ? '0 4px 12px rgba(13, 148, 136, 0.25)' : 'none',
+                            transition: 'all 0.15s',
+                          }}
+                        >
+                          <span style={{ fontSize: 13.5 }}>
+                            {slot.label}
+                          </span>
+                          <span style={{
+                            fontSize: 10.5,
+                            fontWeight: 800,
+                            color: isSlotSel ? '#ffffff' : '#0d9488',
+                            background: isSlotSel ? 'rgba(255,255,255,0.2)' : '#f0fdfa',
+                            padding: '2px 8px', borderRadius: 4
+                          }}>
+                            {isSlotSel ? '✓ ĐANG CHỌN' : 'KHẢ DỤNG'}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               {/* Hình thức tư vấn */}

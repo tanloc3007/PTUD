@@ -219,9 +219,10 @@ public record StudentConsultationAssessmentDto(
 );
 
 public record CreateCommentRequest(
-    string Content,
+    string? Content,
     string? CustomPseudonym = null,
-    Guid? UserId = null
+    Guid? UserId = null,
+    string? ImageUrl = null
 );
 
 public record CommentDto(
@@ -233,7 +234,14 @@ public record CommentDto(
     string? ExpertTitle,
     bool IsSensitiveHiddenFromStudents,
     string? DetectedKeywords,
-    DateTime CreatedAt
+    DateTime CreatedAt,
+    string? ImageUrl = null,
+    string ModerationStatus = "Approved"
+);
+
+public record ModerateCommentRequest(
+    string Action,
+    string? Reason = null
 );
 
 public record ReactRequest(string ReactionType); // "hug", "empathy"
@@ -277,9 +285,15 @@ public record TimeSlotDto(
     bool IsBooked
 );
 
+public record BookedSlotDto(
+    string Date,
+    string StartTime,
+    string EndTime
+);
+
 public record BookAppointmentRequest(
-    Guid ExpertId,
-    Guid? TimeSlotId,
+    string? ExpertId,
+    string? TimeSlotId,
     string? AnonymousPseudonym,
     string? ConsultationType, // Physical, Online
     string? ReasonNotes,
@@ -304,11 +318,19 @@ public record AppointmentDto(
     string? ClinicalNotes,
     string? Dass21Summary,
     int RiskScore,
-    DateTime CreatedAt
+    DateTime CreatedAt,
+    bool IsMeetingActive = false
 );
 
 public record UpdateAppointmentStatusRequest(string Status, string? RejectionReason);
 public record CompleteSessionRequest(string ClinicalNotes, string? Dass21Summary);
+
+// WebRTC Signaling & Meeting Chat DTOs
+public record MeetingSignalRequest(string SenderRole, string SignalType, string Payload);
+public record MeetingSignalDto(Guid Id, Guid AppointmentId, string SenderRole, string SignalType, string Payload, long Timestamp);
+
+public record SendMeetingChatRequest(string SenderRole, string SenderName, string Content);
+public record MeetingChatDto(Guid Id, Guid AppointmentId, string SenderRole, string SenderName, string Content, DateTime SentAt);
 
 // 6. ADMIN & EXPERT DTOs
 public record MoodDistributionDto(string Label, string MoodKey, int Count, double Percentage, string Color);
@@ -341,6 +363,23 @@ public record ModeratePostRequest(string Action, string? Reason); // "approve", 
 
 public record SensitiveKeywordDto(Guid Id, string Keyword, string Category, int RiskWeight, string AddedByRole, bool IsActive, DateTime CreatedAt);
 public record AddSensitiveKeywordRequest(string Keyword, string Category, int RiskWeight);
+public record ModerationTestRequest(string Content);
+public record ModerationTestDto(
+    string Content,
+    bool IsFlagged,
+    int RiskScore,
+    string SentimentLabel,
+    double SentimentScore,
+    bool KeywordDetected,
+    List<string> TriggeredKeywords,
+    bool AiDetected,
+    string? AiCategory,
+    string? AiReason,
+    int AiConfidence,
+    string SuggestedAction,
+    string EmpatheticAdvice,
+    string ModerationSource
+);
 
 public record NlpRiskAlertDto(
     Guid Id,

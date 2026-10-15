@@ -43,9 +43,17 @@ public class SentimentAnalysisResult
     public bool IsExtremeCrisis { get; set; }
     public string EmpatheticAdvice { get; set; } = string.Empty;
     public string BreathingExerciseSuggestion { get; set; } = string.Empty;
+
+    // AI Dual-Check / Parallel Moderation Fields
+    public bool IsAiFlagged { get; set; }
+    public string? AiCategory { get; set; }
+    public string? AiReason { get; set; }
+    public int AiConfidence { get; set; }
+    public string ModerationSource { get; set; } = "KeywordAndAI";
 }
 
 public interface IAISentimentService
 {
     SentimentAnalysisResult Analyze(string text, IEnumerable<SensitiveKeyword> activeKeywords);
+    Task<SentimentAnalysisResult> AnalyzeAsync(string text, IEnumerable<SensitiveKeyword> activeKeywords, CancellationToken cancellationToken = default);
 }

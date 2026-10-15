@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import axiosClient from '../../auth/api/authApi';
 import { useAuthStore } from '../../auth/store/authStore';
 import InPageNotification from '../../../shared/components/InPageNotification';
+import { uploadImageToCloudinary } from '../../../shared/utils/cloudinaryUpload';
 
 export const CATEGORY_MAP = {
   'Áp lực học tập': 'Góc học tập',
@@ -37,14 +38,44 @@ function timeAgo(date) {
 function PostCard({ post, onReact, onComment, onDelete, currentUser }) {
   const [expanded, setExpanded] = useState(false);
   const [commentText, setCommentText] = useState('');
+  const [commentImage, setCommentImage] = useState(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const [submittingComment, setSubmittingComment] = useState(false);
   const [showSensitiveImage, setShowSensitiveImage] = useState(false);
+  const [previewEnlargedImage, setPreviewEnlargedImage] = useState(null);
+  const fileInputRef = useRef(null);
+
+  const handleSelectImage = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      alert('Vui lòng chọn file hình ảnh (PNG, JPG, WEBP,...)');
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      alert('Dung lượng hình ảnh không được vượt quá 10MB.');
+      return;
+    }
+
+    setUploadingImage(true);
+    try {
+      const url = await uploadImageToCloudinary(file);
+      setCommentImage(url);
+    } catch (err) {
+      console.error('Lỗi tải ảnh bình luận:', err);
+      alert('Không thể tải ảnh lên Cloudinary. Vui lòng thử lại!');
+    } finally {
+      setUploadingImage(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
 
   const handleSendComment = async () => {
-    if (!commentText.trim()) return;
+    if ((!commentText.trim() && !commentImage) || submittingComment || uploadingImage) return;
     setSubmittingComment(true);
-    await onComment(post.id, commentText.trim());
+    await onComment(post.id, commentText.trim(), commentImage);
     setCommentText('');
+    setCommentImage(null);
     setSubmittingComment(false);
   };
 
@@ -172,41 +203,241 @@ function PostCard({ post, onReact, onComment, onDelete, currentUser }) {
 
       {/* Comments section */}
       {expanded && (
-        <div style={{ borderTop: '1px solid var(--s-border)', paddingTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ borderTop: '1px solid var(--s-border)', paddingTop: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {/* Comments list */}
           {post.comments && post.comments.length > 0 ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {post.comments.map(c => (
-                <div key={c.id} style={{ background: c.isExpertComment ? '#f0fdf4' : '#f8fafc', border: `1px solid ${c.isExpertComment ? '#86efac' : '#e5e7eb'}`, borderRadius: 10, padding: '10px 14px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                    <span style={{ fontSize: 12.5, fontWeight: 800, color: c.isExpertComment ? '#15803d' : '#1f2937' }}>
-                      {c.authorPseudonym} {c.isExpertComment && '(Chuyên viên)'}
-                    </span>
-                    <span style={{ fontSize: 11, color: '#9ca3af' }}>{timeAgo(c.createdAt)}</span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {post.comments.map(c => {
+                const cInitial = c.authorPseudonym ? c.authorPseudonym.substring(0, 2).toUpperCase() : 'ẨN';
+                const isFlagged = c.isSensitiveHiddenFromStudents || c.moderationStatus === 'Flagged';
+                return (
+                  <div key={c.id} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                    {/* Commenter Avatar */}
+                    <div style={{
+                      width: 34, height: 34, borderRadius: '50%', flexShrink: 0,
+                      background: c.isExpertComment
+                        ? 'linear-gradient(135deg, #059669 0%, #10b981 100%)'
+                        : `hsl(${c.authorPseudonym ? c.authorPseudonym.charCodeAt(0) * 45 : 180}, 60%, 42%)`,
+                      color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontWeight: 800, fontSize: 12, boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+                    }}>
+                      {c.isExpertComment ? 'GV' : cInitial}
+                    </div>
+
+                    {/* Speech bubble + media */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{
+                        background: c.isExpertComment ? '#f0fdf4' : '#f0f2f5',
+                        border: c.isExpertComment ? '1px solid #bbf7d0' : 'none',
+                        borderRadius: 18,
+                        padding: '9px 14px',
+                        display: 'inline-block',
+                        maxWidth: '100%',
+                        boxSizing: 'border-box'
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 2 }}>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: c.isExpertComment ? '#166534' : '#1e293b' }}>
+                            {c.authorPseudonym}
+                          </span>
+                          {c.isExpertComment && (
+                            <span style={{ fontSize: 10.5, background: '#dcfce7', color: '#15803d', padding: '1px 7px', borderRadius: 10, fontWeight: 700 }}>
+                              Chuyên viên Tâm lý 🎓
+                            </span>
+                          )}
+                        </div>
+
+                        {c.content && (
+                          <p style={{ fontSize: 13, color: '#334155', margin: 0, lineHeight: 1.45, wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>
+                            {c.content}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Attached image in comment */}
+                      {c.imageUrl && (
+                        <div style={{ marginTop: 6 }}>
+                          <img
+                            src={c.imageUrl}
+                            alt="Ảnh bình luận"
+                            onClick={() => setPreviewEnlargedImage(c.imageUrl)}
+                            title="Nhấp để xem ảnh phóng to"
+                            style={{
+                              maxWidth: 240, maxHeight: 180, borderRadius: 12, objectFit: 'cover',
+                              border: '1px solid #e2e8f0', display: 'block', cursor: 'zoom-in',
+                              boxShadow: '0 2px 6px rgba(0,0,0,0.06)'
+                            }}
+                            onError={e => { e.currentTarget.style.display = 'none'; }}
+                          />
+                        </div>
+                      )}
+
+                      {/* Moderation warning badge if comment contains sensitive keywords */}
+                      {isFlagged && (
+                        <div style={{
+                          marginTop: 4, background: '#fffbeb', border: '1px solid #fef3c7',
+                          borderRadius: 8, padding: '4px 8px', fontSize: 11, color: '#92400e',
+                          display: 'inline-flex', alignItems: 'center', gap: 4
+                        }}>
+                          <span>⏳</span>
+                          <span>Bình luận chứa từ ngữ cần kiểm duyệt — đang được chuyển đến chuyên gia tâm lý.</span>
+                        </div>
+                      )}
+
+                      {/* Bottom actions line */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4, paddingLeft: 6, fontSize: 11.5, color: '#64748b' }}>
+                        <span style={{ cursor: 'pointer', fontWeight: 600 }}>Thích</span>
+                        <span>•</span>
+                        <span style={{ cursor: 'pointer', fontWeight: 600 }}>Phản hồi</span>
+                        <span>•</span>
+                        <span>{timeAgo(c.createdAt)}</span>
+                      </div>
+                    </div>
                   </div>
-                  <p style={{ fontSize: 13, color: '#374151', margin: 0, lineHeight: 1.5 }}>{c.content}</p>
-                </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
-            <p style={{ color: 'var(--s-text-muted)', fontSize: 12.5, margin: '4px 0' }}>Chưa có bình luận nào. Hãy là người đầu tiên gửi lời động viên.</p>
+            <p style={{ color: 'var(--s-text-muted)', fontSize: 12.5, margin: '2px 0' }}>Chưa có bình luận nào. Hãy là người đầu tiên gửi lời động viên.</p>
           )}
 
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input
-              className="s-input"
-              value={commentText}
-              onChange={e => setCommentText(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') handleSendComment(); }}
-              placeholder="Gửi lời chia sẻ thấu cảm ẩn danh..."
-              style={{ flex: 1 }}
+          {/* Facebook-style Comment Input Box */}
+          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginTop: 4 }}>
+            {/* Current user avatar */}
+            <div style={{
+              width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
+              background: 'linear-gradient(135deg, #0d9488 0%, #14b8a6 100%)',
+              color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontWeight: 800, fontSize: 13, marginTop: 2
+            }}>
+              {(currentUser?.fullName || currentUser?.anonymousCode || 'U').charAt(0).toUpperCase()}
+            </div>
+
+            {/* Input container */}
+            <div style={{
+              flex: 1, background: '#f0f2f5', borderRadius: 20,
+              border: '1px solid #e2e8f0', padding: '8px 12px',
+              display: 'flex', flexDirection: 'column', gap: 6,
+              transition: 'border-color 0.15s ease'
+            }}>
+              {/* Image preview before posting */}
+              {commentImage && (
+                <div style={{ position: 'relative', display: 'inline-block', width: 'fit-content', marginTop: 4 }}>
+                  <img
+                    src={commentImage}
+                    alt="Preview"
+                    style={{ maxHeight: 90, maxWidth: 140, borderRadius: 10, objectFit: 'cover', border: '1px solid #cbd5e1' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setCommentImage(null)}
+                    title="Gỡ ảnh"
+                    style={{
+                      position: 'absolute', top: -6, right: -6, width: 22, height: 22, borderRadius: '50%',
+                      background: '#1e293b', color: '#fff', border: 'none', cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
+
+              {/* Uploading indicator */}
+              {uploadingImage && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#0d9488', fontWeight: 600 }}>
+                  <div style={{ width: 14, height: 14, border: '2px solid #99f6e4', borderTopColor: '#0d9488', borderRadius: '50%', animation: 'spin 0.6s linear infinite' }} />
+                  <span>Đang tải ảnh lên Cloudinary...</span>
+                </div>
+              )}
+
+              {/* Text input row */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input
+                  value={commentText}
+                  onChange={e => setCommentText(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSendComment();
+                    }
+                  }}
+                  placeholder="Viết bình luận thấu cảm ẩn danh... (Nhấn Enter để gửi)"
+                  style={{
+                    flex: 1, background: 'transparent', border: 'none', outline: 'none',
+                    fontSize: 13.5, color: '#1e293b', padding: '2px 4px'
+                  }}
+                />
+
+                {/* Attach image button */}
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  accept="image/*"
+                  onChange={handleSelectImage}
+                  style={{ display: 'none' }}
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploadingImage || submittingComment}
+                  title="Đính kèm hình ảnh (chuẩn Facebook)"
+                  style={{
+                    background: 'transparent', border: 'none', cursor: 'pointer',
+                    fontSize: 18, color: '#64748b', padding: '4px', display: 'flex', alignItems: 'center',
+                    borderRadius: '50%', transition: 'color 0.15s ease'
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.color = '#0d9488'}
+                  onMouseLeave={e => e.currentTarget.style.color = '#64748b'}
+                >
+                  📷
+                </button>
+
+                {/* Send button */}
+                <button
+                  type="button"
+                  disabled={(!commentText.trim() && !commentImage) || submittingComment || uploadingImage}
+                  onClick={handleSendComment}
+                  style={{
+                    background: (commentText.trim() || commentImage) ? '#0d9488' : '#cbd5e1',
+                    color: '#ffffff', border: 'none', borderRadius: 16,
+                    padding: '6px 14px', fontSize: 12.5, fontWeight: 700,
+                    cursor: (commentText.trim() || commentImage) ? 'pointer' : 'not-allowed',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  {submittingComment ? '...' : 'Gửi'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Enlarged Image Modal */}
+      {previewEnlargedImage && (
+        <div
+          onClick={() => setPreviewEnlargedImage(null)}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.75)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20
+          }}
+        >
+          <div style={{ position: 'relative', maxWidth: '90vw', maxHeight: '90vh' }} onClick={e => e.stopPropagation()}>
+            <img
+              src={previewEnlargedImage}
+              alt="Phóng to"
+              style={{ maxWidth: '100%', maxHeight: '85vh', borderRadius: 12, objectFit: 'contain' }}
             />
             <button
-              className="s-btn s-btn-primary"
-              disabled={submittingComment || !commentText.trim()}
-              onClick={handleSendComment}
-              style={{ padding: '8px 16px', flexShrink: 0 }}
+              type="button"
+              onClick={() => setPreviewEnlargedImage(null)}
+              style={{
+                position: 'absolute', top: -12, right: -12, width: 32, height: 32, borderRadius: '50%',
+                background: '#ffffff', color: '#0f172a', border: 'none', cursor: 'pointer',
+                fontWeight: 800, fontSize: 16, boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
+              }}
             >
-              {submittingComment ? 'Đang gửi...' : 'Gửi'}
+              ✕
             </button>
           </div>
         </div>
@@ -256,6 +487,26 @@ function CreatePostModal({ onClose, onSubmit, currentUser }) {
   const [showThemes, setShowThemes] = useState(false);
   const [showFeelings, setShowFeelings] = useState(false);
   const [formError, setFormError] = useState('');
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [uploadError, setUploadError] = useState('');
+  const fileInputRef = useRef(null);
+
+  const handleFileSelect = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingImage(true);
+    setUploadError('');
+    try {
+      const res = await uploadImageToCloudinary(file, 'post_images');
+      setImageUrl(res.url);
+      setSelectedTheme('none');
+    } catch (err) {
+      setUploadError(err.message || 'Lỗi tải ảnh lên Cloudinary.');
+    } finally {
+      setUploadingImage(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
 
   const authorDisplayName = isAnonymous
     ? (currentUser?.anonymousCode || 'Bạn Ẩn Danh')
@@ -615,11 +866,50 @@ function CreatePostModal({ onClose, onSubmit, currentUser }) {
                 <div>
                   <div style={{ fontSize: 24, marginBottom: 4 }}>🖼️</div>
                   <strong style={{ fontSize: 13.5, color: '#1e293b', display: 'block', marginBottom: 2 }}>
-                    Thêm ảnh hoặc video
+                    Thêm ảnh đính kèm bài viết
                   </strong>
-                  <p style={{ fontSize: 11.5, color: '#64748b', margin: '0 0 10px' }}>
-                    hoặc dán đường dẫn ảnh / chọn ảnh tĩnh tâm mẫu
+                  <p style={{ fontSize: 11.5, color: '#64748b', margin: '0 0 12px' }}>
+                    Tải trực tiếp ảnh lên Cloudinary hoặc dán đường dẫn ảnh / chọn ảnh tĩnh tâm mẫu
                   </p>
+
+                  {/* Nút tải ảnh lên Cloudinary */}
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    accept="image/*"
+                    style={{ display: 'none' }}
+                    onChange={handleFileSelect}
+                  />
+                  <div style={{ marginBottom: 12 }}>
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={uploadingImage}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        padding: '8px 18px',
+                        background: '#0d9488',
+                        color: '#ffffff',
+                        border: 'none',
+                        borderRadius: 8,
+                        fontSize: 12.5,
+                        fontWeight: 800,
+                        cursor: uploadingImage ? 'wait' : 'pointer',
+                        boxShadow: '0 2px 8px rgba(13, 148, 136, 0.3)',
+                        transition: 'all 0.15s'
+                      }}
+                    >
+                      <span>📷</span>
+                      <span>{uploadingImage ? 'Đang tải lên Cloudinary...' : 'Tải ảnh từ máy (Cloudinary)'}</span>
+                    </button>
+                    {uploadError && (
+                      <p style={{ color: '#ef4444', fontSize: 11.5, margin: '6px 0 0' }}>
+                        ⚠️ {uploadError}
+                      </p>
+                    )}
+                  </div>
                   
                   <div style={{ display: 'flex', gap: 6, justifyContent: 'center', flexWrap: 'wrap' }}>
                     {PRESET_IMAGES.map(img => (
@@ -1016,21 +1306,35 @@ export default function CommunityFeedPage() {
     }
   };
 
-  const handleComment = async (postId, text) => {
+  const handleComment = async (postId, text, imageUrl = null) => {
     try {
-      await axiosClient.post(`/community/posts/${postId}/comments`, {
-        content: text,
+      const res = await axiosClient.post(`/community/posts/${postId}/comments`, {
+        content: text || '',
         customPseudonym: user?.anonymousCode || user?.fullName || 'Bạn Ẩn Yên',
-        userId: user?.id
+        userId: user?.id,
+        imageUrl: imageUrl || null
       });
       loadPosts(activeCategory);
-      setNotification({
-        type: 'success',
-        title: 'Đã gửi bình luận',
-        message: 'Lời động viên ẩn danh của bạn đã được chuyển tới bài viết.'
-      });
+      if (res.data?.data?.isSensitiveHiddenFromStudents || res.data?.data?.moderationStatus === 'Flagged') {
+        setNotification({
+          type: 'warning',
+          title: 'Bình luận đang được kiểm duyệt',
+          message: 'Bình luận chứa từ ngữ nhạy cảm và đang được chuyển đến chuyên gia tâm lý để kiểm duyệt trước khi hiển thị công khai.'
+        });
+      } else {
+        setNotification({
+          type: 'success',
+          title: 'Đã gửi bình luận',
+          message: 'Lời động viên ẩn danh của bạn đã được xuất bản thành công.'
+        });
+      }
     } catch (err) {
       console.error('Lỗi gửi bình luận:', err);
+      setNotification({
+        type: 'error',
+        title: 'Không thể gửi bình luận',
+        message: err.response?.data?.message || 'Có lỗi xảy ra khi gửi bình luận.'
+      });
     }
   };
 

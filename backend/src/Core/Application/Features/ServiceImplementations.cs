@@ -168,7 +168,7 @@ public class MoodJournalService : IMoodJournalService
         var energy = request.EffectiveEnergyLevel;
         var triggers = request.EffectiveTriggers;
 
-        var analysis = _aiService.Analyze(content, _context.SensitiveKeywords.Where(k => k.IsActive));
+        var analysis = await _aiService.AnalyzeAsync(content, _context.SensitiveKeywords.Where(k => k.IsActive));
         var moodEnum = Enum.TryParse<MoodType>(moodStr, true, out var parsedMood) ? parsedMood : MoodType.Peaceful;
 
         var journal = new MoodJournal
@@ -194,6 +194,8 @@ public class MoodJournalService : IMoodJournalService
         if (request.ShareToCommunity)
         {
             var student = _context.Users.FirstOrDefault(u => u.Id == studentId);
+            var isHidden = analysis.ContainsSensitiveKeywords || analysis.IsAiFlagged || analysis.RiskScore >= 75;
+
             var post = new CommunityPost
             {
                 Id = Guid.NewGuid(),
@@ -203,19 +205,19 @@ public class MoodJournalService : IMoodJournalService
                 Content = content,
                 CategoryTag = "Chia sẻ cảm xúc",
                 StressLevelTag = $"Mức năng lượng: {energy}/10",
-                HasKeywordsAlert = analysis.ContainsSensitiveKeywords,
-                DetectedKeywords = string.Join(", ", analysis.TriggeredKeywords),
+                HasKeywordsAlert = analysis.ContainsSensitiveKeywords || analysis.IsAiFlagged,
+                DetectedKeywords = analysis.TriggeredKeywords.Count > 0 ? string.Join("; ", analysis.TriggeredKeywords) : null,
                 SentimentLabel = analysis.SentimentLabel,
                 SentimentScore = analysis.SentimentScore,
                 RiskScore = analysis.RiskScore,
                 IsExtremeCrisis = analysis.IsExtremeCrisis,
-                IsSensitiveHiddenFromStudents = analysis.ContainsSensitiveKeywords || analysis.RiskScore >= 75,
-                ModerationStatus = (analysis.ContainsSensitiveKeywords || analysis.RiskScore >= 75) ? PostStatus.Flagged : PostStatus.Approved,
+                IsSensitiveHiddenFromStudents = isHidden,
+                ModerationStatus = isHidden ? PostStatus.Flagged : PostStatus.Approved,
                 CreatedAt = DateTime.UtcNow
             };
             _context.CommunityPosts.Add(post);
 
-            if (post.IsExtremeCrisis || post.HasKeywordsAlert)
+            if (post.IsExtremeCrisis || post.HasKeywordsAlert || post.RiskScore >= 75 || analysis.IsAiFlagged)
             {
                 _context.NlpRiskAlerts.Add(new NlpRiskAlert
                 {
@@ -224,9 +226,9 @@ public class MoodJournalService : IMoodJournalService
                     StudentAnonymousCode = post.AnonymousPseudonym,
                     Faculty = student?.Faculty,
                     SnippetContent = post.Content.Length > 150 ? post.Content.Substring(0, 150) + "..." : post.Content,
-                    TriggeredKeywords = post.DetectedKeywords ?? "Nguy cơ cao",
+                    TriggeredKeywords = post.DetectedKeywords ?? (analysis.IsAiFlagged ? $"[AI] {analysis.AiReason}" : "Nguy cơ cao"),
                     RiskScore = post.RiskScore,
-                    TriageLevel = TriageLevel.Urgent,
+                    TriageLevel = (post.IsExtremeCrisis || post.RiskScore >= 85) ? TriageLevel.Urgent : TriageLevel.Moderate,
                     Status = "PendingAction"
                 });
             }
@@ -600,7 +602,9 @@ public class CommunityService : ICommunityService
                         c.ExpertTitle,
                         c.IsSensitiveHiddenFromStudents,
                         c.DetectedKeywords,
-                        c.CreatedAt
+                        c.CreatedAt,
+                        c.ImageUrl,
+                        c.ModerationStatus.ToString()
                     )).ToList();
 
                 var expertComment = _context.CommunityComments.FirstOrDefault(c => c.PostId == p.Id && c.IsExpertComment);
@@ -645,13 +649,13 @@ public class CommunityService : ICommunityService
     {
         var student = _context.Users.FirstOrDefault(u => u.Id == studentId);
         var activeKeywords = _context.SensitiveKeywords.Where(k => k.IsActive).ToList();
-        var analysis = _aiService.Analyze(request.Content, activeKeywords);
+        var analysis = await _aiService.AnalyzeAsync(request.Content, activeKeywords);
 
         var pseudonym = !string.IsNullOrWhiteSpace(request.CustomPseudonym) 
             ? request.CustomPseudonym 
             : (student?.AnonymousCode ?? $"Bạn Ẩn Yên #{new Random().Next(100, 999)}");
 
-        var isHiddenFromStudents = analysis.ContainsSensitiveKeywords || analysis.RiskScore >= 75;
+        var isHiddenFromStudents = analysis.ContainsSensitiveKeywords || analysis.IsAiFlagged || analysis.RiskScore >= 75;
 
         // Trạng thái kiểm duyệt ảnh: nếu nội dung có nguy cơ cao -> Flagged ảnh để chuyên gia xem trước
         string imgModStatus = "None";
@@ -671,8 +675,8 @@ public class CommunityService : ICommunityService
             ImageModerationStatus = imgModStatus,
             CategoryTag = request.EffectiveCategory,
             StressLevelTag = request.StressLevelTag ?? (analysis.RiskScore > 70 ? "Áp lực cao (Level 4/5)" : "Mức độ vừa"),
-            HasKeywordsAlert = analysis.ContainsSensitiveKeywords,
-            DetectedKeywords = analysis.TriggeredKeywords.Count > 0 ? string.Join(", ", analysis.TriggeredKeywords) : null,
+            HasKeywordsAlert = analysis.ContainsSensitiveKeywords || analysis.IsAiFlagged,
+            DetectedKeywords = analysis.TriggeredKeywords.Count > 0 ? string.Join("; ", analysis.TriggeredKeywords) : null,
             SentimentLabel = analysis.SentimentLabel,
             SentimentScore = analysis.SentimentScore,
             RiskScore = analysis.RiskScore,
@@ -684,9 +688,9 @@ public class CommunityService : ICommunityService
 
         _context.CommunityPosts.Add(post);
 
-        // NẾU BÀI VIẾT MANG XU HƯỚNG QUÁ TIÊU CỰC HOẶC CHỨA TỪ KHÓA TỰ HẠI:
+        // NẾU BÀI VIẾT MANG XU HƯỚNG QUÁ TIÊU CỰC HOẶC CHỨA TỪ KHÓA TỰ HẠI/AI PHÁT HIỆN:
         // ĐƯA NGAY VÀO HÀNG ĐỢI NLP RISK ALERTS ĐỂ ADMIN VÀ CHUYÊN VIÊN XỬ LÝ NGAY
-        if (post.IsExtremeCrisis || post.HasKeywordsAlert || post.RiskScore >= 75)
+        if (post.IsExtremeCrisis || post.HasKeywordsAlert || post.RiskScore >= 75 || analysis.IsAiFlagged)
         {
             _context.NlpRiskAlerts.Add(new NlpRiskAlert
             {
@@ -695,9 +699,9 @@ public class CommunityService : ICommunityService
                 StudentAnonymousCode = post.AnonymousPseudonym,
                 Faculty = student?.Faculty,
                 SnippetContent = post.Content.Length > 200 ? post.Content.Substring(0, 200) + "..." : post.Content,
-                TriggeredKeywords = post.DetectedKeywords ?? "Rủi ro quá tiêu cực",
+                TriggeredKeywords = post.DetectedKeywords ?? (analysis.IsAiFlagged ? $"[AI] {analysis.AiReason}" : "Rủi ro quá tiêu cực"),
                 RiskScore = post.RiskScore,
-                TriageLevel = TriageLevel.Urgent,
+                TriageLevel = (post.IsExtremeCrisis || post.RiskScore >= 85) ? TriageLevel.Urgent : TriageLevel.Moderate,
                 Status = "PendingAction"
             });
         }
@@ -833,12 +837,22 @@ public class CommunityService : ICommunityService
         if (post == null)
             return Result<CommentDto>.Fail("Không tìm thấy bài viết", "POST_NOT_FOUND");
 
+        var contentText = request.Content?.Trim() ?? string.Empty;
+        var imageUrl = request.ImageUrl?.Trim();
+
+        if (string.IsNullOrWhiteSpace(contentText) && string.IsNullOrWhiteSpace(imageUrl))
+            return Result<CommentDto>.Fail("Vui lòng nhập nội dung hoặc đính kèm hình ảnh để bình luận.", "EMPTY_COMMENT");
+
         var user = _context.Users.FirstOrDefault(u => u.Id == userId);
         var activeKeywords = _context.SensitiveKeywords.Where(k => k.IsActive).ToList();
-        var analysis = _aiService.Analyze(request.Content, activeKeywords);
 
-        // Với sinh viên: nếu bình luận có từ khóa nhạy cảm -> ẩn với sinh viên nhưng vẫn lưu để Admin/Chuyên viên đánh giá
-        bool isSensitiveHidden = !isExpert && (analysis.ContainsSensitiveKeywords || analysis.RiskScore >= 75);
+        // Kiểm duyệt AI & Từ khóa nhạy cảm nếu có nội dung văn bản
+        var analysis = !string.IsNullOrWhiteSpace(contentText)
+            ? await _aiService.AnalyzeAsync(contentText, activeKeywords)
+            : new SentimentAnalysisResult { SentimentLabel = "Neutral", SentimentScore = 0.5, RiskScore = 0 };
+
+        // Với sinh viên: nếu bình luận có từ khóa nhạy cảm hoặc AI phát hiện nguy cơ -> ẩn với sinh viên nhưng vẫn lưu để Admin/Chuyên viên đánh giá
+        bool isSensitiveHidden = !isExpert && (analysis.ContainsSensitiveKeywords || analysis.IsAiFlagged || analysis.RiskScore >= 75);
 
         var pseudonym = isExpert 
             ? (user?.FullName ?? "Chuyên viên Tâm lý UniMind") 
@@ -850,11 +864,12 @@ public class CommunityService : ICommunityService
             PostId = postId,
             UserId = userId,
             AuthorPseudonym = pseudonym,
-            Content = request.Content,
+            Content = contentText,
+            ImageUrl = imageUrl,
             IsExpertComment = isExpert,
             ExpertTitle = isExpert ? "Chuyên viên Tâm lý (Đã xác minh)" : null,
             IsSensitiveHiddenFromStudents = isSensitiveHidden,
-            DetectedKeywords = analysis.TriggeredKeywords.Count > 0 ? string.Join(", ", analysis.TriggeredKeywords) : null,
+            DetectedKeywords = analysis.TriggeredKeywords.Count > 0 ? string.Join("; ", analysis.TriggeredKeywords) : null,
             ModerationStatus = isSensitiveHidden ? PostStatus.Flagged : PostStatus.Approved,
             CreatedAt = DateTime.UtcNow
         };
@@ -862,7 +877,7 @@ public class CommunityService : ICommunityService
         _context.CommunityComments.Add(comment);
         post.CommentCount++;
 
-        // Nếu bình luận có từ khóa nhạy cảm nguy hiểm, thêm vào cảnh báo NLP
+        // Nếu bình luận có từ khóa nhạy cảm hoặc AI phát hiện nguy hiểm, thêm vào cảnh báo NLP
         if (isSensitiveHidden)
         {
             _context.NlpRiskAlerts.Add(new NlpRiskAlert
@@ -872,10 +887,10 @@ public class CommunityService : ICommunityService
                 PostId = postId,
                 StudentAnonymousCode = comment.AuthorPseudonym,
                 Faculty = user?.Faculty,
-                SnippetContent = comment.Content,
-                TriggeredKeywords = comment.DetectedKeywords ?? "Từ khóa nhạy cảm",
-                RiskScore = analysis.RiskScore,
-                TriageLevel = TriageLevel.High,
+                SnippetContent = string.IsNullOrWhiteSpace(comment.Content) ? "[Bình luận có hình ảnh đính kèm]" : comment.Content,
+                TriggeredKeywords = comment.DetectedKeywords ?? (analysis.IsAiFlagged ? $"[AI] {analysis.AiReason}" : "Bình luận nhạy cảm"),
+                RiskScore = analysis.RiskScore > 0 ? analysis.RiskScore : 75,
+                TriageLevel = (analysis.IsExtremeCrisis || analysis.RiskScore >= 85) ? TriageLevel.Urgent : TriageLevel.High,
                 Status = "PendingAction"
             });
         }
@@ -891,7 +906,9 @@ public class CommunityService : ICommunityService
             comment.ExpertTitle,
             comment.IsSensitiveHiddenFromStudents,
             comment.DetectedKeywords,
-            comment.CreatedAt
+            comment.CreatedAt,
+            comment.ImageUrl,
+            comment.ModerationStatus.ToString()
         );
 
         string returnMsg = isSensitiveHidden 
@@ -899,6 +916,64 @@ public class CommunityService : ICommunityService
             : "Đã đăng bình luận thành công";
 
         return Result<CommentDto>.Ok(dto, returnMsg);
+    }
+
+    public async Task<Result> ModerateCommentAsync(Guid commentId, ModerateCommentRequest request, Guid adminUserId)
+    {
+        var comment = _context.CommunityComments.FirstOrDefault(c => c.Id == commentId);
+        if (comment == null) return Result.Fail("Không tìm thấy bình luận", "NOT_FOUND");
+
+        switch (request.Action.ToLower())
+        {
+            case "approve":
+                comment.ModerationStatus = PostStatus.Approved;
+                comment.IsSensitiveHiddenFromStudents = false;
+                break;
+            case "hide":
+                comment.ModerationStatus = PostStatus.Hidden;
+                comment.IsSensitiveHiddenFromStudents = true;
+                break;
+            case "reject":
+                comment.ModerationStatus = PostStatus.Rejected;
+                comment.IsSensitiveHiddenFromStudents = true;
+                break;
+        }
+
+        _context.AuditLogs.Add(new AuditLog
+        {
+            Id = Guid.NewGuid(),
+            ActionType = "MODERATE_COMMENT",
+            ActorRole = "Admin/Expert",
+            ActorId = adminUserId,
+            Details = $"Kiểm duyệt bình luận #{comment.Id.ToString()[..8]} ({comment.AuthorPseudonym}) - Hành động: {request.Action} - Lý do: {request.Reason ?? "Kiểm duyệt định kỳ"}",
+            IpAddress = "127.0.0.1",
+            CreatedAt = DateTime.UtcNow
+        });
+
+        await _context.SaveChangesAsync();
+        return Result.Ok($"Đã cập nhật trạng thái bình luận: {request.Action}");
+    }
+
+    public Task<Result<List<CommentDto>>> GetFlaggedCommentsAsync()
+    {
+        var list = _context.CommunityComments
+            .Where(c => c.IsSensitiveHiddenFromStudents || c.ModerationStatus == PostStatus.Flagged || !string.IsNullOrWhiteSpace(c.DetectedKeywords))
+            .OrderByDescending(c => c.CreatedAt)
+            .Select(c => new CommentDto(
+                c.Id,
+                c.PostId,
+                c.AuthorPseudonym,
+                c.Content,
+                c.IsExpertComment,
+                c.ExpertTitle,
+                c.IsSensitiveHiddenFromStudents,
+                c.DetectedKeywords,
+                c.CreatedAt,
+                c.ImageUrl,
+                c.ModerationStatus.ToString()
+            )).ToList();
+
+        return Task.FromResult(Result<List<CommentDto>>.Ok(list));
     }
 
     public async Task<Result<PostDto>> ReactAsync(Guid postId, string reactionType)
@@ -991,79 +1066,163 @@ public class AppointmentService : IAppointmentService
 
     public async Task<Result<AppointmentDto>> BookAppointmentAsync(Guid studentId, BookAppointmentRequest request)
     {
-        var expert = _context.Experts.FirstOrDefault(e => e.Id == request.ExpertId || e.UserId == request.ExpertId)
+        // 0. Phân giải ExpertId an toàn từ request
+        Guid parsedExpertId = Guid.Empty;
+        if (!string.IsNullOrWhiteSpace(request.ExpertId) && Guid.TryParse(request.ExpertId, out var pe))
+        {
+            parsedExpertId = pe;
+        }
+
+        var expert = _context.Experts.FirstOrDefault(e => e.Id == parsedExpertId || e.UserId == parsedExpertId)
+                     ?? (parsedExpertId != Guid.Empty ? _context.Experts.FirstOrDefault(e => e.Id == parsedExpertId) : null)
                      ?? _context.Experts.FirstOrDefault();
         if (expert == null)
         {
-            return Result<AppointmentDto>.Fail("Chuyên viên tư vấn không tồn tại.", "EXPERT_NOT_FOUND");
+            return Result<AppointmentDto>.Fail("Chuyên viên tư vấn không tồn tại trong hệ thống.", "EXPERT_NOT_FOUND");
         }
 
-        // 1. KIỂM TRA & TÌM HOẶC KHỞI TẠO KHUNG GIỜ (SLOT)
-        TimeSlot? slot = null;
-        if (request.TimeSlotId.HasValue && request.TimeSlotId.Value != Guid.Empty)
+        // 1. Phân tích Ngày và Khung Giờ (Date & Time Range)
+        DateOnly reqDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(1));
+        if (!string.IsNullOrWhiteSpace(request.Date))
         {
-            slot = _context.TimeSlots.FirstOrDefault(s => s.Id == request.TimeSlotId.Value);
-        }
-
-        if (slot == null && !string.IsNullOrWhiteSpace(request.Date) && !string.IsNullOrWhiteSpace(request.Time))
-        {
-            if (DateOnly.TryParse(request.Date, out var reqDate) && TimeOnly.TryParse(request.Time, out var reqTime))
+            var cleanDate = request.Date.Trim().Split('T')[0];
+            if (DateOnly.TryParse(cleanDate, out var parsedD))
             {
-                slot = _context.TimeSlots.FirstOrDefault(s => (s.ExpertId == expert.Id || s.ExpertId == expert.UserId) && s.SlotDate == reqDate && s.StartTime == reqTime);
-                if (slot == null)
+                reqDate = parsedD;
+            }
+        }
+
+        TimeOnly reqStartTime = new TimeOnly(8, 0);
+        TimeOnly reqEndTime = new TimeOnly(9, 30);
+
+        if (!string.IsNullOrWhiteSpace(request.Time))
+        {
+            var raw = request.Time.Trim();
+            if (raw.Contains(" - "))
+            {
+                var parts = raw.Split(" - ", StringSplitOptions.TrimEntries);
+                if (TimeOnly.TryParse(parts[0], out var st)) reqStartTime = st;
+                if (parts.Length > 1 && TimeOnly.TryParse(parts[1], out var et)) reqEndTime = et;
+                else reqEndTime = reqStartTime.AddMinutes(90);
+            }
+            else if (raw.Contains("-"))
+            {
+                var parts = raw.Split('-', StringSplitOptions.TrimEntries);
+                if (TimeOnly.TryParse(parts[0], out var st)) reqStartTime = st;
+                if (parts.Length > 1 && TimeOnly.TryParse(parts[1], out var et)) reqEndTime = et;
+                else reqEndTime = reqStartTime.AddMinutes(90);
+            }
+            else if (TimeOnly.TryParse(raw, out var st))
+            {
+                reqStartTime = st;
+                reqEndTime = st.AddMinutes(90);
+            }
+            else
+            {
+                var clean = raw.ToLowerInvariant().Replace("h", ":");
+                if (clean.Contains("-"))
                 {
-                    slot = new TimeSlot
-                    {
-                        Id = Guid.NewGuid(),
-                        ExpertId = expert.Id,
-                        SlotDate = reqDate,
-                        StartTime = reqTime,
-                        EndTime = reqTime.AddHours(1),
-                        LocationType = LocationType.Physical,
-                        RoomName = expert.RoomLocation ?? "P.302 (Tầng 3)",
-                        IsBooked = false,
-                        CreatedAt = DateTime.UtcNow
-                    };
-                    _context.TimeSlots.Add(slot);
+                    var parts = clean.Split('-', StringSplitOptions.TrimEntries);
+                    var sStr = parts[0].Contains(':') ? parts[0] : parts[0] + ":00";
+                    var eStr = parts.Length > 1 ? (parts[1].Contains(':') ? parts[1] : parts[1] + ":00") : "";
+                    if (TimeOnly.TryParse(sStr, out var s)) reqStartTime = s;
+                    if (!string.IsNullOrEmpty(eStr) && TimeOnly.TryParse(eStr, out var e)) reqEndTime = e;
+                    else reqEndTime = reqStartTime.AddMinutes(90);
                 }
             }
         }
 
-        if (slot == null)
+        // Phân giải TimeSlotId an toàn
+        Guid? parsedSlotId = null;
+        if (!string.IsNullOrWhiteSpace(request.TimeSlotId) && Guid.TryParse(request.TimeSlotId, out var ps) && ps != Guid.Empty)
         {
-            // Fallback lấy slot trống đầu tiên của expert nếu có
-            slot = _context.TimeSlots.FirstOrDefault(s => (s.ExpertId == expert.Id || s.ExpertId == expert.UserId) && !s.IsBooked);
+            parsedSlotId = ps;
+        }
+
+        var expertIds = new HashSet<Guid> { expert.Id, expert.UserId };
+
+        // 2. KIỂM TRA CHỐNG TRÙNG LỊCH BẬC CAO (STRICT ANTI-DOUBLE BOOKING)
+        // Kiểm tra xem chuyên viên này đã có ca hẹn nào trùng ngày và có thời gian giao thoa hay chưa
+        var conflictingAppt = _context.Appointments.FirstOrDefault(a =>
+            expertIds.Contains(a.ExpertId) &&
+            a.Status != AppointmentStatus.Cancelled &&
+            a.Status != AppointmentStatus.Rejected &&
+            (
+                (parsedSlotId.HasValue && a.TimeSlotId == parsedSlotId.Value) ||
+                _context.TimeSlots.Any(s => s.Id == a.TimeSlotId && s.SlotDate == reqDate &&
+                    s.StartTime < reqEndTime && s.EndTime > reqStartTime)
+            )
+        );
+
+        if (conflictingAppt != null)
+        {
+            return Result<AppointmentDto>.Fail(
+                $"Khung giờ {reqStartTime:HH\\:mm} - {reqEndTime:HH\\:mm} ngày {reqDate:dd/MM/yyyy} của chuyên viên đã có sinh viên khác đăng ký. Vui lòng chọn khung giờ khác.",
+                "DOUBLE_BOOKING_DETECTED");
+        }
+
+        // Kiểm tra xem chính sinh viên này đã có ca hẹn trùng giờ trong ngày đó chưa
+        var studentOverlapAppt = _context.Appointments.FirstOrDefault(a =>
+            a.StudentId == studentId &&
+            a.Status != AppointmentStatus.Cancelled &&
+            a.Status != AppointmentStatus.Rejected &&
+            _context.TimeSlots.Any(s => s.Id == a.TimeSlotId && s.SlotDate == reqDate &&
+                s.StartTime < reqEndTime && s.EndTime > reqStartTime)
+        );
+
+        if (studentOverlapAppt != null)
+        {
+            return Result<AppointmentDto>.Fail(
+                $"Bạn đã có một lịch hẹn khác trong khung giờ {reqStartTime:HH\\:mm} - {reqEndTime:HH\\:mm} ngày {reqDate:dd/MM/yyyy}. Vui lòng chọn khung giờ khác.",
+                "STUDENT_DOUBLE_BOOKING");
+        }
+
+        // 3. TÌM HOẶC KHỞI TẠO TIMESLOT TƯƠNG ỨNG
+        TimeSlot? slot = null;
+        if (parsedSlotId.HasValue)
+        {
+            slot = _context.TimeSlots.FirstOrDefault(s => s.Id == parsedSlotId.Value);
         }
 
         if (slot == null)
         {
-            // Tạo slot mặc định cho ngày mai
+            slot = _context.TimeSlots.FirstOrDefault(s =>
+                expertIds.Contains(s.ExpertId) &&
+                s.SlotDate == reqDate &&
+                s.StartTime == reqStartTime);
+        }
+
+        if (slot != null && slot.IsBooked)
+        {
+            return Result<AppointmentDto>.Fail(
+                $"Khung giờ {reqStartTime:HH\\:mm} - {reqEndTime:HH\\:mm} ngày {reqDate:dd/MM/yyyy} đã được đặt trước đó.",
+                "DOUBLE_BOOKING_DETECTED");
+        }
+
+        if (slot == null)
+        {
             slot = new TimeSlot
             {
                 Id = Guid.NewGuid(),
                 ExpertId = expert.Id,
-                SlotDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(1)),
-                StartTime = new TimeOnly(9, 0),
-                EndTime = new TimeOnly(10, 0),
-                LocationType = LocationType.Physical,
+                SlotDate = reqDate,
+                StartTime = reqStartTime,
+                EndTime = reqEndTime,
+                LocationType = Enum.TryParse<LocationType>(request.ConsultationType, true, out var lt) ? lt : LocationType.Physical,
                 RoomName = expert.RoomLocation ?? "P.302 (Tầng 3)",
-                IsBooked = false,
+                IsBooked = true,
                 CreatedAt = DateTime.UtcNow
             };
             _context.TimeSlots.Add(slot);
         }
-
-        // 2. KIỂM TRA CHỐNG TRÙNG LỊCH (ANTI-DOUBLE BOOKING)
-        if (slot.IsBooked)
+        else
         {
-            return Result<AppointmentDto>.Fail("Khung giờ chuyên gia đã được sinh viên khác đăng ký.", "DOUBLE_BOOKING_DETECTED");
+            slot.IsBooked = true;
+            slot.EndTime = reqEndTime;
         }
 
         var student = _context.Users.FirstOrDefault(u => u.Id == studentId);
         var expertUser = _context.Users.FirstOrDefault(u => u.Id == expert.UserId);
-
-        // Đánh dấu slot đã được đặt
-        slot.IsBooked = true;
 
         var appointment = new Appointment
         {
@@ -1099,10 +1258,11 @@ public class AppointmentService : IAppointmentService
             null,
             null,
             0,
-            appointment.CreatedAt
+            appointment.CreatedAt,
+            false
         );
 
-        return Result<AppointmentDto>.Ok(dto, "Đặt lịch tư vấn thành công! Chuyên viên sẽ phản hồi sớm.");
+        return Result<AppointmentDto>.Ok(dto, "Đặt lịch tư vấn thành công! Khung giờ đã được khóa bảo vệ.");
     }
 
     public Task<Result<List<AppointmentDto>>> GetStudentAppointmentsAsync(Guid studentId)
@@ -1122,7 +1282,7 @@ public class AppointmentService : IAppointmentService
                     expUser?.FullName ?? "Chuyên viên UniMind",
                     exp?.Title ?? "ThS.",
                     slot?.SlotDate.ToString("yyyy-MM-dd") ?? a.CreatedAt.ToString("yyyy-MM-dd"),
-                    slot?.StartTime.ToString("HH:mm") ?? "08:30",
+                    slot?.StartTime.ToString("HH:mm") ?? "08:00",
                     slot?.EndTime.ToString("HH:mm") ?? "09:30",
                     slot?.RoomName ?? "P.302",
                     a.ConsultationType.ToString(),
@@ -1132,7 +1292,8 @@ public class AppointmentService : IAppointmentService
                     a.ClinicalNotes,
                     a.Dass21Summary,
                     a.RiskScore,
-                    a.CreatedAt
+                    a.CreatedAt,
+                    a.IsMeetingActive
                 );
             }).ToList();
 
@@ -1160,7 +1321,7 @@ public class AppointmentService : IAppointmentService
                     expUser?.FullName ?? "Chuyên viên UniMind",
                     exp?.Title ?? "ThS.",
                     slot?.SlotDate.ToString("yyyy-MM-dd") ?? a.CreatedAt.ToString("yyyy-MM-dd"),
-                    slot?.StartTime.ToString("HH:mm") ?? "08:30",
+                    slot?.StartTime.ToString("HH:mm") ?? "08:00",
                     slot?.EndTime.ToString("HH:mm") ?? "09:30",
                     slot?.RoomName ?? "P.302",
                     a.ConsultationType.ToString(),
@@ -1170,43 +1331,64 @@ public class AppointmentService : IAppointmentService
                     a.ClinicalNotes,
                     a.Dass21Summary,
                     a.RiskScore,
-                    a.CreatedAt
+                    a.CreatedAt,
+                    a.IsMeetingActive
                 );
             }).ToList();
 
-        // If no appointments found with strict ID filter for demo/test expert, return all appointments so demo expert can review
-        if (list.Count == 0 && _context.Appointments.Any())
-        {
-            list = _context.Appointments
-                .OrderByDescending(a => a.CreatedAt)
-                .Select(a => {
-                    var exp = _context.Experts.FirstOrDefault(e => e.Id == a.ExpertId || e.UserId == a.ExpertId);
-                    var expUser = exp != null ? _context.Users.FirstOrDefault(u => u.Id == exp.UserId) : null;
-                    var slot = _context.TimeSlots.FirstOrDefault(s => s.Id == a.TimeSlotId);
+        return Task.FromResult(Result<List<AppointmentDto>>.Ok(list));
+    }
 
-                    return new AppointmentDto(
-                        a.Id,
-                        a.BookingCode,
-                        a.AnonymousPseudonym,
-                        expUser?.FullName ?? "Chuyên viên UniMind",
-                        exp?.Title ?? "ThS.",
-                        slot?.SlotDate.ToString("yyyy-MM-dd") ?? a.CreatedAt.ToString("yyyy-MM-dd"),
-                        slot?.StartTime.ToString("HH:mm") ?? "08:30",
-                        slot?.EndTime.ToString("HH:mm") ?? "09:30",
-                        slot?.RoomName ?? "P.302",
-                        a.ConsultationType.ToString(),
-                        a.Status.ToString(),
-                        a.ReasonNotes,
-                        a.RejectionReason,
-                        a.ClinicalNotes,
-                        a.Dass21Summary,
-                        a.RiskScore,
-                        a.CreatedAt
-                    );
-                }).ToList();
+    public Task<Result<List<BookedSlotDto>>> GetExpertBookedSlotsAsync(Guid expertId)
+    {
+        var expert = _context.Experts.FirstOrDefault(e => e.Id == expertId || e.UserId == expertId);
+        var targetExpertId = expert?.Id ?? expertId;
+        var targetUserId = expert?.UserId ?? expertId;
+        var expertIds = new HashSet<Guid> { targetExpertId, targetUserId };
+        if (expert != null)
+        {
+            expertIds.Add(expert.Id);
+            expertIds.Add(expert.UserId);
         }
 
-        return Task.FromResult(Result<List<AppointmentDto>>.Ok(list));
+        var booked = new List<BookedSlotDto>();
+
+        // 1. Thu thập từ các cuộc hẹn đã được đặt của chuyên viên (Pending / Confirmed)
+        foreach (var a in _context.Appointments)
+        {
+            if (expertIds.Contains(a.ExpertId) &&
+                a.Status != AppointmentStatus.Cancelled &&
+                a.Status != AppointmentStatus.Rejected)
+            {
+                var slot = _context.TimeSlots.FirstOrDefault(s => s.Id == a.TimeSlotId);
+                var dStr = slot?.SlotDate.ToString("yyyy-MM-dd") ?? a.CreatedAt.ToString("yyyy-MM-dd");
+                var sStr = slot?.StartTime.ToString("HH:mm") ?? "08:00";
+                var eStr = slot?.EndTime.ToString("HH:mm") ?? "09:30";
+
+                if (!booked.Any(b => b.Date == dStr && b.StartTime == sStr))
+                {
+                    booked.Add(new BookedSlotDto(dStr, sStr, eStr));
+                }
+            }
+        }
+
+        // 2. Thu thập từ các khung giờ TimeSlot của chuyên viên được đánh dấu IsBooked = true
+        foreach (var s in _context.TimeSlots)
+        {
+            if (expertIds.Contains(s.ExpertId) && s.IsBooked)
+            {
+                var dStr = s.SlotDate.ToString("yyyy-MM-dd");
+                var sStr = s.StartTime.ToString("HH:mm");
+                var eStr = s.EndTime.ToString("HH:mm");
+
+                if (!booked.Any(b => b.Date == dStr && b.StartTime == sStr))
+                {
+                    booked.Add(new BookedSlotDto(dStr, sStr, eStr));
+                }
+            }
+        }
+
+        return Task.FromResult(Result<List<BookedSlotDto>>.Ok(booked));
     }
 
     public async Task<Result<AppointmentDto>> UpdateStatusAsync(Guid appointmentId, UpdateAppointmentStatusRequest request)
@@ -1280,7 +1462,8 @@ public class AppointmentService : IAppointmentService
             a.ClinicalNotes,
             a.Dass21Summary,
             a.RiskScore,
-            a.CreatedAt
+            a.CreatedAt,
+            a.IsMeetingActive
         );
         return Task.FromResult(Result<AppointmentDto>.Ok(dto));
     }
@@ -1289,6 +1472,9 @@ public class AppointmentService : IAppointmentService
     {
         var app = _context.Appointments.FirstOrDefault(a => a.Id == appointmentId);
         if (app == null) return Result.Fail("Lịch hẹn không tồn tại", "NOT_FOUND");
+
+        // Dọn dẹp cache WebRTC signals cũ của ca hẹn trước đó để phòng họp mới sạch sẽ hoàn toàn
+        _meetingSignals.TryRemove(appointmentId, out _);
 
         app.IsMeetingActive = true;
         app.MeetingStartedAt = DateTime.UtcNow;
@@ -1325,6 +1511,22 @@ public class AppointmentService : IAppointmentService
         app.IsMeetingActive = false;
         app.UpdatedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync();
+
+        // Gửi tín hiệu đóng phòng để phía sinh viên / đối phương tự động nhận biết cuộc họp đã kết thúc
+        var list = _meetingSignals.GetOrAdd(appointmentId, _ => new List<MeetingSignalDto>());
+        lock (list)
+        {
+            var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            list.Add(new MeetingSignalDto(
+                Id: Guid.NewGuid(),
+                AppointmentId: appointmentId,
+                SenderRole: "System",
+                SignalType: "end",
+                Payload: "MeetingEnded",
+                Timestamp: now
+            ));
+        }
+
         return Result.Ok("Đã đóng phòng tư vấn trực tuyến");
     }
 
@@ -1375,6 +1577,94 @@ public class AppointmentService : IAppointmentService
         }
 
         return Task.FromResult(Result<bool>.Ok(true));
+    }
+
+    // Cache tín hiệu WebRTC và Tin nhắn phòng họp trong bộ nhớ đồng bộ
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, List<MeetingSignalDto>> _meetingSignals = new();
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, List<MeetingChatDto>> _meetingChats = new();
+
+    public Task<Result> SendMeetingSignalAsync(Guid appointmentId, MeetingSignalRequest request)
+    {
+        var app = _context.Appointments.FirstOrDefault(a => a.Id == appointmentId);
+        if (app == null) return Task.FromResult(Result.Fail("Không tìm thấy ca hẹn", "NOT_FOUND"));
+
+        var list = _meetingSignals.GetOrAdd(appointmentId, _ => new List<MeetingSignalDto>());
+        lock (list)
+        {
+            var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            list.Add(new MeetingSignalDto(
+                Id: Guid.NewGuid(),
+                AppointmentId: appointmentId,
+                SenderRole: request.SenderRole,
+                SignalType: request.SignalType,
+                Payload: request.Payload,
+                Timestamp: now
+            ));
+
+            if (list.Count > 100)
+            {
+                list.RemoveRange(0, list.Count - 100);
+            }
+        }
+
+        return Task.FromResult(Result.Ok("Đã gửi tín hiệu WebRTC thành công"));
+    }
+
+    public Task<Result<List<MeetingSignalDto>>> GetMeetingSignalsAsync(Guid appointmentId, long sinceTimestamp, string? recipientRole = null)
+    {
+        if (!_meetingSignals.TryGetValue(appointmentId, out var list))
+        {
+            return Task.FromResult(Result<List<MeetingSignalDto>>.Ok(new List<MeetingSignalDto>()));
+        }
+
+        lock (list)
+        {
+            var signals = list
+                .Where(s => s.Timestamp > sinceTimestamp && (string.IsNullOrEmpty(recipientRole) || s.SenderRole != recipientRole))
+                .ToList();
+            return Task.FromResult(Result<List<MeetingSignalDto>>.Ok(signals));
+        }
+    }
+
+    public Task<Result<MeetingChatDto>> SendMeetingChatMessageAsync(Guid appointmentId, SendMeetingChatRequest request)
+    {
+        var app = _context.Appointments.FirstOrDefault(a => a.Id == appointmentId);
+        if (app == null) return Task.FromResult(Result<MeetingChatDto>.Fail("Không tìm thấy ca hẹn", "NOT_FOUND"));
+
+        var list = _meetingChats.GetOrAdd(appointmentId, _ => new List<MeetingChatDto>());
+        MeetingChatDto chatMsg;
+        lock (list)
+        {
+            chatMsg = new MeetingChatDto(
+                Id: Guid.NewGuid(),
+                AppointmentId: appointmentId,
+                SenderRole: request.SenderRole,
+                SenderName: request.SenderName,
+                Content: request.Content,
+                SentAt: DateTime.UtcNow
+            );
+            list.Add(chatMsg);
+
+            if (list.Count > 200)
+            {
+                list.RemoveRange(0, list.Count - 200);
+            }
+        }
+
+        return Task.FromResult(Result<MeetingChatDto>.Ok(chatMsg));
+    }
+
+    public Task<Result<List<MeetingChatDto>>> GetMeetingChatMessagesAsync(Guid appointmentId)
+    {
+        if (!_meetingChats.TryGetValue(appointmentId, out var list))
+        {
+            return Task.FromResult(Result<List<MeetingChatDto>>.Ok(new List<MeetingChatDto>()));
+        }
+
+        lock (list)
+        {
+            return Task.FromResult(Result<List<MeetingChatDto>>.Ok(list.ToList()));
+        }
     }
 }
 
@@ -1818,11 +2108,13 @@ public class AdminService : IAdminService
 {
     private readonly IApplicationDbContext _context;
     private readonly IPasswordHasher _passwordHasher;
+    private readonly IAISentimentService _aiService;
 
-    public AdminService(IApplicationDbContext context, IPasswordHasher passwordHasher)
+    public AdminService(IApplicationDbContext context, IPasswordHasher passwordHasher, IAISentimentService aiService)
     {
         _context = context;
         _passwordHasher = passwordHasher;
+        _aiService = aiService;
     }
 
     public Task<Result<DashboardStatsDto>> GetSystemDashboardAsync()
@@ -2222,6 +2514,64 @@ public class AdminService : IAdminService
         return Result.Ok("Đã cập nhật trạng thái kiểm duyệt");
     }
 
+    public Task<Result<List<CommentDto>>> GetFlaggedCommentsAsync()
+    {
+        var list = _context.CommunityComments
+            .Where(c => c.IsSensitiveHiddenFromStudents || c.ModerationStatus == PostStatus.Flagged || !string.IsNullOrWhiteSpace(c.DetectedKeywords))
+            .OrderByDescending(c => c.CreatedAt)
+            .Select(c => new CommentDto(
+                c.Id,
+                c.PostId,
+                c.AuthorPseudonym,
+                c.Content,
+                c.IsExpertComment,
+                c.ExpertTitle,
+                c.IsSensitiveHiddenFromStudents,
+                c.DetectedKeywords,
+                c.CreatedAt,
+                c.ImageUrl,
+                c.ModerationStatus.ToString()
+            )).ToList();
+
+        return Task.FromResult(Result<List<CommentDto>>.Ok(list));
+    }
+
+    public async Task<Result> ModerateCommentAsync(Guid commentId, ModerateCommentRequest request, Guid adminUserId)
+    {
+        var comment = _context.CommunityComments.FirstOrDefault(c => c.Id == commentId);
+        if (comment == null) return Result.Fail("Không tìm thấy bình luận", "NOT_FOUND");
+
+        switch (request.Action.ToLower())
+        {
+            case "approve":
+                comment.ModerationStatus = PostStatus.Approved;
+                comment.IsSensitiveHiddenFromStudents = false;
+                break;
+            case "hide":
+                comment.ModerationStatus = PostStatus.Hidden;
+                comment.IsSensitiveHiddenFromStudents = true;
+                break;
+            case "reject":
+                comment.ModerationStatus = PostStatus.Rejected;
+                comment.IsSensitiveHiddenFromStudents = true;
+                break;
+        }
+
+        _context.AuditLogs.Add(new AuditLog
+        {
+            Id = Guid.NewGuid(),
+            ActionType = "ADMIN_MODERATE_COMMENT",
+            ActorRole = "Admin",
+            ActorId = adminUserId,
+            Details = $"Admin kiểm duyệt bình luận #{comment.Id.ToString()[..8]} ({comment.AuthorPseudonym}) - Hành động: {request.Action} - Lý do: {request.Reason ?? "Kiểm duyệt định kỳ"}",
+            IpAddress = "127.0.0.1",
+            CreatedAt = DateTime.UtcNow
+        });
+
+        await _context.SaveChangesAsync();
+        return Result.Ok($"Đã cập nhật trạng thái bình luận: {request.Action}");
+    }
+
     public Task<Result<List<UserDto>>> GetAllUsersAsync()
     {
         var list = _context.Users
@@ -2543,5 +2893,35 @@ public class AdminService : IAdminService
 
         await _context.SaveChangesAsync();
         return Result.Ok($"Đã cập nhật phân quyền cho chuyên viên {user?.FullName ?? expert.Title}");
+    }
+
+    public async Task<Result<ModerationTestDto>> TestModerationAsync(string content)
+    {
+        var activeKeywords = _context.SensitiveKeywords.Where(k => k.IsActive).ToList();
+        var analysis = await _aiService.AnalyzeAsync(content, activeKeywords);
+
+        bool isFlagged = analysis.ContainsSensitiveKeywords || analysis.IsAiFlagged || analysis.RiskScore >= 75;
+        string suggested = isFlagged 
+            ? (analysis.IsExtremeCrisis || analysis.RiskScore >= 85 ? "Khẩn cấp: SOS Can thiệp ngay" : "Tạm ẩn: Giữ bài viết chờ chuyên viên duyệt")
+            : "Hợp lệ: Nội dung an toàn, duyệt công khai";
+
+        var dto = new ModerationTestDto(
+            Content: content,
+            IsFlagged: isFlagged,
+            RiskScore: analysis.RiskScore,
+            SentimentLabel: analysis.SentimentLabel,
+            SentimentScore: analysis.SentimentScore,
+            KeywordDetected: analysis.ContainsSensitiveKeywords,
+            TriggeredKeywords: analysis.TriggeredKeywords,
+            AiDetected: analysis.IsAiFlagged,
+            AiCategory: analysis.AiCategory,
+            AiReason: analysis.AiReason,
+            AiConfidence: analysis.AiConfidence,
+            SuggestedAction: suggested,
+            EmpatheticAdvice: analysis.EmpatheticAdvice,
+            ModerationSource: analysis.ModerationSource
+        );
+
+        return Result<ModerationTestDto>.Ok(dto);
     }
 }

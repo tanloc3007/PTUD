@@ -28,6 +28,11 @@ export default function SensitiveKeywordsPage() {
   const [form, setForm]         = useState({ keyword: '', category: 'SelfHarm', riskWeight: 50 });
   const [notice, setNotice]     = useState(null);
 
+  // AI Moderation Playground State
+  const [testContent, setTestContent] = useState('');
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState(null);
+
   const loadKeywords = () => {
     axiosClient.get('/admin/sensitive-keywords')
       .then(r => {
@@ -41,6 +46,29 @@ export default function SensitiveKeywordsPage() {
   useEffect(() => {
     loadKeywords();
   }, []);
+
+  const handleTestModeration = async (sampleText) => {
+    const textToTest = sampleText || testContent;
+    if (!textToTest?.trim()) return;
+    if (sampleText) setTestContent(sampleText);
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await axiosClient.post('/admin/moderation/test', { content: textToTest });
+      if (res.data?.data) {
+        setTestResult(res.data.data);
+      }
+    } catch (err) {
+      setTestResult({
+        isFlagged: false,
+        riskScore: 0,
+        suggestedAction: 'Không thể kết nối API kiểm duyệt',
+        aiReason: err.message
+      });
+    } finally {
+      setTesting(false);
+    }
+  };
 
   const handleAdd = async () => {
     if (!form.keyword.trim()) return;
@@ -80,8 +108,8 @@ export default function SensitiveKeywordsPage() {
       <div className="admin-page-header">
         <div className="admin-section-header">
           <div>
-            <h1 className="admin-page-title">Bộ Lọc Từ Khóa Nhạy Cảm</h1>
-            <p className="admin-page-subtitle">Quản lý từ khóa phát hiện sớm dấu hiệu nguy hiểm và khủng hoảng tâm lý của sinh viên</p>
+            <h1 className="admin-page-title">Bộ Lọc & Kiểm Duyệt Song Song (Từ Khóa + AI)</h1>
+            <p className="admin-page-subtitle">Kết hợp từ khóa quy tắc SQL Server và Google Gemini AI phân tích ngữ cảnh, phát hiện sớm nguy cơ khủng hoảng của sinh viên</p>
           </div>
           <button className="admin-btn admin-btn-primary" onClick={() => setShowAdd(true)}>
             + Thêm từ khóa
@@ -97,6 +125,128 @@ export default function SensitiveKeywordsPage() {
           onClose={() => setNotice(null)}
         />
       )}
+
+      {/* BANNER KIỂM DUYỆT SONG SONG HYBRID AI */}
+      <div className="admin-card" style={{ marginBottom: 20, background: 'linear-gradient(135deg, rgba(2, 132, 199, 0.05), rgba(99, 102, 241, 0.08))', border: '1px solid rgba(2, 132, 199, 0.2)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 24 }}>🛡️</span>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 800, color: '#0369a1' }}>Cơ Chế Kiểm Duyệt Song Song Đa Tầng (Dual-Layer Moderation Engine)</div>
+              <div style={{ fontSize: 12.5, color: '#64748b' }}>Hệ thống tự động quét 2 lớp: Lớp 1 (Từ khóa cấm trong DB) + Lớp 2 (Gemini AI hiểu sâu ngữ cảnh & ẩn dụ)</div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', background: '#ecfdf5', color: '#059669', borderRadius: 999, fontSize: 12, fontWeight: 700, border: '1px solid #a7f3d0' }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981' }}></span> DB Keywords: Hoạt động
+            </span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', background: '#eef2ff', color: '#4f46e5', borderRadius: 999, fontSize: 12, fontWeight: 700, border: '1px solid #c7d2fe' }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#6366f1' }}></span> Gemini AI: Sẵn sàng
+            </span>
+          </div>
+        </div>
+
+        {/* INTERACTIVE AI TEST BOX */}
+        <div style={{ background: '#fff', borderRadius: 8, padding: 14, border: '1px solid #e2e8f0' }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#334155', marginBottom: 8 }}>
+            🧪 Kiểm thử phân tích bài viết / bình luận theo thời gian thực:
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+            <input
+              type="text"
+              className="admin-input"
+              style={{ flex: 1 }}
+              placeholder="Nhập nội dung bất kỳ để AI và bộ lọc từ khóa cùng phân tích..."
+              value={testContent}
+              onChange={e => setTestContent(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleTestModeration()}
+            />
+            <button
+              className="admin-btn admin-btn-primary"
+              style={{ minWidth: 140, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+              onClick={() => handleTestModeration()}
+              disabled={testing || !testContent.trim()}
+            >
+              {testing ? '⏳ AI đang quét...' : '⚡ Phân tích ngay'}
+            </button>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 12 }}>
+            <span style={{ color: '#64748b', fontWeight: 600 }}>Thử mẫu nhanh:</span>
+            <button
+              type="button"
+              style={{ border: 'none', background: '#f1f5f9', padding: '3px 8px', borderRadius: 4, cursor: 'pointer', fontSize: 12, color: '#0284c7' }}
+              onClick={() => handleTestModeration('Hôm nay mình hoàn thành tốt đồ án, cảm thấy rất vui và nhẹ nhõm')}
+            >
+              🟢 Nội dung an toàn
+            </button>
+            <button
+              type="button"
+              style={{ border: 'none', background: '#fef2f2', padding: '3px 8px', borderRadius: 4, cursor: 'pointer', fontSize: 12, color: '#dc2626' }}
+              onClick={() => handleTestModeration('Mình cảm thấy bế tắc cùng cực trong cuộc sống và học tập')}
+            >
+              🔴 Trùng từ khóa DB (Bế tắc)
+            </button>
+            <button
+              type="button"
+              style={{ border: 'none', background: '#fdf2f8', padding: '3px 8px', borderRadius: 4, cursor: 'pointer', fontSize: 12, color: '#be185d' }}
+              onClick={() => handleTestModeration('mình muốn ngủ một giấc thật dài mãi mãi không cần thức dậy nữa')}
+            >
+              🟣 AI bắt nhạy cảm ngầm (Không từ khóa)
+            </button>
+          </div>
+
+          {testResult && (
+            <div style={{ marginTop: 14, padding: 14, borderRadius: 8, background: testResult.isFlagged ? '#fef2f2' : '#f0fdf4', border: `1px solid ${testResult.isFlagged ? '#fecaca' : '#bbf7d0'}` }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 18 }}>{testResult.isFlagged ? '🚨' : '✅'}</span>
+                  <span style={{ fontWeight: 800, fontSize: 14, color: testResult.isFlagged ? '#dc2626' : '#15803d' }}>
+                    {testResult.suggestedAction}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <span style={{ padding: '2px 8px', borderRadius: 4, fontSize: 11.5, fontWeight: 700, background: '#fff', border: '1px solid #cbd5e1' }}>
+                    Nguồn: {testResult.moderationSource}
+                  </span>
+                  <span style={{ padding: '2px 8px', borderRadius: 4, fontSize: 11.5, fontWeight: 700, background: testResult.riskScore >= 75 ? '#dc2626' : '#f59e0b', color: '#fff' }}>
+                    Nguy cơ: {testResult.riskScore}/100
+                  </span>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 10, fontSize: 12.5, color: '#334155' }}>
+                <div style={{ background: '#fff', padding: 10, borderRadius: 6, border: '1px solid rgba(0,0,0,0.06)' }}>
+                  <div style={{ fontWeight: 700, color: '#64748b', marginBottom: 3 }}>Lớp 1: Từ khóa SQL Server</div>
+                  <div>Phát hiện: <strong>{testResult.keywordDetected ? 'CÓ TRÙNG KHỚP' : 'Không có từ khóa'}</strong></div>
+                  {testResult.triggeredKeywords?.filter(k => !k.startsWith('[AI')).length > 0 && (
+                    <div style={{ color: '#dc2626', marginTop: 4 }}>
+                      Từ khóa: {testResult.triggeredKeywords.filter(k => !k.startsWith('[AI')).join(', ')}
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ background: '#fff', padding: 10, borderRadius: 6, border: '1px solid rgba(0,0,0,0.06)' }}>
+                  <div style={{ fontWeight: 700, color: '#64748b', marginBottom: 3 }}>Lớp 2: Google Gemini AI</div>
+                  <div>Phân loại: <strong>{testResult.aiCategory || 'An toàn'}</strong> (Độ tin cậy: {testResult.aiConfidence}%)</div>
+                  {testResult.aiReason && (
+                    <div style={{ color: '#475569', marginTop: 4, fontStyle: 'italic' }}>
+                      "{testResult.aiReason}"
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {testResult.empatheticAdvice && (
+                <div style={{ marginTop: 10, background: '#fff', padding: 10, borderRadius: 6, border: '1px solid rgba(0,0,0,0.06)', fontSize: 12.5 }}>
+                  <span style={{ fontWeight: 700, color: '#0284c7' }}>💬 Lời khuyên tâm lý UniMind: </span>
+                  <span style={{ color: '#334155' }}>{testResult.empatheticAdvice}</span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
 
       {showAdd && (
         <div className="admin-card" style={{ marginBottom: 20, borderLeft: '3px solid var(--a-primary)' }}>

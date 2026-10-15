@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuthStore } from '../../auth/store/authStore';
 import axiosClient from '../../auth/api/authApi';
+import { uploadImageToCloudinary } from '../../../shared/utils/cloudinaryUpload';
 
 const FIELD_LABEL = {
   fullName:       'Họ và tên',
@@ -177,38 +178,11 @@ export default function ExpertProfilePage() {
 
     setUploadingCloudinary(true);
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('upload_preset', 'unimind_preset');
-
-      // Tải lên Cloudinary endpoint
-      const cloudName = 'dphg2f7yv'; // Cloudinary cloud name
-      let secureUrl = '';
-
-      try {
-        const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, {
-          method: 'POST',
-          body: formData,
-        });
-        const data = await res.json();
-        if (data.secure_url) {
-          secureUrl = data.secure_url;
-        }
-      } catch {}
-
-      // Fallback nếu Cloudinary upload_preset yêu cầu ký hoặc offline: dùng FileReader Base64 Data URL
-      if (!secureUrl) {
-        secureUrl = await new Promise((resolve) => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(reader.result);
-          reader.readAsDataURL(file);
-        });
-      }
-
-      await applyNewAvatar(secureUrl);
+      const res = await uploadImageToCloudinary(file, 'avatars');
+      await applyNewAvatar(res.url);
       setNotice({ type: 'success', msg: 'Đã tải ảnh lên Cloudinary và cập nhật ảnh đại diện thành công!' });
-    } catch {
-      setNotice({ type: 'error', msg: 'Có lỗi khi tải ảnh lên Cloudinary.' });
+    } catch (err) {
+      setNotice({ type: 'error', msg: err.message || 'Có lỗi khi tải ảnh lên Cloudinary.' });
     } finally {
       setUploadingCloudinary(false);
       setShowAvatarModal(false);
