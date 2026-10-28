@@ -1,0 +1,293 @@
+openapi: 3.1.1
+info:
+  title: UniMind Psychological Platform Web API
+  version: 1.0.0
+  description: >
+    Hợp đồng API (API Contract) chính thức theo chuẩn OpenAPI 3.1.1 dành cho Hệ thống Nhật ký Cảm xúc 
+    & Hỗ trợ Tư vấn Tâm lý Ẩn danh Dành cho Sinh viên (UniMind) - ĐH Lạc Hồng.
+    Tuân thủ nghiêm ngặt mô hình Clean Architecture và nguyên tắc No Entity Leaking.
+  contact:
+    name: Ngô Tấn Lộc & Lê Minh Luân
+    email: unimind@lhu.edu.vn
+servers:
+  - url: http://localhost:5080/api
+    description: Môi trường Cục bộ (Local Development)
+paths:
+  /auth/login:
+    post:
+      summary: Đăng nhập tài khoản
+      operationId: loginUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Đăng nhập thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponseResult'
+        '400':
+          description: Sai email hoặc mật khẩu
+
+  /auth/register:
+    post:
+      summary: Đăng ký tài khoản sinh viên (khóa học nhập tự do)
+      operationId: registerStudent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '200':
+          description: Đăng ký thành công và tự sinh bí danh bảo mật
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponseResult'
+        '400':
+          description: Email đã tồn tại hoặc dữ liệu không hợp lệ
+
+  /mood-journals:
+    get:
+      summary: Lấy danh sách nhật ký cảm xúc cá nhân
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Danh sách bài nhật ký của người dùng hiện tại
+    post:
+      summary: Ghi chép nhật ký cảm xúc & nhận phân tích AI
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMoodJournalRequest'
+      responses:
+        '200':
+          description: Lưu nhật ký và trả về điểm cảm xúc cùng lời khuyên AI
+
+  /community/posts:
+    get:
+      summary: Lấy bảng tin bài viết chia sẻ ẩn danh
+      parameters:
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: string
+            example: Góc học tập
+      responses:
+        '200':
+          description: Danh sách bài viết đã duyệt
+    post:
+      summary: Đăng bài viết chia sẻ ẩn danh (2 cột Live Preview)
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCommunityPostRequest'
+      responses:
+        '200':
+          description: Đăng bài thành công
+
+  /community/posts/{postId}/comments:
+    post:
+      summary: Đăng bình luận kèm ảnh chuẩn Facebook
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: postId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCommentRequest'
+      responses:
+        '200':
+          description: Đăng bình luận thành công
+
+  /appointments/book:
+    post:
+      summary: Đặt lịch hẹn tư vấn tâm lý (Chống trùng lịch)
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BookAppointmentRequest'
+      responses:
+        '200':
+          description: Đặt lịch thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppointmentDtoResult'
+        '409':
+          description: Trùng lịch (Khung giờ đã được người khác đặt trước)
+
+  /expert/consultation/room/{appointmentId}/toggle:
+    post:
+      summary: Mở / Đóng phòng tư vấn trực tuyến SafeCall không cần mã
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: appointmentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Cập nhật trạng thái cuộc họp thành công
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          example: student@lhu.edu.vn
+        password:
+          type: string
+          example: '123456'
+    RegisterRequest:
+      type: object
+      required: [fullName, email, password]
+      properties:
+        fullName:
+          type: string
+          example: Nguyễn Văn A
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+        faculty:
+          type: string
+          example: CNTT
+        academicYear:
+          type: string
+          example: K2022
+    CreateMoodJournalRequest:
+      type: object
+      required: [journalContent, moodState]
+      properties:
+        moodState:
+          type: string
+          example: Stressed
+        energyLevel:
+          type: integer
+          minimum: 1
+          maximum: 10
+          example: 4
+        triggers:
+          type: string
+          example: Áp lực thi giữa kỳ
+        journalContent:
+          type: string
+          example: Mình cảm thấy rất lo lắng cho đợt thi này...
+    CreateCommunityPostRequest:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+        categoryTag:
+          type: string
+          example: Góc học tập
+        imageUrl:
+          type: string
+          nullable: true
+    CreateCommentRequest:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+        imageUrl:
+          type: string
+          nullable: true
+    BookAppointmentRequest:
+      type: object
+      required: [expertId, timeSlotId]
+      properties:
+        expertId:
+          type: string
+          format: uuid
+        timeSlotId:
+          type: string
+          format: uuid
+        consultationType:
+          type: string
+          enum: [Physical, Online]
+          example: Online
+        reasonNotes:
+          type: string
+          nullable: true
+    AuthResponseResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            token:
+              type: string
+            userId:
+              type: string
+              format: uuid
+            role:
+              type: string
+            anonymousCode:
+              type: string
+    AppointmentDtoResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            bookingCode:
+              type: string
+            status:
+              type: string
+            isMeetingActive:
+              type: boolean

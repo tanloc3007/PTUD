@@ -24,15 +24,26 @@ export default function SafeCallMeetingRoom({
   sessionSeconds = 0,
   onLeaveOrEnd,
   isHost = false,
-  extraHeaderActions = null
+  extraHeaderActions = null,
+  notebookProps = null, // Props cho Sổ tay lâm sàng (Chuyên viên)
+  defaultImmersive = true // Mặc định mở rộng toàn màn hình kiểu Google Meet
 }) {
   // Trạng thái Media & Thiết bị
   const [isAudioMuted, setIsAudioMuted] = useState(false);
   const [isVideoMuted, setIsVideoMuted] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [isVoiceOnlyMode, setIsVoiceOnlyMode] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [showSecurityModal, setShowSecurityModal] = useState(false);
+  const [isImmersive, setIsImmersive] = useState(defaultImmersive);
+  const [isNativeFullscreen, setIsNativeFullscreen] = useState(false);
+  const [videoFit, setVideoFit] = useState('contain'); // 'contain' | 'cover'
+  const [isPipMinimized, setIsPipMinimized] = useState(false);
+  const [activeSideDrawer, setActiveSideDrawer] = useState(null); // 'chat' | 'notes' | 'breathe' | 'security' | null
+  const [copiedCode, setCopiedCode] = useState(false);
+  const [currentTime, setCurrentTime] = useState(() => new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }));
+
+  // Trạng thái bài tập thở 4-7-8 thư giãn cho sinh viên
+  const [breathePhase, setBreathePhase] = useState('Hít sâu bằng mũi (4s)');
+  const [breatheCount, setBreatheCount] = useState(4);
 
   // Trạng thái kết nối WebRTC: 'connecting' | 'negotiating' | 'waiting_peer' | 'connected' | 'ended'
   const [connectionStatus, setConnectionStatus] = useState('connecting');
@@ -629,16 +640,97 @@ export default function SafeCallMeetingRoom({
     }
   };
 
-  // Toàn màn hình
-  const toggleFullscreen = () => {
+  // Toàn màn hình trình duyệt (Native HTML5 Fullscreen)
+  const toggleNativeFullscreen = () => {
     if (!containerRef.current) return;
     if (!document.fullscreenElement) {
       containerRef.current.requestFullscreen?.().catch(() => {});
-      setIsFullscreen(true);
     } else {
       document.exitFullscreen?.().catch(() => {});
-      setIsFullscreen(false);
     }
+  };
+
+  // Chế độ phóng to toàn cửa sổ trình duyệt (Google Meet Full-Viewport Immersive Mode)
+  const toggleImmersive = () => {
+    setIsImmersive(v => !v);
+  };
+
+  // Đồng bộ trạng thái khi người dùng nhấn F11 hoặc Esc của trình duyệt
+  useEffect(() => {
+    const onFsChange = () => {
+      setIsNativeFullscreen(Boolean(document.fullscreenElement));
+    };
+    document.addEventListener('fullscreenchange', onFsChange);
+    return () => document.removeEventListener('fullscreenchange', onFsChange);
+  }, []);
+
+  // Cập nhật đồng hồ thời gian thực Google Meet
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Phím tắt Google Meet (M: mic, V: cam, F: fullscreen, C: chat, Esc: đóng panel)
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (['INPUT', 'TEXTAREA'].includes(e.target?.tagName)) return;
+
+      if (e.key === 'm' || e.key === 'M') {
+        e.preventDefault();
+        toggleAudio();
+      } else if (e.key === 'v' || e.key === 'V') {
+        e.preventDefault();
+        toggleVideo();
+      } else if (e.key === 'f' || e.key === 'F') {
+        e.preventDefault();
+        toggleNativeFullscreen();
+      } else if (e.key === 'c' || e.key === 'C') {
+        e.preventDefault();
+        setActiveSideDrawer(d => d === 'chat' ? null : 'chat');
+      } else if (e.key === 'Escape') {
+        if (activeSideDrawer) {
+          setActiveSideDrawer(null);
+        } else if (document.fullscreenElement) {
+          document.exitFullscreen?.().catch(() => {});
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeSideDrawer, isAudioMuted, isVideoMuted]);
+
+  // Bài tập thở 4-7-8 an tâm thư giãn cho sinh viên
+  useEffect(() => {
+    if (activeSideDrawer !== 'breathe') return;
+    const phases = [
+      { name: 'Hít sâu bằng mũi...', sec: 4 },
+      { name: 'Giữ hơi thở bình tâm...', sec: 7 },
+      { name: 'Thở nhẹ bằng miệng...', sec: 8 }
+    ];
+    let curIdx = 0;
+    let curSec = phases[0].sec;
+
+    const interval = setInterval(() => {
+      curSec--;
+      if (curSec <= 0) {
+        curIdx = (curIdx + 1) % phases.length;
+        curSec = phases[curIdx].sec;
+        setBreathePhase(phases[curIdx].name);
+      }
+      setBreatheCount(curSec);
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [activeSideDrawer]);
+
+  const handleCopyCode = () => {
+    if (!bookingCode) return;
+    navigator.clipboard.writeText(bookingCode).then(() => {
+      setCopiedCode(true);
+      setTimeout(() => setCopiedCode(false), 2000);
+    }).catch(() => {});
   };
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -695,47 +787,54 @@ export default function SafeCallMeetingRoom({
     <div
       ref={containerRef}
       style={{
-        position: 'relative',
-        width: '100%',
-        height: '75vh',
-        minHeight: 520,
-        background: '#090d16',
-        borderRadius: isFullscreen ? 0 : 18,
+        position: isImmersive ? 'fixed' : 'relative',
+        top: isImmersive ? 0 : 'auto',
+        left: isImmersive ? 0 : 'auto',
+        right: isImmersive ? 0 : 'auto',
+        bottom: isImmersive ? 0 : 'auto',
+        width: isImmersive ? '100vw' : '100%',
+        height: isImmersive ? '100vh' : 'calc(100vh - 100px)',
+        minHeight: isImmersive ? '100vh' : 620,
+        zIndex: isImmersive ? 99999 : 1,
+        background: '#121212',
+        borderRadius: isImmersive ? 0 : 16,
         overflow: 'hidden',
-        border: isFullscreen ? 'none' : '1.5px solid rgba(255, 255, 255, 0.12)',
-        boxShadow: '0 20px 50px rgba(0,0,0,0.4)',
         display: 'flex',
         flexDirection: 'column',
-        fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif"
+        fontFamily: "'Plus Jakarta Sans', system-ui, -apple-system, sans-serif",
+        boxShadow: isImmersive ? 'none' : '0 25px 60px rgba(0,0,0,0.5)',
+        border: isImmersive ? 'none' : '1px solid rgba(255,255,255,0.12)',
+        color: '#fff',
+        transition: 'all 0.2s ease-in-out'
       }}
     >
-      {/* ══════════════ 1. TOP STATUS BAR ══════════════ */}
+      {/* ══════════════ 1. TOP MINIMAL BAR (GOOGLE MEET HEADER) ══════════════ */}
       <div style={{
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
-        padding: '12px 18px',
-        background: 'rgba(15, 23, 42, 0.92)',
-        backdropFilter: 'blur(10px)',
-        borderBottom: '1px solid rgba(255,255,255,0.1)',
-        zIndex: 20,
-        flexWrap: 'wrap',
-        gap: 10
+        padding: '10px 20px',
+        background: 'rgba(24, 26, 27, 0.92)',
+        backdropFilter: 'blur(12px)',
+        borderBottom: '1px solid rgba(255,255,255,0.08)',
+        zIndex: 25,
+        height: 52,
+        boxSizing: 'border-box'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           {/* Badge trạng thái WebRTC */}
           <span style={{
             display: 'inline-flex',
             alignItems: 'center',
-            gap: 6,
+            gap: 7,
             background: isConnected ? 'rgba(34, 197, 94, 0.15)' : 'rgba(234, 179, 8, 0.15)',
             color: isConnected ? '#4ade80' : '#facc15',
             border: `1px solid ${isConnected ? 'rgba(34, 197, 94, 0.3)' : 'rgba(234, 179, 8, 0.3)'}`,
-            padding: '4px 11px',
+            padding: '4px 12px',
             borderRadius: 20,
-            fontSize: 11.5,
+            fontSize: 11,
             fontWeight: 800,
-            letterSpacing: '0.02em'
+            letterSpacing: '0.04em'
           }}>
             <span style={{
               width: 8, height: 8, borderRadius: '50%',
@@ -744,9 +843,9 @@ export default function SafeCallMeetingRoom({
               animation: isConnected ? 'pulse 1.8s infinite' : 'none'
             }} />
             {isConnected
-              ? 'WEBRTC P2P TRỰC TIẾP (MÃ HÓA ĐẦU CUỐI)'
+              ? 'WEBRTC P2P • MÃ HÓA ĐẦU CUỐI DTLS-SRTP'
               : connectionStatus === 'negotiating'
-              ? 'ĐANG THIẾT LẬP SDP WEBRTC...'
+              ? 'ĐANG THIẾT LẬP KẾT NỐI P2P...'
               : 'CHỜ ĐỐI PHƯƠNG VÀO PHÒNG...'}
           </span>
 
@@ -760,30 +859,30 @@ export default function SafeCallMeetingRoom({
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          {extraHeaderActions}
-
-          {/* Nút Xem Chứng Chỉ Bảo Mật WebRTC */}
+          {/* Tùy chỉnh chế độ Vừa khung / Tràn viền (Contain / Cover) */}
           <button
             type="button"
-            onClick={() => setShowSecurityModal(true)}
+            onClick={() => setVideoFit(f => f === 'contain' ? 'cover' : 'contain')}
+            title="Chuyển đổi chế độ hiển thị video (Vừa khung hình / Tràn viền)"
             style={{
               padding: '6px 12px',
               borderRadius: 8,
               fontSize: 11.5,
               fontWeight: 700,
               cursor: 'pointer',
-              border: '1px solid rgba(56, 189, 248, 0.3)',
-              background: 'rgba(2, 132, 199, 0.15)',
-              color: '#38bdf8',
+              border: '1px solid rgba(255,255,255,0.15)',
+              background: videoFit === 'cover' ? 'rgba(56, 189, 248, 0.2)' : 'rgba(255,255,255,0.06)',
+              color: videoFit === 'cover' ? '#38bdf8' : '#e2e8f0',
               display: 'inline-flex',
               alignItems: 'center',
-              gap: 5
+              gap: 6
             }}
           >
-            🛡️ Bảo Mật WebRTC P2P
+            <span>{videoFit === 'cover' ? '🔲' : '▫️'}</span>
+            <span>{videoFit === 'cover' ? 'Tràn viền (Cover)' : 'Vừa khung (Fit)'}</span>
           </button>
 
-          {/* Chuyển đổi chế độ Thoại / Video */}
+          {/* Chế độ Thoại Riêng Tư / Video HD */}
           <button
             type="button"
             onClick={() => setIsVoiceOnlyMode(v => !v)}
@@ -794,573 +893,965 @@ export default function SafeCallMeetingRoom({
               fontWeight: 700,
               cursor: 'pointer',
               border: '1px solid rgba(255,255,255,0.2)',
-              background: isVoiceOnlyMode ? '#0284c7' : 'rgba(255,255,255,0.08)',
+              background: isVoiceOnlyMode ? '#0d9488' : 'rgba(255,255,255,0.08)',
               color: '#fff',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
               transition: 'all 0.15s'
             }}
           >
-            {isVoiceOnlyMode ? '🎧 Ẩn Danh Thoại (Bật)' : '🎥 Video Call HD'}
+            <span>{isVoiceOnlyMode ? '🎧' : '🎥'}</span>
+            <span>{isVoiceOnlyMode ? 'Ẩn danh thoại (Bật)' : 'Video Call HD'}</span>
           </button>
+
+          {/* Phóng to / Thu nhỏ toàn màn hình kiểu Google Meet */}
+          <button
+            type="button"
+            onClick={toggleImmersive}
+            title={isImmersive ? 'Thu nhỏ về khung cửa sổ' : 'Phóng to toàn màn hình kiểu Google Meet'}
+            style={{
+              padding: '6px 12px',
+              borderRadius: 8,
+              fontSize: 11.5,
+              fontWeight: 800,
+              cursor: 'pointer',
+              border: '1px solid rgba(255,255,255,0.2)',
+              background: isImmersive ? '#0284c7' : 'rgba(255,255,255,0.1)',
+              color: '#fff',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6
+            }}
+          >
+            <span>{isImmersive ? '🗗' : '⛶'}</span>
+            <span>{isImmersive ? 'Thu nhỏ khung' : 'Toàn màn hình Meet'}</span>
+          </button>
+
+          {extraHeaderActions}
         </div>
       </div>
 
-      {/* ══════════════ 2. MÀN HÌNH CHÍNH (REMOTE VIDEO & VOICE ROOM) ══════════════ */}
-      <div style={{ flex: 1, position: 'relative', width: '100%', height: '100%', overflow: 'hidden' }}>
-
-        {isVoiceOnlyMode ? (
-          /* Chế độ Ẩn Danh Riêng Tư (Voice-Only) */
-          <div style={{
-            width: '100%', height: '100%',
-            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-            background: 'radial-gradient(circle at center, #0f2445 0%, #090d16 100%)',
-            color: '#fff', textAlign: 'center', padding: 20
-          }}>
-            <div style={{
-              width: 100, height: 100, borderRadius: '50%',
-              background: currentUserRole === 'expert' ? '#0d9488' : '#0284c7',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 40, fontWeight: 900, marginBottom: 16,
-              boxShadow: isRemoteSpeaking ? '0 0 45px #38bdf8' : '0 0 25px rgba(2, 132, 199, 0.4)',
-              transition: 'box-shadow 0.2s ease',
-              border: isRemoteSpeaking ? '3px solid #38bdf8' : '3px solid rgba(255,255,255,0.2)'
-            }}>
-              {peerName?.charAt(0) || 'P'}
-            </div>
-
-            <h3 style={{ fontSize: 20, fontWeight: 800, margin: '0 0 6px' }}>
-              {peerName}
-            </h3>
-
-            <p style={{ fontSize: 13, color: '#94a3b8', margin: '0 0 16px', maxWidth: 460 }}>
-              🔒 Phiên tư vấn âm thanh WebRTC trực tiếp. Camera tắt để bảo vệ danh tính tối đa.
-            </p>
-
-            {/* Chỉ báo trạng thái âm thanh */}
-            <div style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 8,
-              background: 'rgba(255,255,255,0.06)',
-              padding: '6px 14px',
-              borderRadius: 20,
-              fontSize: 12,
-              color: '#38bdf8'
-            }}>
-              <span>{isRemoteSpeaking ? '🔊 Đang phát biểu...' : '🎙️ Đường truyền thoại WebRTC ổn định'}</span>
-            </div>
-          </div>
-        ) : (
-          /* Chế độ Video Call HD Chuẩn */
-          <div style={{ width: '100%', height: '100%', position: 'relative', background: '#020617' }}>
-            <video
-              ref={remoteVideoRef}
-              autoPlay
-              playsInline
-              style={{
-                width: '100%',
-                height: '100%',
-                objectFit: 'contain',
-                display: isConnected ? 'block' : 'none'
-              }}
-            />
-
-            {/* Màn hình chờ khi đối phương chưa kết nối hoặc đang đàm phán */}
-            {!isConnected && (
-              <div style={{
-                width: '100%', height: '100%',
-                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                color: '#fff', textAlign: 'center', padding: 24
-              }}>
-                <div style={{
-                  width: 68, height: 68,
-                  border: '3px solid rgba(255,255,255,0.15)',
-                  borderTopColor: currentUserRole === 'expert' ? '#0284c7' : '#0d9488',
-                  borderRadius: '50%',
-                  animation: 'spin 1.2s linear infinite',
-                  marginBottom: 20
-                }} />
-                <h3 style={{ fontSize: 18, fontWeight: 800, margin: '0 0 8px' }}>
-                  {connectionStatus === 'negotiating'
-                    ? 'Đang bắt tay WebRTC P2P (Trao đổi Offer/Answer)...'
-                    : isHost
-                    ? 'Phòng WebRTC nội bộ đã sẵn sàng'
-                    : `Đang kết nối vào phòng cùng ${peerName}...`}
-                </h3>
-                <p style={{ fontSize: 13, color: '#94a3b8', margin: 0, maxWidth: 460, lineHeight: 1.5 }}>
-                  {isHost
-                    ? `Hệ thống đã phát tín hiệu đến ${peerName}. Sinh viên truy cập vào là kết nối video trực tiếp ngay lập tức.`
-                    : 'Đang thiết lập luồng WebRTC bảo mật P2P mã hóa đầu-cuối trực tiếp giữa 2 trình duyệt.'}
-                </p>
-              </div>
-            )}
-
-            {/* Huy hiệu tên đối phương ở góc dưới trái video */}
-            <div style={{
-              position: 'absolute',
-              bottom: 18,
-              left: 18,
-              background: 'rgba(15, 23, 42, 0.85)',
-              backdropFilter: 'blur(8px)',
-              padding: '6px 14px',
-              borderRadius: 8,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              color: '#fff',
-              fontSize: 12.5,
-              fontWeight: 700,
-              border: '1px solid rgba(255,255,255,0.1)',
-              zIndex: 10
-            }}>
-              <span style={{
-                width: 8, height: 8, borderRadius: '50%',
-                background: isConnected ? '#22c55e' : '#eab308'
-              }} />
-              <span>{peerName}</span>
-              <span style={{ fontSize: 11, color: '#94a3b8' }}>
-                ({currentUserRole === 'expert' ? 'Sinh viên' : 'Chuyên viên'})
-              </span>
-              {peerState.isAudioMuted && <span title="Đối phương đã tắt mic" style={{ color: '#ef4444' }}>🔇</span>}
-            </div>
-          </div>
-        )}
-
-        {/* ══════════════ 3. LOCAL SELF-VIEW (PIP NỔI GÓC PHẢI) ══════════════ */}
+      {/* ══════════════ 2. MÀN HÌNH CHÍNH & SIDE DRAWER (GOOGLE MEET SPLIT STAGE) ══════════════ */}
+      <div style={{
+        flex: 1,
+        display: 'flex',
+        position: 'relative',
+        width: '100%',
+        height: 'calc(100% - 128px)',
+        overflow: 'hidden'
+      }}>
+        {/* KHÔNG GIAN VIDEO CHÍNH (GOOGLE MEET MAIN STAGE) */}
         <div style={{
-          position: 'absolute',
-          top: 18,
-          right: showChat ? 340 : 18,
-          width: 210,
-          height: 135,
-          background: '#0f172a',
-          borderRadius: 12,
+          flex: 1,
+          height: '100%',
+          position: 'relative',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: '#0d0e11',
+          margin: isImmersive ? '8px 12px' : '4px 6px',
+          borderRadius: 16,
           overflow: 'hidden',
-          border: isLocalSpeaking ? '2.5px solid #38bdf8' : '2px solid rgba(255,255,255,0.2)',
-          boxShadow: isLocalSpeaking ? '0 0 16px rgba(56, 189, 248, 0.5)' : '0 10px 24px rgba(0,0,0,0.5)',
-          zIndex: 30,
-          transition: 'all 0.2s ease'
+          transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)'
         }}>
-          <video
-            ref={localVideoRef}
-            autoPlay
-            playsInline
-            muted
-            style={{
-              width: '100%',
-              height: '100%',
-              objectFit: 'cover',
-              transform: isScreenSharing ? 'none' : 'scaleX(-1)',
-              display: isVideoMuted ? 'none' : 'block'
-            }}
-          />
 
-          {isVideoMuted && (
+          {isVoiceOnlyMode ? (
+            /* Chế độ Ẩn Danh Riêng Tư (Voice-Only) */
             <div style={{
               width: '100%', height: '100%',
               display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-              background: '#1e293b', color: '#94a3b8', fontSize: 11.5, fontWeight: 700
+              background: 'radial-gradient(circle at center, #0f2445 0%, #090d16 100%)',
+              color: '#fff', textAlign: 'center', padding: 20
             }}>
-              <span style={{ fontSize: 24, marginBottom: 4 }}>📷🚫</span>
-              <span>Camera đã tắt</span>
+              <div style={{
+                width: 120, height: 120, borderRadius: '50%',
+                background: currentUserRole === 'expert' ? '#0d9488' : '#0284c7',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 48, fontWeight: 900, marginBottom: 18,
+                boxShadow: isRemoteSpeaking ? '0 0 50px #38bdf8' : '0 0 25px rgba(2, 132, 199, 0.35)',
+                transition: 'box-shadow 0.2s ease',
+                border: isRemoteSpeaking ? '4px solid #38bdf8' : '3px solid rgba(255,255,255,0.2)'
+              }}>
+                {peerName?.charAt(0) || 'P'}
+              </div>
+
+              <h2 style={{ fontSize: 24, fontWeight: 800, margin: '0 0 8px' }}>
+                {peerName}
+              </h2>
+
+              <p style={{ fontSize: 13.5, color: '#94a3b8', margin: '0 0 18px', maxWidth: 480 }}>
+                🔒 Phiên tư vấn âm thanh WebRTC trực tiếp. Camera tắt để bảo vệ danh tính tối đa.
+              </p>
+
+              <div style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+                background: 'rgba(255,255,255,0.06)',
+                padding: '8px 18px',
+                borderRadius: 24,
+                fontSize: 13,
+                color: '#38bdf8'
+              }}>
+                <span>{isRemoteSpeaking ? '🔊 Đang phát biểu...' : '🎙️ Đường truyền thoại WebRTC mã hóa ổn định'}</span>
+              </div>
+            </div>
+          ) : (
+            /* Chế độ Video Call HD Chuẩn Google Meet */
+            <div style={{ width: '100%', height: '100%', position: 'relative', background: '#090a0f', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <video
+                ref={remoteVideoRef}
+                autoPlay
+                playsInline
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: videoFit,
+                  borderRadius: 16,
+                  display: isConnected ? 'block' : 'none'
+                }}
+              />
+
+              {/* Màn hình chờ phong cách Google Meet khi chưa kết nối */}
+              {!isConnected && (
+                <div style={{
+                  width: '100%', height: '100%',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                  color: '#fff', textAlign: 'center', padding: 24
+                }}>
+                  <div style={{
+                    position: 'relative',
+                    width: 110,
+                    height: 110,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginBottom: 24
+                  }}>
+                    {/* Hào quang nhịp thở Google Meet */}
+                    <div style={{
+                      position: 'absolute',
+                      inset: -12,
+                      borderRadius: '50%',
+                      background: currentUserRole === 'expert' ? 'rgba(2, 132, 199, 0.25)' : 'rgba(13, 148, 136, 0.25)',
+                      animation: 'pulse 2s infinite'
+                    }} />
+                    <div style={{
+                      width: 90, height: 90,
+                      borderRadius: '50%',
+                      background: currentUserRole === 'expert' ? 'linear-gradient(135deg, #0284c7, #0369a1)' : 'linear-gradient(135deg, #0d9488, #0f766e)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 38, fontWeight: 900, color: '#fff',
+                      boxShadow: '0 10px 25px rgba(0,0,0,0.4)',
+                      zIndex: 2
+                    }}>
+                      {peerName?.charAt(0) || 'U'}
+                    </div>
+                  </div>
+
+                  <h3 style={{ fontSize: 20, fontWeight: 800, margin: '0 0 10px' }}>
+                    {connectionStatus === 'negotiating'
+                      ? 'Đang bắt tay WebRTC P2P (Trao đổi Offer/Answer)...'
+                      : isHost
+                      ? 'Phòng WebRTC nội bộ đã sẵn sàng'
+                      : `Đang kết nối vào phòng cùng ${peerName}...`}
+                  </h3>
+                  <p style={{ fontSize: 13.5, color: '#94a3b8', margin: 0, maxWidth: 480, lineHeight: 1.6 }}>
+                    {isHost
+                      ? `Hệ thống đã phát tín hiệu đến ${peerName}. Sinh viên truy cập vào là kết nối video trực tiếp ngay lập tức.`
+                      : 'Đang thiết lập luồng WebRTC bảo mật P2P mã hóa đầu-cuối trực tiếp giữa 2 trình duyệt.'}
+                  </p>
+                </div>
+              )}
+
+              {/* Huy hiệu tên đối phương ở góc dưới trái video (Google Meet Signature Pill) */}
+              <div style={{
+                position: 'absolute',
+                bottom: 18,
+                left: 18,
+                background: 'rgba(15, 23, 42, 0.85)',
+                backdropFilter: 'blur(10px)',
+                padding: '7px 16px',
+                borderRadius: 24,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                color: '#fff',
+                fontSize: 13,
+                fontWeight: 700,
+                border: '1px solid rgba(255,255,255,0.15)',
+                boxShadow: '0 8px 20px rgba(0,0,0,0.4)',
+                zIndex: 20
+              }}>
+                <span style={{
+                  width: 8, height: 8, borderRadius: '50%',
+                  background: isConnected ? '#22c55e' : '#eab308'
+                }} />
+                <span>{peerName}</span>
+                <span style={{ fontSize: 11.5, color: '#94a3b8', fontWeight: 600 }}>
+                  ({currentUserRole === 'expert' ? 'Sinh viên' : 'Chuyên viên'})
+                </span>
+                {peerState.isAudioMuted && <span title="Đối phương đã tắt mic" style={{ color: '#ef4444' }}>🔇</span>}
+              </div>
             </div>
           )}
 
-          {/* Nhãn bạn và trạng thái nói */}
-          <div style={{
-            position: 'absolute',
-            bottom: 4,
-            left: 6,
-            right: 6,
-            background: 'rgba(0,0,0,0.7)',
-            padding: '2px 6px',
-            borderRadius: 4,
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            fontSize: 10,
-            color: '#fff',
-            fontWeight: 700
-          }}>
-            <span>Bạn ({currentUserName})</span>
-            <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-              {isLocalSpeaking && <span style={{ color: '#4ade80' }} title="Micro đang thu âm">🎙️</span>}
-              {isAudioMuted && <span style={{ color: '#ef4444' }}>🔇</span>}
+          {/* ══════════════ 3. LOCAL SELF-VIEW (PIP NỔI GÓC PHẢI GOOGLE MEET) ══════════════ */}
+          {isPipMinimized ? (
+            <button
+              type="button"
+              onClick={() => setIsPipMinimized(false)}
+              title="Nhấn để mở rộng khung hình của bạn"
+              style={{
+                position: 'absolute',
+                top: 18,
+                right: 18,
+                width: 54,
+                height: 54,
+                borderRadius: '50%',
+                background: '#1e293b',
+                border: '2px solid rgba(255,255,255,0.3)',
+                boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+                zIndex: 30,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 20,
+                cursor: 'pointer',
+                color: '#fff'
+              }}
+            >
+              👤
+            </button>
+          ) : (
+            <div style={{
+              position: 'absolute',
+              top: 18,
+              right: 18,
+              width: 240,
+              height: 145,
+              background: '#0f172a',
+              borderRadius: 16,
+              overflow: 'hidden',
+              border: isLocalSpeaking ? '2.5px solid #38bdf8' : '2px solid rgba(255,255,255,0.2)',
+              boxShadow: isLocalSpeaking ? '0 0 20px rgba(56, 189, 248, 0.5)' : '0 12px 30px rgba(0,0,0,0.6)',
+              zIndex: 30,
+              transition: 'all 0.2s ease'
+            }}>
+              <video
+                ref={localVideoRef}
+                autoPlay
+                playsInline
+                muted
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'cover',
+                  transform: isScreenSharing ? 'none' : 'scaleX(-1)',
+                  display: isVideoMuted ? 'none' : 'block'
+                }}
+              />
+
+              {isVideoMuted && (
+                <div style={{
+                  width: '100%', height: '100%',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                  background: '#1e293b', color: '#94a3b8', fontSize: 12, fontWeight: 700
+                }}>
+                  <span style={{ fontSize: 26, marginBottom: 4 }}>📷🚫</span>
+                  <span>Camera đã tắt</span>
+                </div>
+              )}
+
+              {/* Nút thu nhỏ PiP */}
+              <button
+                type="button"
+                onClick={() => setIsPipMinimized(true)}
+                title="Thu nhỏ khung hình bạn"
+                style={{
+                  position: 'absolute',
+                  top: 6,
+                  right: 6,
+                  width: 24,
+                  height: 24,
+                  borderRadius: '50%',
+                  background: 'rgba(0,0,0,0.6)',
+                  border: 'none',
+                  color: '#cbd5e1',
+                  fontSize: 12,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  zIndex: 2
+                }}
+              >
+                −
+              </button>
+
+              {/* Nhãn bạn và trạng thái nói */}
+              <div style={{
+                position: 'absolute',
+                bottom: 6,
+                left: 8,
+                right: 8,
+                background: 'rgba(0,0,0,0.75)',
+                padding: '3px 8px',
+                borderRadius: 6,
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                fontSize: 11,
+                color: '#fff',
+                fontWeight: 700
+              }}>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 150 }}>
+                  Bạn ({currentUserName})
+                </span>
+                <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                  {isLocalSpeaking && <span style={{ color: '#4ade80' }} title="Micro đang thu âm">🎙️</span>}
+                  {isAudioMuted && <span style={{ color: '#ef4444' }}>🔇</span>}
+                </div>
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
-        {/* ══════════════ 4. LIVE CHAT DRAWER (P2P + CSDL) ══════════════ */}
-        {showChat && (
+        {/* ══════════════ 4. GOOGLE MEET SIDE PANEL (TÍCH HỢP CHAT, SỔ TAY, THỞ 4-7-8, BẢO MẬT) ══════════════ */}
+        {activeSideDrawer && (
           <div style={{
-            position: 'absolute',
-            top: 0,
-            right: 0,
-            bottom: 0,
-            width: 320,
-            background: 'rgba(15, 23, 42, 0.97)',
-            backdropFilter: 'blur(12px)',
-            borderLeft: '1px solid rgba(255,255,255,0.12)',
+            width: 380,
+            height: '100%',
+            background: '#1e1f20',
+            borderLeft: '1px solid rgba(255,255,255,0.1)',
             display: 'flex',
             flexDirection: 'column',
             zIndex: 40,
             animation: 'fadeIn 0.2s ease-out'
           }}>
-            {/* Chat header */}
+            {/* Header Panel */}
             <div style={{
-              padding: '12px 14px',
+              padding: '14px 18px',
               borderBottom: '1px solid rgba(255,255,255,0.1)',
               display: 'flex',
               justifyContent: 'space-between',
-              alignItems: 'center'
+              alignItems: 'center',
+              background: '#242528'
             }}>
-              <span style={{ fontSize: 13, fontWeight: 800, color: '#fff', display: 'flex', alignItems: 'center', gap: 6 }}>
-                💬 Chat Trực Tiếp
-                {isDataChannelReady && (
-                  <span style={{ fontSize: 10, color: '#4ade80', background: 'rgba(34,197,94,0.15)', padding: '1px 6px', borderRadius: 10 }}>
-                    P2P
-                  </span>
-                )}
+              <span style={{ fontSize: 14, fontWeight: 800, color: '#fff', display: 'flex', alignItems: 'center', gap: 8 }}>
+                {activeSideDrawer === 'chat' && '💬 Trò chuyện trong phiên'}
+                {activeSideDrawer === 'notes' && '📋 Sổ tay & Hồ sơ lâm sàng'}
+                {activeSideDrawer === 'breathe' && '🧘 Bài tập thở 4-7-8 an tâm'}
+                {activeSideDrawer === 'security' && '🛡️ Bảo mật WebRTC P2P'}
               </span>
               <button
                 type="button"
-                onClick={() => setShowChat(false)}
-                style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 16, cursor: 'pointer' }}
+                onClick={() => setActiveSideDrawer(null)}
+                style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 18, cursor: 'pointer', padding: '2px 6px' }}
               >
                 ✕
               </button>
             </div>
 
-            {/* Chat message list */}
-            <div
-              ref={chatScrollRef}
-              style={{
-                flex: 1,
-                overflowY: 'auto',
-                padding: '12px 14px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 10
-              }}
-            >
-              <div style={{
-                background: 'rgba(2, 132, 199, 0.1)',
-                border: '1px solid rgba(2, 132, 199, 0.2)',
-                borderRadius: 8,
-                padding: '8px 10px',
-                fontSize: 11,
-                color: '#38bdf8'
-              }}>
-                🔒 Tin nhắn truyền trực tiếp qua WebRTC DataChannel mã hóa 1-1, an toàn và riêng tư.
-              </div>
+            {/* BODY: TAB 1 - LIVE CHAT */}
+            {activeSideDrawer === 'chat' && (
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+                <div
+                  ref={chatScrollRef}
+                  style={{
+                    flex: 1,
+                    overflowY: 'auto',
+                    padding: '14px 16px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 12
+                  }}
+                >
+                  <div style={{
+                    background: 'rgba(2, 132, 199, 0.12)',
+                    border: '1px solid rgba(2, 132, 199, 0.25)',
+                    borderRadius: 10,
+                    padding: '10px 12px',
+                    fontSize: 11.5,
+                    color: '#38bdf8'
+                  }}>
+                    🔒 Tin nhắn truyền trực tiếp qua WebRTC DataChannel mã hóa 1-1, không qua trung gian bên thứ 3.
+                  </div>
 
-              {chatMessages.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '24px 0', color: '#64748b', fontSize: 12 }}>
-                  Chưa có tin nhắn nào. Hãy gửi lời chào đầu tiên!
-                </div>
-              ) : (
-                chatMessages.map((msg, i) => {
-                  const isMe = (currentUserRole === 'expert' && msg.senderRole === 'Expert') ||
-                               (currentUserRole === 'student' && msg.senderRole === 'Student');
-
-                  return (
-                    <div
-                      key={msg.id || i}
-                      style={{
-                        alignSelf: isMe ? 'flex-end' : 'flex-start',
-                        maxWidth: '85%'
-                      }}
-                    >
-                      <div style={{
-                        fontSize: 10.5,
-                        color: '#94a3b8',
-                        marginBottom: 2,
-                        textAlign: isMe ? 'right' : 'left'
-                      }}>
-                        {msg.senderName || (msg.senderRole === 'Expert' ? 'Chuyên viên' : 'Sinh viên')}
-                      </div>
-                      <div style={{
-                        background: isMe ? '#0284c7' : 'rgba(255,255,255,0.1)',
-                        color: '#fff',
-                        padding: '7px 12px',
-                        borderRadius: 10,
-                        fontSize: 12.5,
-                        lineHeight: 1.4,
-                        wordBreak: 'break-word'
-                      }}>
-                        {msg.content}
-                      </div>
+                  {chatMessages.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '36px 0', color: '#64748b', fontSize: 13 }}>
+                      Chưa có tin nhắn nào. Hãy gửi lời chào đầu tiên!
                     </div>
-                  );
-                })
-              )}
-            </div>
+                  ) : (
+                    chatMessages.map((msg, i) => {
+                      const isMe = (currentUserRole === 'expert' && msg.senderRole === 'Expert') ||
+                                   (currentUserRole === 'student' && msg.senderRole === 'Student');
 
-            {/* Form gửi chat */}
-            <form onSubmit={handleSendChat} style={{ padding: '10px 12px', borderTop: '1px solid rgba(255,255,255,0.1)', display: 'flex', gap: 8 }}>
-              <input
-                type="text"
-                value={chatInput}
-                onChange={e => setChatInput(e.target.value)}
-                placeholder="Nhắn tin trong phiên..."
-                style={{
-                  flex: 1,
-                  background: 'rgba(255,255,255,0.08)',
-                  border: '1px solid rgba(255,255,255,0.2)',
-                  borderRadius: 8,
-                  padding: '7px 10px',
-                  color: '#fff',
-                  fontSize: 12,
-                  outline: 'none'
-                }}
-              />
-              <button
-                type="submit"
-                disabled={!chatInput.trim()}
-                style={{
-                  background: '#0284c7',
-                  border: 'none',
-                  borderRadius: 8,
-                  padding: '7px 12px',
-                  color: '#fff',
-                  fontSize: 12,
-                  fontWeight: 800,
-                  cursor: chatInput.trim() ? 'pointer' : 'default',
-                  opacity: chatInput.trim() ? 1 : 0.5
-                }}
-              >
-                Gửi
-              </button>
-            </form>
+                      return (
+                        <div
+                          key={msg.id || i}
+                          style={{
+                            alignSelf: isMe ? 'flex-end' : 'flex-start',
+                            maxWidth: '85%'
+                          }}
+                        >
+                          <div style={{
+                            fontSize: 11,
+                            color: '#94a3b8',
+                            marginBottom: 3,
+                            textAlign: isMe ? 'right' : 'left',
+                            fontWeight: 600
+                          }}>
+                            {msg.senderName || (msg.senderRole === 'Expert' ? 'Chuyên viên' : 'Sinh viên')}
+                          </div>
+                          <div style={{
+                            background: isMe ? '#0284c7' : 'rgba(255,255,255,0.1)',
+                            color: '#fff',
+                            padding: '9px 14px',
+                            borderRadius: isMe ? '14px 14px 2px 14px' : '14px 14px 14px 2px',
+                            fontSize: 13,
+                            lineHeight: 1.45,
+                            wordBreak: 'break-word',
+                            boxShadow: '0 4px 12px rgba(0,0,0,0.2)'
+                          }}>
+                            {msg.content}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+
+                {/* Form gửi chat */}
+                <form onSubmit={handleSendChat} style={{ padding: '12px 14px', borderTop: '1px solid rgba(255,255,255,0.1)', display: 'flex', gap: 8, background: '#242528' }}>
+                  <input
+                    type="text"
+                    value={chatInput}
+                    onChange={e => setChatInput(e.target.value)}
+                    placeholder="Gửi tin nhắn trong cuộc họp..."
+                    style={{
+                      flex: 1,
+                      background: 'rgba(255,255,255,0.08)',
+                      border: '1px solid rgba(255,255,255,0.2)',
+                      borderRadius: 10,
+                      padding: '9px 12px',
+                      color: '#fff',
+                      fontSize: 13,
+                      outline: 'none'
+                    }}
+                  />
+                  <button
+                    type="submit"
+                    disabled={!chatInput.trim()}
+                    style={{
+                      background: '#0284c7',
+                      border: 'none',
+                      borderRadius: 10,
+                      padding: '9px 16px',
+                      color: '#fff',
+                      fontSize: 13,
+                      fontWeight: 800,
+                      cursor: chatInput.trim() ? 'pointer' : 'default',
+                      opacity: chatInput.trim() ? 1 : 0.5
+                    }}
+                  >
+                    Gửi
+                  </button>
+                </form>
+              </div>
+            )}
+
+            {/* BODY: TAB 2 - SỔ TAY LÂM SÀNG (DÀNH CHO CHUYÊN VIÊN) */}
+            {activeSideDrawer === 'notes' && notebookProps && (
+              <div style={{ flex: 1, overflowY: 'auto', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 800, color: '#94a3b8', display: 'block', marginBottom: 6 }}>
+                    Đánh giá mức độ rủi ro &amp; Căng thẳng:
+                  </label>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
+                    {[
+                      { key: 'Low', label: 'Thấp', color: '#4ade80', bg: 'rgba(34, 197, 94, 0.15)' },
+                      { key: 'Moderate', label: 'Vừa', color: '#fbbf24', bg: 'rgba(245, 158, 11, 0.15)' },
+                      { key: 'High', label: 'Cao', color: '#fb923c', bg: 'rgba(249, 115, 22, 0.15)' },
+                      { key: 'Crisis', label: 'Khẩn cấp', color: '#f87171', bg: 'rgba(239, 68, 68, 0.15)' },
+                    ].map(r => (
+                      <button
+                        key={r.key}
+                        type="button"
+                        onClick={() => notebookProps.setRisk?.(r.key)}
+                        style={{
+                          padding: '7px 4px',
+                          borderRadius: 8,
+                          border: `1.5px solid ${notebookProps.risk === r.key ? r.color : 'rgba(255,255,255,0.15)'}`,
+                          background: notebookProps.risk === r.key ? r.bg : 'rgba(255,255,255,0.05)',
+                          color: notebookProps.risk === r.key ? r.color : '#cbd5e1',
+                          fontSize: 11.5,
+                          fontWeight: 800,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {r.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 800, color: '#94a3b8', display: 'block', marginBottom: 6 }}>
+                    Nhận định triệu chứng &amp; Ghi chú lâm sàng:
+                  </label>
+                  <textarea
+                    rows={5}
+                    value={notebookProps.notes || ''}
+                    onChange={e => notebookProps.setNotes?.(e.target.value)}
+                    placeholder="Ghi nhận tóm tắt trạng thái tâm lý, phản hồi của sinh viên..."
+                    style={{
+                      width: '100%', padding: '10px 12px', borderRadius: 10,
+                      background: 'rgba(255,255,255,0.07)',
+                      border: '1px solid rgba(255,255,255,0.2)',
+                      color: '#fff', fontSize: 13,
+                      boxSizing: 'border-box', outline: 'none'
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 800, color: '#94a3b8', display: 'block', marginBottom: 6 }}>
+                    Kế hoạch can thiệp &amp; Hẹn tái khám:
+                  </label>
+                  <input
+                    type="text"
+                    value={notebookProps.followUp || ''}
+                    onChange={e => notebookProps.setFollowUp?.(e.target.value)}
+                    style={{
+                      width: '100%', padding: '8px 12px', borderRadius: 8,
+                      background: 'rgba(255,255,255,0.07)',
+                      border: '1px solid rgba(255,255,255,0.2)',
+                      color: '#fff', fontSize: 13,
+                      boxSizing: 'border-box', outline: 'none'
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 800, color: '#94a3b8', display: 'block', marginBottom: 6 }}>
+                    Khuyến nghị cho sinh viên:
+                  </label>
+                  <input
+                    type="text"
+                    value={notebookProps.prescribed || ''}
+                    onChange={e => notebookProps.setPrescribed?.(e.target.value)}
+                    style={{
+                      width: '100%', padding: '8px 12px', borderRadius: 8,
+                      background: 'rgba(255,255,255,0.07)',
+                      border: '1px solid rgba(255,255,255,0.2)',
+                      color: '#fff', fontSize: 13,
+                      boxSizing: 'border-box', outline: 'none'
+                    }}
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  disabled={notebookProps.saving}
+                  onClick={() => notebookProps.onSave?.()}
+                  style={{
+                    marginTop: 8,
+                    padding: '11px 18px',
+                    borderRadius: 10,
+                    background: '#0284c7',
+                    border: 'none',
+                    color: '#fff',
+                    fontSize: 13.5,
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    boxShadow: '0 4px 14px rgba(2, 132, 199, 0.4)'
+                  }}
+                >
+                  {notebookProps.saving ? 'Đang lưu vào CSDL...' : '💾 Lưu Hồ Sơ & Kết Thúc Ca'}
+                </button>
+              </div>
+            )}
+
+            {/* BODY: TAB 3 - BÀI TẬP THỞ 4-7-8 (DÀNH CHO SINH VIÊN) */}
+            {activeSideDrawer === 'breathe' && (
+              <div style={{ flex: 1, padding: '24px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
+                <div style={{
+                  position: 'relative',
+                  width: 150,
+                  height: 150,
+                  borderRadius: '50%',
+                  background: 'rgba(13, 148, 136, 0.15)',
+                  border: '3px solid #0d9488',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginBottom: 24,
+                  animation: 'pulse 3s infinite'
+                }}>
+                  <span style={{ fontSize: 36, fontWeight: 900, color: '#2dd4bf' }}>{breatheCount}s</span>
+                  <span style={{ fontSize: 12, color: '#94a3b8' }}>nhịp đếm</span>
+                </div>
+
+                <h3 style={{ fontSize: 18, fontWeight: 800, margin: '0 0 10px', color: '#2dd4bf' }}>
+                  {breathePhase}
+                </h3>
+
+                <p style={{ fontSize: 13, color: '#94a3b8', lineHeight: 1.6, maxWidth: 300, margin: '0 0 20px' }}>
+                  Kỹ thuật thở 4-7-8 giúp xoa dịu hệ thần kinh đối giao cảm, giảm căng thẳng và giúp bạn cởi mở trò chuyện hơn cùng chuyên viên.
+                </p>
+
+                <div style={{ background: 'rgba(255,255,255,0.05)', borderRadius: 12, padding: '12px 16px', textAlign: 'left', width: '100%', boxSizing: 'border-box' }}>
+                  <div style={{ fontSize: 12, color: '#cbd5e1', marginBottom: 4 }}>• <strong>4s:</strong> Hít sâu bằng mũi</div>
+                  <div style={{ fontSize: 12, color: '#cbd5e1', marginBottom: 4 }}>• <strong>7s:</strong> Giữ hơi thở bình tâm</div>
+                  <div style={{ fontSize: 12, color: '#cbd5e1' }}>• <strong>8s:</strong> Thở ra nhẹ nhàng bằng miệng</div>
+                </div>
+              </div>
+            )}
+
+            {/* BODY: TAB 4 - BẢO MẬT WEBRTC */}
+            {activeSideDrawer === 'security' && (
+              <div style={{ flex: 1, overflowY: 'auto', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div style={{ background: 'rgba(34, 197, 94, 0.12)', padding: '12px 14px', borderRadius: 10, borderLeft: '3px solid #22c55e' }}>
+                  <strong style={{ color: '#4ade80', fontSize: 13 }}>✓ 100% In-House WebRTC:</strong>
+                  <p style={{ margin: '4px 0 0', fontSize: 12, color: '#94a3b8' }}>
+                    Tự tổ chức nội bộ, không dùng bên thứ 3 (Zoom, Google, Twilio, Agora).
+                  </p>
+                </div>
+                <div style={{ background: 'rgba(56, 189, 248, 0.12)', padding: '12px 14px', borderRadius: 10, borderLeft: '3px solid #38bdf8' }}>
+                  <strong style={{ color: '#38bdf8', fontSize: 13 }}>✓ Mã Hóa DTLS-SRTP P2P:</strong>
+                  <p style={{ margin: '4px 0 0', fontSize: 12, color: '#94a3b8' }}>
+                    Dữ liệu âm thanh và hình ảnh truyền trực tiếp giữa 2 trình duyệt theo chuẩn RFC 5763 và RFC 3711.
+                  </p>
+                </div>
+                <div style={{ background: 'rgba(245, 158, 11, 0.12)', padding: '12px 14px', borderRadius: 10, borderLeft: '3px solid #fbbf24' }}>
+                  <strong style={{ color: '#fbbf24', fontSize: 13 }}>✓ Quyền Riêng Tư &amp; Ẩn Danh:</strong>
+                  <p style={{ margin: '4px 0 0', fontSize: 12, color: '#94a3b8' }}>
+                    Danh tính sinh viên được bảo vệ tuyệt đối. Không ghi hình, không lưu video ra ngoài hệ thống.
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
 
-      {/* ══════════════ 5. BOTTOM CONTROL TOOLBAR ══════════════ */}
+      {/* ══════════════ 5. BOTTOM CONTROL DOCK (GOOGLE MEET SIGNATURE TOOLBAR) ══════════════ */}
       <div style={{
+        height: 76,
+        padding: '0 24px',
+        background: 'rgba(32, 33, 36, 0.98)',
+        backdropFilter: 'blur(16px)',
+        borderTop: '1px solid rgba(255,255,255,0.08)',
         display: 'flex',
-        justifyContent: 'center',
+        justifyContent: 'space-between',
         alignItems: 'center',
-        gap: 12,
-        padding: '12px 18px',
-        background: 'rgba(15, 23, 42, 0.95)',
-        backdropFilter: 'blur(10px)',
-        borderTop: '1px solid rgba(255,255,255,0.1)',
-        zIndex: 20,
-        flexWrap: 'wrap'
+        zIndex: 30,
+        boxSizing: 'border-box'
       }}>
-        {/* Bật/Tắt Micro */}
-        <button
-          type="button"
-          onClick={toggleAudio}
-          title={isAudioMuted ? 'Bật Micro' : 'Tắt Micro'}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 6,
-            padding: '8px 16px', borderRadius: 10,
-            background: isAudioMuted ? '#dc2626' : 'rgba(255,255,255,0.1)',
-            border: `1.5px solid ${isAudioMuted ? '#ef4444' : 'rgba(255,255,255,0.2)'}`,
-            color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer',
-            transition: 'all 0.15s'
-          }}
-        >
-          <span>{isAudioMuted ? '🔇' : '🎤'}</span>
-          <span>{isAudioMuted ? 'Bật Mic' : 'Tắt Mic'}</span>
-        </button>
-
-        {/* Bật/Tắt Camera */}
-        <button
-          type="button"
-          onClick={toggleVideo}
-          title={isVideoMuted ? 'Bật Camera' : 'Tắt Camera'}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 6,
-            padding: '8px 16px', borderRadius: 10,
-            background: isVideoMuted ? '#dc2626' : 'rgba(255,255,255,0.1)',
-            border: `1.5px solid ${isVideoMuted ? '#ef4444' : 'rgba(255,255,255,0.2)'}`,
-            color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer',
-            transition: 'all 0.15s'
-          }}
-        >
-          <span>{isVideoMuted ? '📷🚫' : '📹'}</span>
-          <span>{isVideoMuted ? 'Bật Cam' : 'Tắt Cam'}</span>
-        </button>
-
-        {/* Chia sẻ màn hình (WebRTC Native) */}
-        <button
-          type="button"
-          onClick={toggleScreenShare}
-          title={isScreenSharing ? 'Dừng chia sẻ màn hình' : 'Chia sẻ màn hình'}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 6,
-            padding: '8px 16px', borderRadius: 10,
-            background: isScreenSharing ? '#0284c7' : 'rgba(255,255,255,0.1)',
-            border: `1.5px solid ${isScreenSharing ? '#38bdf8' : 'rgba(255,255,255,0.2)'}`,
-            color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer',
-            transition: 'all 0.15s'
-          }}
-        >
-          <span>🖥️</span>
-          <span>{isScreenSharing ? 'Dừng Share' : 'Chia sẻ màn hình'}</span>
-        </button>
-
-        {/* Mở Chat */}
-        <button
-          type="button"
-          onClick={() => {
-            setShowChat(v => !v);
-            setUnreadChatCount(0);
-          }}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 6,
-            padding: '8px 16px', borderRadius: 10,
-            background: showChat ? '#0284c7' : 'rgba(255,255,255,0.1)',
-            border: `1.5px solid ${showChat ? '#38bdf8' : 'rgba(255,255,255,0.2)'}`,
-            color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer',
-            position: 'relative',
-            transition: 'all 0.15s'
-          }}
-        >
-          <span>💬</span>
-          <span>Trò chuyện</span>
-          {unreadChatCount > 0 && !showChat && (
-            <span style={{
-              position: 'absolute', top: -4, right: -4,
-              background: '#ef4444', color: '#fff', fontSize: 10,
-              fontWeight: 900, width: 18, height: 18, borderRadius: '50%',
-              display: 'flex', alignItems: 'center', justifyContent: 'center'
-            }}>
-              {unreadChatCount}
-            </span>
-          )}
-        </button>
-
-        {/* Toàn màn hình */}
-        <button
-          type="button"
-          onClick={toggleFullscreen}
-          title={isFullscreen ? 'Thu nhỏ' : 'Toàn màn hình'}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 6,
-            padding: '8px 14px', borderRadius: 10,
-            background: 'rgba(255,255,255,0.1)',
-            border: '1.5px solid rgba(255,255,255,0.2)',
-            color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer',
-            transition: 'all 0.15s'
-          }}
-        >
-          <span>{isFullscreen ? '🗗' : '⛶'}</span>
-          <span>{isFullscreen ? 'Thu nhỏ' : 'Toàn màn hình'}</span>
-        </button>
-
-        {/* Rời phòng / Kết thúc */}
-        {onLeaveOrEnd && (
+        {/* KHU VỰC TRÁI: ĐỒNG HỒ & THÔNG TIN CA HẸN */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 220 }}>
+          <span style={{ fontSize: 15, fontWeight: 800, color: '#f1f5f9', letterSpacing: '0.02em' }}>
+            {currentTime}
+          </span>
+          <span style={{ color: '#475569' }}>|</span>
           <button
             type="button"
-            onClick={onLeaveOrEnd}
+            onClick={handleCopyCode}
+            title="Nhấn để sao chép mã ca"
             style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              padding: '8px 18px', borderRadius: 10,
-              background: isHost ? '#dc2626' : '#991b1b',
-              border: '1.5px solid #ef4444',
-              color: '#fff', fontSize: 13, fontWeight: 800, cursor: 'pointer',
-              marginLeft: 'auto',
-              boxShadow: '0 4px 12px rgba(220, 38, 38, 0.3)',
-              transition: 'all 0.15s'
+              background: 'rgba(255,255,255,0.06)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              borderRadius: 6,
+              padding: '4px 10px',
+              color: copiedCode ? '#4ade80' : '#cbd5e1',
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6
             }}
           >
-            <span>🚪</span>
-            <span>{isHost ? 'Kết thúc ca' : 'Rời phòng'}</span>
+            <span>{copiedCode ? '✓' : '📋'}</span>
+            <span>{copiedCode ? 'Đã chép' : bookingCode}</span>
           </button>
-        )}
-      </div>
+        </div>
 
-      {/* ══════════════ 6. MODAL BẢO MẬT & CHỨNG THỰC WEBRTC NỘI BỘ ══════════════ */}
-      {showSecurityModal && (
-        <div style={{
-          position: 'absolute',
-          inset: 0,
-          background: 'rgba(0,0,0,0.75)',
-          backdropFilter: 'blur(6px)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 60,
-          padding: 20
-        }}>
-          <div style={{
-            background: '#0f172a',
-            border: '1.5px solid #38bdf8',
-            borderRadius: 16,
-            padding: 24,
-            maxWidth: 520,
-            width: '100%',
-            color: '#fff',
-            boxShadow: '0 20px 40px rgba(0,0,0,0.6)'
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <h3 style={{ fontSize: 18, fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: 8, color: '#38bdf8' }}>
-                🛡️ Chứng Thực Công Nghệ WebRTC Thuần Túy
-              </h3>
-              <button
-                type="button"
-                onClick={() => setShowSecurityModal(false)}
-                style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 18, cursor: 'pointer' }}
-              >
-                ✕
-              </button>
-            </div>
+        {/* KHU VỰC GIỮA: CÁC NÚT TRÒN ĐIỀU KHIỂN CHUẨN GOOGLE MEET (ROUND DOCK) */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {/* 1. Micro */}
+          <button
+            type="button"
+            onClick={toggleAudio}
+            title={isAudioMuted ? 'Bật Micro (Ctrl+D hoặc M)' : 'Tắt Micro (Ctrl+D hoặc M)'}
+            style={{
+              width: 50,
+              height: 50,
+              borderRadius: '50%',
+              background: isAudioMuted ? '#ea4335' : '#3c4043',
+              border: 'none',
+              color: '#fff',
+              fontSize: 20,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+              transition: 'all 0.15s ease'
+            }}
+          >
+            {isAudioMuted ? '🔇' : '🎙️'}
+          </button>
 
-            <div style={{ fontSize: 13, color: '#cbd5e1', lineHeight: 1.6, display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div style={{ background: 'rgba(255,255,255,0.05)', padding: '10px 14px', borderRadius: 10, borderLeft: '3px solid #10b981' }}>
-                <strong style={{ color: '#4ade80' }}>✓ 100% Tự Tổ Chức (Zero Third-Party):</strong>
-                <p style={{ margin: '4px 0 0', fontSize: 12, color: '#94a3b8' }}>
-                  Hệ thống không sử dụng bất kỳ nhà cung cấp dịch vụ bên thứ 3 nào (Không Jitsi, không Zoom, không Google Meet, không Agora, không Twilio).
-                </p>
-              </div>
+          {/* 2. Camera */}
+          <button
+            type="button"
+            onClick={toggleVideo}
+            title={isVideoMuted ? 'Bật Camera (Ctrl+E hoặc V)' : 'Tắt Camera (Ctrl+E hoặc V)'}
+            style={{
+              width: 50,
+              height: 50,
+              borderRadius: '50%',
+              background: isVideoMuted ? '#ea4335' : '#3c4043',
+              border: 'none',
+              color: '#fff',
+              fontSize: 20,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+              transition: 'all 0.15s ease'
+            }}
+          >
+            {isVideoMuted ? '📷🚫' : '📹'}
+          </button>
 
-              <div style={{ background: 'rgba(255,255,255,0.05)', padding: '10px 14px', borderRadius: 10, borderLeft: '3px solid #38bdf8' }}>
-                <strong style={{ color: '#38bdf8' }}>✓ Mã Hóa Đầu-Cuối P2P (DTLS-SRTP):</strong>
-                <p style={{ margin: '4px 0 0', fontSize: 12, color: '#94a3b8' }}>
-                  Dữ liệu hình ảnh và âm thanh truyền trực tiếp giữa trình duyệt của Chuyên viên và Sinh viên theo chuẩn RFC 5763 và RFC 3711. Máy chủ chỉ đóng vai trò trao đổi tín hiệu ban đầu (SDP Signaling).
-                </p>
-              </div>
+          {/* 3. Chia sẻ màn hình */}
+          <button
+            type="button"
+            onClick={toggleScreenShare}
+            title={isScreenSharing ? 'Dừng chia sẻ màn hình' : 'Chia sẻ màn hình'}
+            style={{
+              width: 50,
+              height: 50,
+              borderRadius: '50%',
+              background: isScreenSharing ? '#0284c7' : '#3c4043',
+              border: 'none',
+              color: '#fff',
+              fontSize: 20,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+              transition: 'all 0.15s ease'
+            }}
+          >
+            🖥️
+          </button>
 
-              <div style={{ background: 'rgba(255,255,255,0.05)', padding: '10px 14px', borderRadius: 10, borderLeft: '3px solid #f59e0b' }}>
-                <strong style={{ color: '#fbbf24' }}>✓ Bảo Mật Danh Tính Ẩn Danh (Privacy-by-Design):</strong>
-                <p style={{ margin: '4px 0 0', fontSize: 12, color: '#94a3b8' }}>
-                  Sinh viên được bảo vệ bằng mã định danh ẩn danh. Không ghi hình, không lưu trữ video ra ngoài hệ thống.
-                </p>
-              </div>
-            </div>
+          {/* 4. Chế độ Thoại Riêng Tư */}
+          <button
+            type="button"
+            onClick={() => setIsVoiceOnlyMode(v => !v)}
+            title={isVoiceOnlyMode ? 'Tắt chế độ thoại riêng tư' : 'Bật chế độ thoại ẩn danh'}
+            style={{
+              width: 50,
+              height: 50,
+              borderRadius: '50%',
+              background: isVoiceOnlyMode ? '#0d9488' : '#3c4043',
+              border: 'none',
+              color: '#fff',
+              fontSize: 20,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+              transition: 'all 0.15s ease'
+            }}
+          >
+            🎧
+          </button>
 
+          {/* 5. Toàn màn hình Native (F11 / RequestFullscreen) */}
+          <button
+            type="button"
+            onClick={toggleNativeFullscreen}
+            title={isNativeFullscreen ? 'Thoát toàn màn hình (F)' : 'Toàn màn hình trình duyệt (F)'}
+            style={{
+              width: 50,
+              height: 50,
+              borderRadius: '50%',
+              background: isNativeFullscreen ? '#0284c7' : '#3c4043',
+              border: 'none',
+              color: '#fff',
+              fontSize: 18,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+              transition: 'all 0.15s ease'
+            }}
+          >
+            {isNativeFullscreen ? '🗗' : '⛶'}
+          </button>
+
+          {/* 6. NÚT KẾT THÚC CA HẸN (GOOGLE MEET RED PILL) */}
+          {onLeaveOrEnd && (
             <button
               type="button"
-              onClick={() => setShowSecurityModal(false)}
+              onClick={onLeaveOrEnd}
               style={{
-                width: '100%',
-                marginTop: 20,
-                padding: '10px 16px',
-                background: '#0284c7',
+                height: 50,
+                padding: '0 24px',
+                borderRadius: 25,
+                background: '#ea4335',
                 border: 'none',
-                borderRadius: 8,
                 color: '#fff',
-                fontSize: 13,
+                fontSize: 14,
                 fontWeight: 800,
-                cursor: 'pointer'
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                marginLeft: 8,
+                boxShadow: '0 6px 18px rgba(234, 67, 53, 0.4)',
+                transition: 'all 0.15s ease'
               }}
             >
-              Đã hiểu &amp; Tiếp tục phiên tư vấn
+              <span style={{ fontSize: 18 }}>📞</span>
+              <span>{isHost ? 'Kết thúc ca' : 'Rời phòng'}</span>
             </button>
-          </div>
+          )}
         </div>
-      )}
 
-      {/* ══════════════ 7. MODAL THÔNG BÁO KẾT THÚC TỪ HOST ══════════════ */}
+        {/* KHU VỰC PHẢI: TIỆN ÍCH, SỔ TAY, BÀI TẬP THỞ, CHAT & BẢO MẬT */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 220, justifyContent: 'flex-end' }}>
+          {/* Nút Sổ tay lâm sàng (Chuyên viên) */}
+          {currentUserRole === 'expert' && notebookProps && (
+            <button
+              type="button"
+              onClick={() => setActiveSideDrawer(d => d === 'notes' ? null : 'notes')}
+              title="Mở Sổ tay & Hồ sơ lâm sàng"
+              style={{
+                width: 48,
+                height: 48,
+                borderRadius: '50%',
+                background: activeSideDrawer === 'notes' ? '#0284c7' : 'rgba(255,255,255,0.08)',
+                border: `1.5px solid ${activeSideDrawer === 'notes' ? '#38bdf8' : 'rgba(255,255,255,0.15)'}`,
+                color: '#fff',
+                fontSize: 18,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              📝
+            </button>
+          )}
+
+          {/* Nút Bài tập thở 4-7-8 (Sinh viên) */}
+          {currentUserRole === 'student' && (
+            <button
+              type="button"
+              onClick={() => setActiveSideDrawer(d => d === 'breathe' ? null : 'breathe')}
+              title="Mở bài tập thở 4-7-8 thư giãn"
+              style={{
+                width: 48,
+                height: 48,
+                borderRadius: '50%',
+                background: activeSideDrawer === 'breathe' ? '#0d9488' : 'rgba(255,255,255,0.08)',
+                border: `1.5px solid ${activeSideDrawer === 'breathe' ? '#2dd4bf' : 'rgba(255,255,255,0.15)'}`,
+                color: '#fff',
+                fontSize: 18,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              🧘
+            </button>
+          )}
+
+          {/* Nút Trò chuyện (Chat) */}
+          <button
+            type="button"
+            onClick={() => {
+              setActiveSideDrawer(d => d === 'chat' ? null : 'chat');
+              setUnreadChatCount(0);
+            }}
+            title="Mở Trò chuyện trong cuộc gọi"
+            style={{
+              width: 48,
+              height: 48,
+              borderRadius: '50%',
+              background: activeSideDrawer === 'chat' ? '#0284c7' : 'rgba(255,255,255,0.08)',
+              border: `1.5px solid ${activeSideDrawer === 'chat' ? '#38bdf8' : 'rgba(255,255,255,0.15)'}`,
+              color: '#fff',
+              fontSize: 18,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              position: 'relative',
+              transition: 'all 0.15s ease'
+            }}
+          >
+            💬
+            {unreadChatCount > 0 && activeSideDrawer !== 'chat' && (
+              <span style={{
+                position: 'absolute', top: -3, right: -3,
+                background: '#ef4444', color: '#fff', fontSize: 10,
+                fontWeight: 900, width: 18, height: 18, borderRadius: '50%',
+                display: 'flex', alignItems: 'center', justifyContent: 'center'
+              }}>
+                {unreadChatCount}
+              </span>
+            )}
+          </button>
+
+          {/* Nút Bảo mật WebRTC */}
+          <button
+            type="button"
+            onClick={() => setActiveSideDrawer(d => d === 'security' ? null : 'security')}
+            title="Xem chứng thực công nghệ bảo mật WebRTC"
+            style={{
+              width: 48,
+              height: 48,
+              borderRadius: '50%',
+              background: activeSideDrawer === 'security' ? '#0284c7' : 'rgba(255,255,255,0.08)',
+              border: `1.5px solid ${activeSideDrawer === 'security' ? '#38bdf8' : 'rgba(255,255,255,0.15)'}`,
+              color: '#fff',
+              fontSize: 18,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'all 0.15s ease'
+            }}
+          >
+            🛡️
+          </button>
+        </div>
+      </div>
+
+      {/* ══════════════ 6. MODAL THÔNG BÁO KẾT THÚC TỪ HOST ══════════════ */}
       {connectionStatus === 'ended' && (
         <div style={{
           position: 'absolute',
           inset: 0,
           background: 'rgba(15, 23, 42, 0.95)',
-          backdropFilter: 'blur(8px)',
+          backdropFilter: 'blur(10px)',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
@@ -1371,31 +1862,32 @@ export default function SafeCallMeetingRoom({
           color: '#fff'
         }}>
           <div style={{
-            width: 72, height: 72, borderRadius: '50%',
+            width: 76, height: 76, borderRadius: '50%',
             background: 'rgba(16, 185, 129, 0.2)', border: '2px solid #10b981',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 32, marginBottom: 16
+            fontSize: 34, marginBottom: 18
           }}>
             ✓
           </div>
-          <h2 style={{ fontSize: 22, fontWeight: 900, margin: '0 0 8px' }}>
+          <h2 style={{ fontSize: 24, fontWeight: 900, margin: '0 0 8px' }}>
             Phiên Tư Vấn Đã Hoàn Tất
           </h2>
-          <p style={{ fontSize: 14, color: '#94a3b8', maxWidth: 440, margin: '0 0 24px' }}>
-            Cuộc họp trực tuyến WebRTC đã được kết thúc thành công và an toàn. Cảm ơn bạn đã tham gia phiên tham vấn!
+          <p style={{ fontSize: 14, color: '#94a3b8', maxWidth: 460, margin: '0 0 24px', lineHeight: 1.6 }}>
+            Cuộc họp trực tuyến WebRTC đã được kết thúc thành công và an toàn. Cảm ơn bạn đã tham gia phiên tham vấn tâm lý cùng UniMind!
           </p>
           <button
             type="button"
             onClick={onLeaveOrEnd}
             style={{
-              padding: '10px 28px',
+              padding: '12px 32px',
               background: '#0d9488',
               color: '#fff',
               border: 'none',
-              borderRadius: 10,
+              borderRadius: 12,
               fontSize: 14,
               fontWeight: 800,
-              cursor: 'pointer'
+              cursor: 'pointer',
+              boxShadow: '0 6px 20px rgba(13, 148, 136, 0.35)'
             }}
           >
             Quay Về Trang Quản Lý Ca Hẹn
@@ -1406,12 +1898,8 @@ export default function SafeCallMeetingRoom({
       <style>{`
         @keyframes pulse {
           0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.5); }
-          70% { box-shadow: 0 0 0 8px rgba(34, 197, 94, 0); }
+          70% { box-shadow: 0 0 0 10px rgba(34, 197, 94, 0); }
           100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
-        }
-        @keyframes spin {
-          0% { transform: rotate(0deg); }
-          100% { transform: rotate(360deg); }
         }
         @keyframes fadeIn {
           from { opacity: 0; transform: translateY(-6px); }

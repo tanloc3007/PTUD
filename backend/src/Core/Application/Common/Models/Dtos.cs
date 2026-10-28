@@ -26,7 +26,7 @@ public record RegisterRequest(
     string? YearOfStudy = null
 );
 public record AuthResponse(string Token, UserDto User);
-public record UserDto(Guid Id, string? MSSV, string FullName, string Email, string Role, string? Faculty, string AnonymousCode, string? AvatarUrl, List<string>? Permissions = null);
+public record UserDto(Guid Id, string? MSSV, string FullName, string Email, string Role, string? Faculty, string AnonymousCode, string? AvatarUrl, List<string>? Permissions = null, bool IsActive = true, DateTime? CreatedAt = null);
 
 // 2. MOOD JOURNAL DTOs
 public record CreateMoodJournalRequest(

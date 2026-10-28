@@ -239,25 +239,28 @@ export default function StudentMeetingRoomPage() {
           sessionSeconds={sessionSeconds}
           onLeaveOrEnd={handleLeaveMeeting}
           isHost={false}
+          defaultImmersive={true}
           extraHeaderActions={
             <button
               type="button"
-              onClick={() => setShowHelpDrawer(v => !v)}
+              onClick={handleLeaveMeeting}
+              title="Rời khỏi phòng tư vấn"
               style={{
-                fontSize: 12,
-                padding: '6px 14px',
+                padding: '6px 12px',
                 borderRadius: 8,
-                background: showHelpDrawer ? '#0d9488' : 'rgba(255,255,255,0.1)',
-                color: '#fff',
-                border: '1px solid rgba(255,255,255,0.2)',
-                fontWeight: 800,
+                fontSize: 11.5,
+                fontWeight: 700,
                 cursor: 'pointer',
+                border: '1px solid rgba(239, 68, 68, 0.4)',
+                background: 'rgba(239, 68, 68, 0.15)',
+                color: '#f87171',
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: 6
               }}
             >
-              🌿 {showHelpDrawer ? 'Đóng Thư Giãn' : 'Hít Thở 4-7-8'}
+              <span>🚪</span>
+              <span>Rời phòng</span>
             </button>
           }
         />

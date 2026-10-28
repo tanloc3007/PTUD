@@ -210,92 +210,49 @@ export default function ConsultationRoomPage() {
   return (
     <div className="expert-page-shell" style={{ width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}>
       
-      {/* Header */}
-      <div style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        flexWrap: 'wrap',
-        gap: 12,
-        marginBottom: 20,
-        paddingBottom: 14,
-        borderBottom: '1px solid var(--e-border, #e5e7eb)',
-      }}>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{
-              width: 10,
-              height: 10,
-              borderRadius: '50%',
-              background: isMeetingStarted ? '#ef4444' : '#10b981',
-              boxShadow: isMeetingStarted ? '0 0 8px #ef4444' : '0 0 8px #10b981',
-              display: 'inline-block'
-            }} />
-            <h1 style={{ fontSize: 22, fontWeight: 900, color: 'var(--e-text, #0f172a)', margin: 0, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
-              {isMeetingStarted ? 'Phòng Tư Vấn WebRTC P2P Nội Bộ (Đang Kết Nối)' : 'Trung Tâm Quản Lý Cuộc Họp Tư Vấn'}
-            </h1>
+      {/* Header chỉ hiển thị khi chưa vào phòng họp, để phòng họp Google Meet chiếm trọn vẹn màn hình không bị chèn ép */}
+      {!isMeetingStarted && (
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: 12,
+          marginBottom: 20,
+          paddingBottom: 14,
+          borderBottom: '1px solid var(--e-border, #e5e7eb)',
+        }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{
+                width: 10,
+                height: 10,
+                borderRadius: '50%',
+                background: '#10b981',
+                boxShadow: '0 0 8px #10b981',
+                display: 'inline-block'
+              }} />
+              <h1 style={{ fontSize: 22, fontWeight: 900, color: 'var(--e-text, #0f172a)', margin: 0, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+                Trung Tâm Quản Lý Cuộc Họp Tư Vấn
+              </h1>
+            </div>
+            <p style={{ fontSize: 13, color: 'var(--e-text-muted, #64748b)', margin: '4px 0 0' }}>
+              Xem lịch hẹn đã duyệt của sinh viên và khởi động phòng họp WebRTC nội bộ không qua bên thứ 3
+            </p>
           </div>
-          <p style={{ fontSize: 13, color: 'var(--e-text-muted, #64748b)', margin: '4px 0 0' }}>
-            {isMeetingStarted
-              ? `Tham vấn trực tuyến cùng: ${selectedAppt?.studentAnonymousCode || 'Sinh viên'} • Thời lượng: ${formatTime(sessionSeconds)} • Công nghệ WebRTC P2P tự tổ chức`
-              : 'Xem lịch hẹn đã duyệt của sinh viên và khởi động phòng họp WebRTC nội bộ không qua bên thứ 3'}
-          </p>
+
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <button
+              type="button"
+              onClick={() => navigate('/expert/schedule')}
+              className="e-btn e-btn-ghost"
+              style={{ fontSize: 13, padding: '7px 14px' }}
+            >
+              ← Lịch hẹn tham vấn
+            </button>
+          </div>
         </div>
-
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-          <button
-            type="button"
-            onClick={() => navigate('/expert/schedule')}
-            className="e-btn e-btn-ghost"
-            style={{ fontSize: 13, padding: '7px 14px' }}
-          >
-            ← Lịch hẹn tham vấn
-          </button>
-
-          {isMeetingStarted && (
-            <>
-              {/* NÚT NHẮC ĐỂ HIỂN THỊ KHUNG NHỎ SỔ TAY LÂM SÀNG */}
-              <button
-                type="button"
-                onClick={() => setShowNotebook(v => !v)}
-                className="e-btn"
-                style={{
-                  fontSize: 13,
-                  padding: '7px 14px',
-                  background: showNotebook ? '#0284c7' : '#f0f9ff',
-                  color: showNotebook ? '#ffffff' : '#0284c7',
-                  border: '1.5px solid #0284c7',
-                  fontWeight: 800,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6
-                }}
-              >
-                📝 {showNotebook ? 'Ẩn Sổ Tay' : 'Mở Sổ Tay Lâm Sàng'}
-              </button>
-
-              <button
-                type="button"
-                onClick={handleCloseMeeting}
-                className="e-btn e-btn-ghost"
-                style={{ fontSize: 13, padding: '7px 14px', color: '#b91c1c', borderColor: '#fca5a5' }}
-              >
-                🚪 Đóng phòng họp
-              </button>
-
-              <button
-                type="button"
-                onClick={handleEndSession}
-                disabled={saving}
-                className="e-btn e-btn-primary"
-                style={{ fontSize: 13, padding: '7px 16px', background: '#dc2626', borderColor: '#dc2626' }}
-              >
-                {saving ? 'Đang lưu...' : '⏹️ Kết thúc phiên'}
-              </button>
-            </>
-          )}
-        </div>
-      </div>
+      )}
 
       {notice && (
         <InPageNotification
@@ -484,7 +441,7 @@ export default function ConsultationRoomPage() {
         </div>
       ) : (
         /* ══════════════ VIEW 2: PHÒNG HỌP TRỰC TUYẾN INTERNET ══════════════ */
-        <div style={{ position: 'relative', width: '100%' }}>
+        <div style={{ position: 'relative', width: '100%', height: '100%' }}>
           <SafeCallMeetingRoom
             appointmentId={selectedAppt?.id || appointmentId}
             bookingCode={selectedAppt?.bookingCode || 'ST-LIVE'}
@@ -494,25 +451,40 @@ export default function ConsultationRoomPage() {
             sessionSeconds={sessionSeconds}
             onLeaveOrEnd={handleCloseMeeting}
             isHost={true}
+            defaultImmersive={true}
+            notebookProps={{
+              notes: clinicalNotes,
+              setNotes: setClinicalNotes,
+              risk: riskAssessment,
+              setRisk: setRiskAssessment,
+              followUp: followUpPlan,
+              setFollowUp: setFollowUpPlan,
+              prescribed: prescribedActions,
+              setPrescribed: setPrescribedActions,
+              onSave: handleEndSession,
+              saving: saving
+            }}
             extraHeaderActions={
               <button
                 type="button"
-                onClick={() => setShowNotebook(v => !v)}
+                onClick={handleCloseMeeting}
+                title="Đóng phòng họp và quay về danh sách"
                 style={{
-                  fontSize: 12,
-                  padding: '5px 12px',
+                  padding: '6px 12px',
                   borderRadius: 8,
-                  background: showNotebook ? '#0284c7' : 'rgba(255,255,255,0.1)',
-                  color: '#fff',
-                  border: '1px solid rgba(255,255,255,0.2)',
+                  fontSize: 11.5,
                   fontWeight: 700,
                   cursor: 'pointer',
+                  border: '1px solid rgba(239, 68, 68, 0.4)',
+                  background: 'rgba(239, 68, 68, 0.15)',
+                  color: '#f87171',
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: 6
                 }}
               >
-                📝 {showNotebook ? 'Ẩn Sổ Tay' : 'Sổ Tay Lâm Sàng'}
+                <span>🚪</span>
+                <span>Đóng phòng</span>
               </button>
             }
           />

@@ -84,13 +84,14 @@
 
 ---
 
-## 7. Bảng Phân quyền Chuyên viên & Audit Log Quản trị viên
-
-* **Cách làm**:
-  * Thêm tính năng **Audit Log**: Ghi vết tự động mọi hành động của Admin (khóa user, duyệt bài, duyệt ảnh, thêm từ khóa nhạy cảm).
-  * Thêm **Ma trận phân quyền chuyên viên**: Admin có thể chỉ định chuyên viên 1 chỉ xem Dashboard/Lịch hẹn, chuyên viên 2 chỉ xem Phân tích/Kiểm duyệt bài viết.
+## 7. Bảng Phân quyền Chức năng Chuyên viên & Tự động Làm mới (Auto-Refresh)
+* **Cách làm mới**:
+  * **Phân quyền theo chức năng độc lập**: Loại bỏ hoàn toàn nút mẫu "Chuyên viên 1 / Chuyên viên 2", cho phép Admin tùy chọn bật/tắt tự do theo từng chức năng nghiệp vụ (Bàn làm việc, Lịch hẹn & Ca trực, Phân tích & Cảnh báo SOS, Kiểm duyệt bài viết & Hình ảnh) hoặc Chọn tất cả / Bỏ chọn tất cả.
+  * **Cơ chế tự động làm mới tức thì (Auto-Refresh)**: Khi Admin cập nhật phân quyền, trang của chuyên viên được phân quyền sẽ tự động reload ngay lập tức (thông qua `BroadcastChannel`, `StorageEvent` và heartbeat polling) để áp dụng quyền mới tức thời, ẩn/hiện menu tương ứng và chặn trang bị cấm mà người dùng không cần phải F5 bằng tay.
+  * Thêm tính năng **Audit Log**: Ghi vết tự động mọi hành động của Admin (khóa user, duyệt bài, duyệt ảnh, thêm từ khóa nhạy cảm, chỉnh phân quyền).
 * **Tệp chỉnh sửa**:
   * `frontend/src/features/admin/pages/UsersPage.jsx`
+  * `frontend/src/app/layouts/ExpertLayout.jsx`
   * `frontend/src/features/admin/pages/AuditLogsPage.jsx`
   * `backend/src/Core/Application/Features/ServiceImplementations.cs`
 

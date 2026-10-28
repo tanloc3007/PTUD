@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../../features/auth/store/authStore';
-import { logout } from '../../features/auth/api/authApi';
+import { logout, getMyProfile } from '../../features/auth/api/authApi';
 import ThemeToggle from '../../shared/components/ThemeToggle';
 import '../../shared/styles/unimind-expert-theme.css';
 
@@ -26,8 +26,8 @@ export default function ExpertLayout() {
   const [isMobile, setIsMobile]   = useState(window.innerWidth < 768);
   const [sidebarOpen, setSidebar] = useState(false);
 
-  // Phân quyền chi tiết cho chuyên viên (Mặc định đầy đủ quyền nếu chưa cấu hình)
-  const userPerms = Array.isArray(user?.permissions) && user.permissions.length > 0
+  // Phân quyền chi tiết cho chuyên viên (Mặc định đầy đủ quyền nếu chưa từng cấu hình)
+  const userPerms = Array.isArray(user?.permissions)
     ? user.permissions
     : ['PERM_WORKSPACE', 'PERM_SCHEDULE', 'PERM_ANALYTICS', 'PERM_MODERATION'];
 
@@ -35,6 +35,66 @@ export default function ExpertLayout() {
 
   const currentNavItem = ALL_NAV_ITEMS.find(item => item.to === location.pathname);
   const isUnauthorized = currentNavItem?.permission && !userPerms.includes(currentNavItem.permission);
+
+  // Tự động làm mới trang khi Quản trị viên cập nhật phân quyền
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const handleApplyNewPerms = (newPerms) => {
+      const currentList = Array.isArray(user?.permissions)
+        ? user.permissions
+        : ['PERM_WORKSPACE', 'PERM_SCHEDULE', 'PERM_ANALYTICS', 'PERM_MODERATION'];
+      const currentKey = currentList.slice().sort().join(',');
+      const nextKey = (newPerms || []).slice().sort().join(',');
+
+      if (currentKey !== nextKey) {
+        // Cập nhật auth store và localStorage
+        useAuthStore.getState().updateUser({ permissions: newPerms });
+        // Tải lại trang ngay lập tức để áp dụng quyền mới
+        window.location.reload();
+      }
+    };
+
+    // 1. Nhận sự kiện liên tab qua storage event (cùng trình duyệt)
+    const onStorage = (e) => {
+      if (e.key === 'unimind_expert_perm_updated' && e.newValue) {
+        try {
+          const payload = JSON.parse(e.newValue);
+          if (payload.userId === user.id) {
+            handleApplyNewPerms(payload.permissions);
+          }
+        } catch {}
+      }
+    };
+    window.addEventListener('storage', onStorage);
+
+    // 2. Nhận sự kiện tức thời qua BroadcastChannel
+    let bc = null;
+    try {
+      bc = new BroadcastChannel('unimind_perm_channel');
+      bc.onmessage = (event) => {
+        if (event.data?.type === 'PERMISSIONS_UPDATED' && event.data.userId === user.id) {
+          handleApplyNewPerms(event.data.permissions);
+        }
+      };
+    } catch {}
+
+    // 3. Heartbeat polling định kỳ (mỗi 2.5 giây) gọi /api/auth/me để phát hiện ngay cả khi mở trên trình duyệt khác/tab ẩn danh
+    const timer = setInterval(async () => {
+      try {
+        const res = await getMyProfile();
+        if (res?.success && res.data && res.data.permissions !== undefined) {
+          handleApplyNewPerms(res.data.permissions || []);
+        }
+      } catch {}
+    }, 2500);
+
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      if (bc) bc.close();
+      clearInterval(timer);
+    };
+  }, [user?.id, user?.permissions]);
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth < 768);

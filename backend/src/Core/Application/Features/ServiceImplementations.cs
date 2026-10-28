@@ -5,6 +5,36 @@ using UniMind.Domain.Enums;
 
 namespace UniMind.Application.Features;
 
+public static class ExpertPermissionHelper
+{
+    public static readonly List<string> DefaultPermissions = new()
+    {
+        "PERM_WORKSPACE",
+        "PERM_SCHEDULE",
+        "PERM_ANALYTICS",
+        "PERM_MODERATION"
+    };
+
+    public static List<string> ParsePermissions(string? permissionsStr)
+    {
+        if (permissionsStr == null)
+        {
+            return new List<string>(DefaultPermissions);
+        }
+
+        var trimmed = permissionsStr.Trim();
+        if (string.IsNullOrEmpty(trimmed) || trimmed.Equals("NONE", StringComparison.OrdinalIgnoreCase))
+        {
+            return new List<string>();
+        }
+
+        return trimmed.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                      .Where(p => !string.Equals(p, "NONE", StringComparison.OrdinalIgnoreCase))
+                      .Distinct()
+                      .ToList();
+    }
+}
+
 public class AuthService : IAuthService
 {
     private readonly IApplicationDbContext _context;
@@ -55,18 +85,14 @@ public class AuthService : IAuthService
         if (user.Role == UserRole.Expert)
         {
             var exp = _context.Experts.FirstOrDefault(e => e.UserId == user.Id);
-            if (exp != null && !string.IsNullOrWhiteSpace(exp.Permissions))
+            if (exp != null)
             {
-                permissions = exp.Permissions.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
-            }
-            else
-            {
-                permissions = new List<string> { "PERM_WORKSPACE", "PERM_SCHEDULE", "PERM_ANALYTICS", "PERM_MODERATION" };
+                permissions = ExpertPermissionHelper.ParsePermissions(exp.Permissions);
             }
         }
 
         var token = _jwtProvider.Generate(user);
-        var userDto = new UserDto(user.Id, user.MSSV, user.FullName, user.Email, user.Role.ToString(), user.Faculty, user.AnonymousCode, user.AvatarUrl, permissions);
+        var userDto = new UserDto(user.Id, user.MSSV, user.FullName, user.Email, user.Role.ToString(), user.Faculty, user.AnonymousCode, user.AvatarUrl, permissions, user.IsActive, user.CreatedAt);
         return Task.FromResult(Result<AuthResponse>.Ok(new AuthResponse(token, userDto), "Đăng nhập thành công"));
     }
 
@@ -121,7 +147,7 @@ public class AuthService : IAuthService
         await _context.SaveChangesAsync();
 
         var token = _jwtProvider.Generate(user);
-        var userDto = new UserDto(user.Id, user.MSSV, user.FullName, user.Email, user.Role.ToString(), user.Faculty, user.AnonymousCode, user.AvatarUrl);
+        var userDto = new UserDto(user.Id, user.MSSV, user.FullName, user.Email, user.Role.ToString(), user.Faculty, user.AnonymousCode, user.AvatarUrl, null, user.IsActive, user.CreatedAt);
         return Result<AuthResponse>.Ok(new AuthResponse(token, userDto), "Đăng ký tài khoản sinh viên thành công");
     }
 
@@ -135,17 +161,13 @@ public class AuthService : IAuthService
         if (user.Role == UserRole.Expert)
         {
             var exp = _context.Experts.FirstOrDefault(e => e.UserId == user.Id);
-            if (exp != null && !string.IsNullOrWhiteSpace(exp.Permissions))
+            if (exp != null)
             {
-                permissions = exp.Permissions.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
-            }
-            else
-            {
-                permissions = new List<string> { "PERM_WORKSPACE", "PERM_SCHEDULE", "PERM_ANALYTICS", "PERM_MODERATION" };
+                permissions = ExpertPermissionHelper.ParsePermissions(exp.Permissions);
             }
         }
 
-        var userDto = new UserDto(user.Id, user.MSSV, user.FullName, user.Email, user.Role.ToString(), user.Faculty, user.AnonymousCode, user.AvatarUrl, permissions);
+        var userDto = new UserDto(user.Id, user.MSSV, user.FullName, user.Email, user.Role.ToString(), user.Faculty, user.AnonymousCode, user.AvatarUrl, permissions, user.IsActive, user.CreatedAt);
         return Task.FromResult(Result<UserDto>.Ok(userDto));
     }
 }
@@ -1139,6 +1161,25 @@ public class AppointmentService : IAppointmentService
             parsedSlotId = ps;
         }
 
+        // 1.1. RÀNG BUỘC THỜI GIAN: KHÔNG CHO PHÉP ĐẶT LỊCH CHO NGÀY/GIỜ ĐÃ QUA TRONG QUÁ KHỨ
+        var nowVn = DateTime.UtcNow.AddHours(7);
+        var todayVn = DateOnly.FromDateTime(nowVn);
+        var currentTimeVn = TimeOnly.FromDateTime(nowVn);
+
+        if (reqDate < todayVn)
+        {
+            return Result<AppointmentDto>.Fail(
+                $"Không thể đặt lịch hẹn cho ngày trong quá khứ ({reqDate:dd/MM/yyyy}). Vui lòng chọn ngày hiện tại hoặc tương lai.",
+                "PAST_DATE_NOT_ALLOWED");
+        }
+
+        if (reqDate == todayVn && reqStartTime <= currentTimeVn)
+        {
+            return Result<AppointmentDto>.Fail(
+                $"Khung giờ {reqStartTime:HH\\:mm} ngày hôm nay đã trôi qua (hiện tại là {currentTimeVn:HH\\:mm}). Vui lòng chọn khung giờ còn lại trong ngày hoặc ngày khác.",
+                "PAST_TIME_SLOT_NOT_ALLOWED");
+        }
+
         var expertIds = new HashSet<Guid> { expert.Id, expert.UserId };
 
         // 2. KIỂM TRA CHỐNG TRÙNG LỊCH BẬC CAO (STRICT ANTI-DOUBLE BOOKING)
@@ -1267,6 +1308,10 @@ public class AppointmentService : IAppointmentService
 
     public Task<Result<List<AppointmentDto>>> GetStudentAppointmentsAsync(Guid studentId)
     {
+        var nowVn = DateTime.UtcNow.AddHours(7);
+        var todayVn = DateOnly.FromDateTime(nowVn);
+        var currentTimeVn = TimeOnly.FromDateTime(nowVn);
+
         var list = _context.Appointments
             .Where(a => a.StudentId == studentId)
             .OrderByDescending(a => a.CreatedAt)
@@ -1274,6 +1319,13 @@ public class AppointmentService : IAppointmentService
                 var exp = _context.Experts.FirstOrDefault(e => e.Id == a.ExpertId || e.UserId == a.ExpertId);
                 var expUser = exp != null ? _context.Users.FirstOrDefault(u => u.Id == exp.UserId) : null;
                 var slot = _context.TimeSlots.FirstOrDefault(s => s.Id == a.TimeSlotId);
+
+                // Tự động mở phòng khi đến giờ hẹn: Ca đã duyệt (Confirmed) và đến khung giờ hẹn hôm nay (mở trước 15p đến sau 30p) hoặc ngày hẹn <= hôm nay
+                bool isTimeArrived = a.Status == AppointmentStatus.Confirmed && 
+                                     slot != null && 
+                                     (slot.SlotDate < todayVn || (slot.SlotDate == todayVn && currentTimeVn >= slot.StartTime.AddMinutes(-15) && currentTimeVn <= slot.EndTime.AddMinutes(30)));
+
+                bool isMeetingReady = a.IsMeetingActive || isTimeArrived;
 
                 return new AppointmentDto(
                     a.Id,
@@ -1293,7 +1345,7 @@ public class AppointmentService : IAppointmentService
                     a.Dass21Summary,
                     a.RiskScore,
                     a.CreatedAt,
-                    a.IsMeetingActive
+                    isMeetingReady
                 );
             }).ToList();
 
@@ -1302,6 +1354,10 @@ public class AppointmentService : IAppointmentService
 
     public Task<Result<List<AppointmentDto>>> GetExpertAppointmentsAsync(Guid expertId)
     {
+        var nowVn = DateTime.UtcNow.AddHours(7);
+        var todayVn = DateOnly.FromDateTime(nowVn);
+        var currentTimeVn = TimeOnly.FromDateTime(nowVn);
+
         var expert = _context.Experts.FirstOrDefault(e => e.Id == expertId || e.UserId == expertId);
         var targetExpertId = expert?.Id ?? expertId;
         var targetUserId = expert?.UserId ?? expertId;
@@ -1314,6 +1370,13 @@ public class AppointmentService : IAppointmentService
                 var expUser = exp != null ? _context.Users.FirstOrDefault(u => u.Id == exp.UserId) : null;
                 var slot = _context.TimeSlots.FirstOrDefault(s => s.Id == a.TimeSlotId);
 
+                // Tự động mở phòng khi đến giờ hẹn
+                bool isTimeArrived = a.Status == AppointmentStatus.Confirmed && 
+                                     slot != null && 
+                                     (slot.SlotDate < todayVn || (slot.SlotDate == todayVn && currentTimeVn >= slot.StartTime.AddMinutes(-15) && currentTimeVn <= slot.EndTime.AddMinutes(30)));
+
+                bool isMeetingReady = a.IsMeetingActive || isTimeArrived;
+
                 return new AppointmentDto(
                     a.Id,
                     a.BookingCode,
@@ -1332,7 +1395,7 @@ public class AppointmentService : IAppointmentService
                     a.Dass21Summary,
                     a.RiskScore,
                     a.CreatedAt,
-                    a.IsMeetingActive
+                    isMeetingReady
                 );
             }).ToList();
 
@@ -1445,6 +1508,16 @@ public class AppointmentService : IAppointmentService
         var expUser = exp != null ? _context.Users.FirstOrDefault(u => u.Id == exp.UserId) : null;
         var slot = _context.TimeSlots.FirstOrDefault(s => s.Id == a.TimeSlotId);
 
+        var nowVn = DateTime.UtcNow.AddHours(7);
+        var todayVn = DateOnly.FromDateTime(nowVn);
+        var currentTimeVn = TimeOnly.FromDateTime(nowVn);
+
+        bool isTimeArrived = a.Status == AppointmentStatus.Confirmed && 
+                             slot != null && 
+                             (slot.SlotDate < todayVn || (slot.SlotDate == todayVn && currentTimeVn >= slot.StartTime.AddMinutes(-15) && currentTimeVn <= slot.EndTime.AddMinutes(30)));
+
+        bool isMeetingReady = a.IsMeetingActive || isTimeArrived;
+
         var dto = new AppointmentDto(
             a.Id,
             a.BookingCode,
@@ -1463,7 +1536,7 @@ public class AppointmentService : IAppointmentService
             a.Dass21Summary,
             a.RiskScore,
             a.CreatedAt,
-            a.IsMeetingActive
+            isMeetingReady
         );
         return Task.FromResult(Result<AppointmentDto>.Ok(dto));
     }
@@ -1532,10 +1605,24 @@ public class AppointmentService : IAppointmentService
 
     public Task<Result<ActiveMeetingDto>> GetActiveMeetingForStudentAsync(Guid studentId)
     {
+        var nowVn = DateTime.UtcNow.AddHours(7);
+        var todayVn = DateOnly.FromDateTime(nowVn);
+        var currentTimeVn = TimeOnly.FromDateTime(nowVn);
+
         var activeAppt = _context.Appointments
-            .Where(a => a.StudentId == studentId && a.IsMeetingActive && a.Status != AppointmentStatus.Completed && a.Status != AppointmentStatus.Cancelled)
-            .OrderByDescending(a => a.MeetingStartedAt)
-            .FirstOrDefault();
+            .Where(a => a.StudentId == studentId && 
+                        a.Status != AppointmentStatus.Completed && 
+                        a.Status != AppointmentStatus.Cancelled &&
+                        a.Status != AppointmentStatus.Rejected)
+            .OrderByDescending(a => a.MeetingStartedAt ?? a.CreatedAt)
+            .AsEnumerable()
+            .FirstOrDefault(a => {
+                if (a.IsMeetingActive) return true;
+                if (a.Status != AppointmentStatus.Confirmed) return false;
+                var slot = _context.TimeSlots.FirstOrDefault(s => s.Id == a.TimeSlotId);
+                if (slot == null) return false;
+                return (slot.SlotDate < todayVn || (slot.SlotDate == todayVn && currentTimeVn >= slot.StartTime.AddMinutes(-15) && currentTimeVn <= slot.EndTime.AddMinutes(30)));
+            });
 
         if (activeAppt == null)
         {
@@ -1553,16 +1640,16 @@ public class AppointmentService : IAppointmentService
             ExpertTitle: expert?.Title ?? "Chuyên viên",
             RoomLocation: expert?.RoomLocation ?? "SafeRoom Online",
             ConsultationType: activeAppt.ConsultationType.ToString(),
-            StartedAt: activeAppt.MeetingStartedAt
+            StartedAt: activeAppt.MeetingStartedAt ?? activeAppt.CreatedAt
         );
 
         return Task.FromResult(Result<ActiveMeetingDto>.Ok(dto));
     }
 
-    public Task<Result<bool>> VerifyMeetingParticipantAsync(Guid appointmentId, Guid userId)
+    public async Task<Result<bool>> VerifyMeetingParticipantAsync(Guid appointmentId, Guid userId)
     {
         var app = _context.Appointments.FirstOrDefault(a => a.Id == appointmentId);
-        if (app == null) return Task.FromResult(Result<bool>.Fail("Không tìm thấy ca hẹn", "NOT_FOUND"));
+        if (app == null) return Result<bool>.Fail("Không tìm thấy ca hẹn", "NOT_FOUND");
 
         var expert = _context.Experts.FirstOrDefault(e => e.Id == app.ExpertId);
         var user = _context.Users.FirstOrDefault(u => u.Id == userId);
@@ -1573,10 +1660,19 @@ public class AppointmentService : IAppointmentService
 
         if (!isAllowed)
         {
-            return Task.FromResult(Result<bool>.Fail("Bạn không phải là người tham gia được cấp quyền cho ca hẹn này.", "FORBIDDEN"));
+            return Result<bool>.Fail("Bạn không phải là người tham gia được cấp quyền cho ca hẹn này.", "FORBIDDEN");
         }
 
-        return Task.FromResult(Result<bool>.Ok(true));
+        // Tự động kích hoạt phòng họp nếu đến giờ hoặc ca đã xác nhận
+        if (!app.IsMeetingActive && app.Status == AppointmentStatus.Confirmed)
+        {
+            app.IsMeetingActive = true;
+            app.MeetingStartedAt ??= DateTime.UtcNow;
+            app.UpdatedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+        }
+
+        return Result<bool>.Ok(true);
     }
 
     // Cache tín hiệu WebRTC và Tin nhắn phòng họp trong bộ nhớ đồng bộ
@@ -2576,7 +2672,7 @@ public class AdminService : IAdminService
     {
         var list = _context.Users
             .OrderBy(u => u.Role).ThenBy(u => u.FullName)
-            .Select(u => new UserDto(u.Id, u.MSSV, u.FullName, u.Email, u.Role.ToString(), u.Faculty, u.AnonymousCode, u.AvatarUrl))
+            .Select(u => new UserDto(u.Id, u.MSSV, u.FullName, u.Email, u.Role.ToString(), u.Faculty, u.AnonymousCode, u.AvatarUrl, null, u.IsActive, u.CreatedAt))
             .ToList();
 
         return Task.FromResult(Result<List<UserDto>>.Ok(list));
@@ -2684,7 +2780,7 @@ public class AdminService : IAdminService
         });
         await _context.SaveChangesAsync();
 
-        var dto = new UserDto(user.Id, user.MSSV, user.FullName, user.Email, user.Role.ToString(), user.Faculty, user.AnonymousCode, user.AvatarUrl);
+        var dto = new UserDto(user.Id, user.MSSV, user.FullName, user.Email, user.Role.ToString(), user.Faculty, user.AnonymousCode, user.AvatarUrl, null, user.IsActive, user.CreatedAt);
         return Result<UserDto>.Ok(dto, $"Đã cập nhật vai trò thành {newRole}");
     }
 
@@ -2852,9 +2948,7 @@ public class AdminService : IAdminService
         foreach (var exp in _context.Experts)
         {
             var user = _context.Users.FirstOrDefault(u => u.Id == exp.UserId);
-            var perms = string.IsNullOrWhiteSpace(exp.Permissions)
-                ? new List<string> { "PERM_WORKSPACE", "PERM_SCHEDULE", "PERM_ANALYTICS", "PERM_MODERATION" }
-                : exp.Permissions.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+            var perms = ExpertPermissionHelper.ParsePermissions(exp.Permissions);
 
             list.Add(new ExpertPermissionDto(
                 exp.Id,
@@ -2872,13 +2966,13 @@ public class AdminService : IAdminService
 
     public async Task<Result> UpdateExpertPermissionsAsync(Guid expertId, UpdateExpertPermissionsRequest request, Guid adminId)
     {
-        var expert = _context.Experts.FirstOrDefault(e => e.Id == expertId);
+        var expert = _context.Experts.FirstOrDefault(e => e.Id == expertId || e.UserId == expertId);
         if (expert == null)
             return Result.Fail("Không tìm thấy thông tin chuyên viên", "NOT_FOUND");
 
         var user = _context.Users.FirstOrDefault(u => u.Id == expert.UserId);
         var cleanPerms = request.Permissions?.Distinct().ToList() ?? new List<string>();
-        expert.Permissions = string.Join(",", cleanPerms);
+        expert.Permissions = cleanPerms.Count == 0 ? "NONE" : string.Join(",", cleanPerms);
 
         _context.AuditLogs.Add(new AuditLog
         {
@@ -2886,7 +2980,7 @@ public class AdminService : IAdminService
             ActionType = "ADMIN_UPDATE_EXPERT_PERMISSIONS",
             ActorRole = "Admin",
             ActorId = adminId,
-            Details = $"Admin phân quyền cho chuyên viên {user?.FullName ?? expert.Title}: [{string.Join(", ", cleanPerms)}]",
+            Details = $"Admin phân quyền cho chuyên viên {user?.FullName ?? expert.Title}: [{(cleanPerms.Count == 0 ? "Không có quyền nào (Đã xóa hết quyền)" : string.Join(", ", cleanPerms))}]",
             IpAddress = "127.0.0.1",
             CreatedAt = DateTime.UtcNow
         });

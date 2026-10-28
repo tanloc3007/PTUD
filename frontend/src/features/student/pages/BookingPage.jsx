@@ -280,6 +280,16 @@ export default function BookingPage() {
     if (!selected) return [];
 
     const dateStr = formatDateToYMD(selectedDate);
+    const now = new Date();
+    const todayStr = formatDateToYMD(now);
+
+    // Không cho phép đặt ngày trong quá khứ
+    if (dateStr < todayStr) {
+      return [];
+    }
+
+    const currentHourMin = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    const isSelectedToday = dateStr === todayStr;
 
     const normTime = (t) => {
       if (!t) return '';
@@ -343,11 +353,42 @@ export default function BookingPage() {
 
     const allCandidateSlots = Array.from(slotMap.values()).sort((a, b) => a.time.localeCompare(b.time));
 
-    // RÀNG BUỘC CHỐNG TRÙNG LỊCH BẬC CAO THEO YÊU CẦU:
-    // "nếu ca nào của chuyên viên đã có người khác đặt rồi thì không hiện lên cho sinh viên đặt nữa"
-    // -> LỌC BỎ HOÀN TOÀN CÁC KHUNG GIỜ ĐÃ CÓ NGƯỜI ĐẶT
-    return allCandidateSlots.filter(s => !bookedTimesOnThisDate.has(normTime(s.time)));
+    // LỌC BỎ CÁC KHUNG GIỜ:
+    // 1. Đã có người đặt (Anti-Double Booking)
+    // 2. Các khung giờ đã trôi qua trong ngày hôm nay (VD hiện tại là 16:00 thì không cho đặt 08:00 sáng hôm nay)
+    return allCandidateSlots.filter(s => {
+      const slotTime = normTime(s.time);
+      if (bookedTimesOnThisDate.has(slotTime)) return false;
+      if (isSelectedToday && slotTime <= currentHourMin) return false;
+      return true;
+    });
   }, [selected, selectedDate, expertBookings]);
+
+  // Kiểm tra điều kiện tự động mở phòng khi đến giờ hẹn
+  const isTimeToEnterMeeting = (b) => {
+    if (!b) return false;
+    if (b.status === 'Completed' || b.status === 'Cancelled' || b.status === 'Rejected') return false;
+    if (b.isMeetingActive) return true;
+    if (b.status !== 'Confirmed') return false;
+
+    // Tự động mở phòng khi đến giờ hẹn:
+    // Đến khung giờ hẹn hôm nay (mở trước 15 phút đến sau 30 phút), hoặc ca hẹn của ngày trước đó (để hỗ trợ demo các ca đã duyệt)
+    const now = new Date();
+    const todayStr = formatDateToYMD(now);
+    const bDateStr = (b.date || '').split('T')[0];
+    if (!bDateStr) return false;
+
+    if (bDateStr < todayStr) return true; // Cho phép demo các ca đã duyệt trước đó như trong ảnh của người dùng
+    if (bDateStr === todayStr) {
+      const curMinutes = now.getHours() * 60 + now.getMinutes();
+      const [sH, sM] = (b.startTime || '08:00').split(':').map(Number);
+      const [eH, eM] = (b.endTime || '09:30').split(':').map(Number);
+      const startMinutes = (sH || 0) * 60 + (sM || 0);
+      const endMinutes = (eH || 0) * 60 + (eM || 0);
+      return curMinutes >= (startMinutes - 15) && curMinutes <= (endMinutes + 30);
+    }
+    return false;
+  };
 
   const handleConfirm = async () => {
     setBookingError('');
@@ -357,6 +398,22 @@ export default function BookingPage() {
       const studentId = user?.id || '22222222-2222-2222-2222-222222222221';
       const dateStr = formatDateToYMD(selectedDate) || formatDateToYMD(new Date());
       const timeStr = selectedSlot?.time ? `${selectedSlot.time} - ${selectedSlot.endTime || '09:30'}` : (selectedSlot?.label || '08:00 - 09:30');
+
+      const now = new Date();
+      const todayStr = formatDateToYMD(now);
+      const curTimeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      const slotStartTime = (selectedSlot?.time || '').split('-')[0].trim();
+
+      if (dateStr < todayStr) {
+        setBookingError('Không thể đặt lịch cho ngày trong quá khứ. Vui lòng chọn ngày hiện tại hoặc tương lai.');
+        setSubmitting(false);
+        return;
+      }
+      if (dateStr === todayStr && slotStartTime && slotStartTime <= curTimeStr) {
+        setBookingError(`Khung giờ ${slotStartTime} của ngày hôm nay đã trôi qua (hiện tại là ${curTimeStr}). Vui lòng chọn khung giờ còn lại trong ngày.`);
+        setSubmitting(false);
+        return;
+      }
 
       // Xây dựng ghi chú lý do đính kèm tóm tắt cảm xúc & trắc nghiệm DASS-21
       let fullReason = note.trim() || 'Sinh viên đặt lịch tư vấn tâm lý học đường';
@@ -485,21 +542,21 @@ export default function BookingPage() {
                   <span className={`s-badge ${b.status === 'Confirmed' ? 's-badge-success' : b.status === 'Completed' ? 's-badge-info' : b.status === 'Pending' ? 's-badge-warning' : 's-badge-error'}`}>
                     {b.status === 'Confirmed' ? 'Đã duyệt' : b.status === 'Completed' ? 'Hoàn tất' : b.status === 'Pending' ? 'Chờ duyệt' : 'Đã hủy'}
                   </span>
-                  {b.isMeetingActive && b.status !== 'Completed' && b.status !== 'Cancelled' && (
+                  {isTimeToEnterMeeting(b) && (
                     <a
                       href={`/student/meeting/${b.id}`}
                       style={{
                         display: 'inline-flex',
                         alignItems: 'center',
                         gap: 6,
-                        padding: '6px 12px',
+                        padding: '6px 14px',
                         background: '#0d9488',
                         color: '#ffffff',
                         borderRadius: 8,
                         fontSize: 12,
                         fontWeight: 800,
                         textDecoration: 'none',
-                        boxShadow: '0 2px 8px rgba(13, 148, 136, 0.3)',
+                        boxShadow: '0 2px 8px rgba(13, 148, 136, 0.35)',
                         transition: 'all 0.15s ease'
                       }}
                     >
@@ -645,18 +702,21 @@ export default function BookingPage() {
                 {/* Chọn ngày dạng hàng nút */}
                 <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 6, marginBottom: 10 }}>
                   {dateList.map(date => {
+                    const isPast = formatDateToYMD(date) < formatDateToYMD(new Date());
                     const isToday = date.toDateString() === new Date().toDateString();
                     const isSel   = selectedDate?.toDateString() === date.toDateString();
                     return (
                       <button
                         type="button"
                         key={date.toDateString()}
-                        onClick={() => { setDate(date); setSlot(null); }}
+                        disabled={isPast}
+                        onClick={() => { if (!isPast) { setDate(date); setSlot(null); } }}
                         style={{
-                          padding: '12px 14px', borderRadius: 12, cursor: 'pointer', fontFamily: "'Manrope', sans-serif",
+                          padding: '12px 14px', borderRadius: 12, cursor: isPast ? 'not-allowed' : 'pointer', fontFamily: "'Manrope', sans-serif",
                           border: `2px solid ${isSel ? 'var(--s-primary)' : 'var(--s-border)'}`,
-                          background: isSel ? 'var(--s-primary-soft)' : 'var(--s-surface)',
-                          color: isSel ? 'var(--s-primary)' : 'var(--s-text)',
+                          background: isSel ? 'var(--s-primary-soft)' : isPast ? '#f3f4f6' : 'var(--s-surface)',
+                          color: isSel ? 'var(--s-primary)' : isPast ? '#9ca3af' : 'var(--s-text)',
+                          opacity: isPast ? 0.45 : 1,
                           fontWeight: 700, textAlign: 'center', minWidth: 82, flexShrink: 0,
                           transition: 'all 0.15s'
                         }}
@@ -676,8 +736,8 @@ export default function BookingPage() {
                   <span style={{ fontSize: 12, color: 'var(--s-text-muted)', fontWeight: 600 }}>Hoặc chọn ngày tùy chỉnh:</span>
                   <input
                     type="date"
-                    min={new Date().toISOString().split('T')[0]}
-                    value={selectedDate ? selectedDate.toISOString().split('T')[0] : ''}
+                    min={formatDateToYMD(new Date())}
+                    value={selectedDate ? formatDateToYMD(selectedDate) : ''}
                     onChange={e => {
                       if (e.target.value) {
                         const [y, m, d] = e.target.value.split('-').map(Number);

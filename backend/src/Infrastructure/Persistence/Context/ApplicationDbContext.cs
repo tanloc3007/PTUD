@@ -96,7 +96,7 @@ public class ApplicationDbContext : IApplicationDbContext
         }
 
         // 2. Experts
-        using (var cmd = new SqlCommand("SELECT Id, UserId, Title, AcademicDegree, Specialization, ExperienceYears, RoomLocation, Bio, Rating, TotalConsultations, IsAvailable, CreatedAt FROM dbo.Experts", conn))
+        using (var cmd = new SqlCommand("SELECT Id, UserId, Title, AcademicDegree, Specialization, ExperienceYears, RoomLocation, Bio, Rating, TotalConsultations, IsAvailable, CreatedAt, Permissions FROM dbo.Experts", conn))
         using (var reader = cmd.ExecuteReader())
         {
             while (reader.Read())
@@ -114,7 +114,8 @@ public class ApplicationDbContext : IApplicationDbContext
                     Rating = Convert.ToDouble(reader.GetValue(8)),
                     TotalConsultations = reader.GetInt32(9),
                     IsAvailable = reader.GetBoolean(10),
-                    CreatedAt = reader.GetDateTime(11)
+                    CreatedAt = reader.GetDateTime(11),
+                    Permissions = reader["Permissions"] != DBNull.Value ? (reader["Permissions"].ToString() ?? "") : "PERM_WORKSPACE,PERM_SCHEDULE,PERM_ANALYTICS,PERM_MODERATION"
                 });
             }
         }
@@ -748,7 +749,7 @@ public class ApplicationDbContext : IApplicationDbContext
                 cmd.Parameters.AddWithValue("@Rating", exp.Rating);
                 cmd.Parameters.AddWithValue("@TotalConsultations", exp.TotalConsultations);
                 cmd.Parameters.AddWithValue("@IsAvailable", exp.IsAvailable);
-                cmd.Parameters.AddWithValue("@Permissions", exp.Permissions);
+                cmd.Parameters.AddWithValue("@Permissions", (object?)exp.Permissions ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@CreatedAt", exp.CreatedAt);
                 await cmd.ExecuteNonQueryAsync(cancellationToken);
             }
