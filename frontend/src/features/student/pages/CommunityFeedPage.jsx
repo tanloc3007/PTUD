@@ -35,6 +35,195 @@ function timeAgo(date) {
   return `${Math.floor(diff/86400)} ngày trước`;
 }
 
+export function parseImageUrls(raw) {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw.filter(Boolean);
+  if (typeof raw !== 'string') return [];
+  const trimmed = raw.trim();
+  if (!trimmed) return [];
+  if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) return parsed.filter(Boolean);
+    } catch (e) {}
+  }
+  return trimmed.split(',').map(s => s.trim()).filter(Boolean);
+}
+
+export function PostMediaGallery({ images, onImageClick }) {
+  if (!images || images.length === 0) return null;
+
+  // 1 ảnh: Scale tự nhiên, giữ nguyên tỉ lệ aspect ratio, nền tối dịu mắt, không bị cắt xén
+  if (images.length === 1) {
+    return (
+      <div
+        onClick={() => onImageClick?.(images[0], 0)}
+        style={{
+          borderRadius: 12,
+          overflow: 'hidden',
+          border: '1px solid var(--s-border, #e2e8f0)',
+          background: '#090d16',
+          maxHeight: 520,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          cursor: 'zoom-in',
+          transition: 'transform 0.15s ease'
+        }}
+      >
+        <img
+          src={images[0]}
+          alt="Hình ảnh đính kèm"
+          style={{
+            maxWidth: '100%',
+            maxHeight: 520,
+            width: 'auto',
+            height: 'auto',
+            objectFit: 'contain',
+            display: 'block'
+          }}
+          onError={e => { e.currentTarget.style.display = 'none'; }}
+        />
+      </div>
+    );
+  }
+
+  // 2 ảnh: Cân xứng 2 cột song song
+  if (images.length === 2) {
+    return (
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: '1fr 1fr',
+        gap: 6,
+        borderRadius: 12,
+        overflow: 'hidden',
+        border: '1px solid var(--s-border, #e2e8f0)',
+        maxHeight: 380,
+        height: 320,
+        background: '#090d16'
+      }}>
+        {images.map((img, idx) => (
+          <div
+            key={idx}
+            onClick={() => onImageClick?.(img, idx)}
+            style={{ position: 'relative', overflow: 'hidden', cursor: 'zoom-in', height: '100%' }}
+          >
+            <img
+              src={img}
+              alt={`Ảnh ${idx + 1}`}
+              style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+              onError={e => { e.currentTarget.style.display = 'none'; }}
+            />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // 3 ảnh: 1 ảnh lớn bên trái, 2 ảnh xếp tầng bên phải
+  if (images.length === 3) {
+    return (
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: '1.2fr 1fr',
+        gridTemplateRows: '1fr 1fr',
+        gap: 6,
+        borderRadius: 12,
+        overflow: 'hidden',
+        border: '1px solid var(--s-border, #e2e8f0)',
+        maxHeight: 400,
+        height: 360,
+        background: '#090d16'
+      }}>
+        <div
+          onClick={() => onImageClick?.(images[0], 0)}
+          style={{ gridRow: 'span 2', overflow: 'hidden', cursor: 'zoom-in', height: '100%' }}
+        >
+          <img
+            src={images[0]}
+            alt="Ảnh 1"
+            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+            onError={e => { e.currentTarget.style.display = 'none'; }}
+          />
+        </div>
+        <div
+          onClick={() => onImageClick?.(images[1], 1)}
+          style={{ overflow: 'hidden', cursor: 'zoom-in', height: '100%' }}
+        >
+          <img
+            src={images[1]}
+            alt="Ảnh 2"
+            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+            onError={e => { e.currentTarget.style.display = 'none'; }}
+          />
+        </div>
+        <div
+          onClick={() => onImageClick?.(images[2], 2)}
+          style={{ overflow: 'hidden', cursor: 'zoom-in', height: '100%' }}
+        >
+          <img
+            src={images[2]}
+            alt="Ảnh 3"
+            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+            onError={e => { e.currentTarget.style.display = 'none'; }}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // 4 ảnh trở lên: Layout dạng lưới Facebook 2x2, ảnh thứ 4 hiển thị overlay "+N" nếu còn ảnh
+  const remaining = images.length - 4;
+  return (
+    <div style={{
+      display: 'grid',
+      gridTemplateColumns: '1fr 1fr',
+      gridTemplateRows: '1fr 1fr',
+      gap: 6,
+      borderRadius: 12,
+      overflow: 'hidden',
+      border: '1px solid var(--s-border, #e2e8f0)',
+      maxHeight: 420,
+      height: 380,
+      background: '#090d16'
+    }}>
+      {images.slice(0, 4).map((img, idx) => {
+        const isLastAndOverflow = idx === 3 && remaining > 0;
+        return (
+          <div
+            key={idx}
+            onClick={() => onImageClick?.(img, idx)}
+            style={{ position: 'relative', overflow: 'hidden', cursor: 'zoom-in', height: '100%' }}
+          >
+            <img
+              src={img}
+              alt={`Ảnh ${idx + 1}`}
+              style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+              onError={e => { e.currentTarget.style.display = 'none'; }}
+            />
+            {isLastAndOverflow && (
+              <div style={{
+                position: 'absolute',
+                inset: 0,
+                background: 'rgba(15, 23, 42, 0.75)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#ffffff',
+                fontSize: 26,
+                fontWeight: 800,
+                backdropFilter: 'blur(3px)'
+              }}>
+                +{remaining}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function PostCard({ post, onReact, onComment, onDelete, currentUser }) {
   const [expanded, setExpanded] = useState(false);
   const [commentText, setCommentText] = useState('');
@@ -43,7 +232,10 @@ function PostCard({ post, onReact, onComment, onDelete, currentUser }) {
   const [submittingComment, setSubmittingComment] = useState(false);
   const [showSensitiveImage, setShowSensitiveImage] = useState(false);
   const [previewEnlargedImage, setPreviewEnlargedImage] = useState(null);
+  const [activeImageIndex, setActiveImageIndex] = useState(0);
   const fileInputRef = useRef(null);
+
+  const postImages = parseImageUrls(post.imageUrl);
 
   const handleSelectImage = async (e) => {
     const file = e.target.files?.[0];
@@ -135,8 +327,8 @@ function PostCard({ post, onReact, onComment, onDelete, currentUser }) {
         {post.content}
       </p>
 
-      {/* Attached Image with Moderation Status */}
-      {post.imageUrl && (
+      {/* Attached Images with Moderation Status */}
+      {postImages.length > 0 && (
         <div style={{ marginTop: 8 }}>
           {post.imageModerationStatus === 'Rejected' ? (
             <div style={{
@@ -152,7 +344,7 @@ function PostCard({ post, onReact, onComment, onDelete, currentUser }) {
               padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8
             }}>
               <span style={{ fontSize: 12.5, color: '#92400e', fontWeight: 600 }}>
-                ⚠️ Hình ảnh này đã được gắn cờ nhạy cảm bởi chuyên gia/quản trị viên.
+                ⚠️ Bài viết chứa {postImages.length} hình ảnh đã được gắn cờ nhạy cảm bởi chuyên gia/quản trị viên.
               </span>
               <button
                 type="button"
@@ -162,18 +354,17 @@ function PostCard({ post, onReact, onComment, onDelete, currentUser }) {
                   padding: '5px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer'
                 }}
               >
-                Xem ảnh
+                Xem ảnh ({postImages.length})
               </button>
             </div>
           ) : (
-            <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid var(--s-border)', maxHeight: 340, background: '#f8fafc' }}>
-              <img
-                src={post.imageUrl}
-                alt="Hình ảnh đính kèm"
-                style={{ width: '100%', maxHeight: 340, objectFit: 'cover', display: 'block' }}
-                onError={e => { e.currentTarget.style.display = 'none'; }}
-              />
-            </div>
+            <PostMediaGallery
+              images={postImages}
+              onImageClick={(img, idx) => {
+                setActiveImageIndex(idx);
+                setPreviewEnlargedImage(img);
+              }}
+            />
           )}
         </div>
       )}
@@ -413,28 +604,107 @@ function PostCard({ post, onReact, onComment, onDelete, currentUser }) {
         </div>
       )}
 
-      {/* Enlarged Image Modal */}
+      {/* Enlarged Image Modal / Lightbox */}
       {previewEnlargedImage && (
         <div
           onClick={() => setPreviewEnlargedImage(null)}
           style={{
-            position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.75)',
+            position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.88)',
+            backdropFilter: 'blur(8px)',
             display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20
           }}
         >
-          <div style={{ position: 'relative', maxWidth: '90vw', maxHeight: '90vh' }} onClick={e => e.stopPropagation()}>
+          <div
+            style={{
+              position: 'relative',
+              maxWidth: '92vw',
+              maxHeight: '92vh',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center'
+            }}
+            onClick={e => e.stopPropagation()}
+          >
             <img
               src={previewEnlargedImage}
               alt="Phóng to"
-              style={{ maxWidth: '100%', maxHeight: '85vh', borderRadius: 12, objectFit: 'contain' }}
+              style={{
+                maxWidth: '100%',
+                maxHeight: '82vh',
+                borderRadius: 12,
+                objectFit: 'contain',
+                boxShadow: '0 20px 50px rgba(0,0,0,0.6)'
+              }}
             />
+
+            {/* Navigation buttons if multiple images */}
+            {postImages.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const prevIdx = (activeImageIndex - 1 + postImages.length) % postImages.length;
+                    setActiveImageIndex(prevIdx);
+                    setPreviewEnlargedImage(postImages[prevIdx]);
+                  }}
+                  title="Ảnh trước"
+                  style={{
+                    position: 'absolute', left: -52, top: '50%', transform: 'translateY(-50%)',
+                    width: 44, height: 44, borderRadius: '50%',
+                    background: 'rgba(255,255,255,0.2)', color: '#ffffff',
+                    border: '1px solid rgba(255,255,255,0.3)', cursor: 'pointer',
+                    fontSize: 24, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    backdropFilter: 'blur(4px)', transition: 'all 0.15s'
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.4)'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'}
+                >
+                  ‹
+                </button>
+
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const nextIdx = (activeImageIndex + 1) % postImages.length;
+                    setActiveImageIndex(nextIdx);
+                    setPreviewEnlargedImage(postImages[nextIdx]);
+                  }}
+                  title="Ảnh kế tiếp"
+                  style={{
+                    position: 'absolute', right: -52, top: '50%', transform: 'translateY(-50%)',
+                    width: 44, height: 44, borderRadius: '50%',
+                    background: 'rgba(255,255,255,0.2)', color: '#ffffff',
+                    border: '1px solid rgba(255,255,255,0.3)', cursor: 'pointer',
+                    fontSize: 24, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    backdropFilter: 'blur(4px)', transition: 'all 0.15s'
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.4)'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'}
+                >
+                  ›
+                </button>
+
+                <div style={{
+                  marginTop: 12, background: 'rgba(0,0,0,0.6)', color: '#fff',
+                  padding: '4px 14px', borderRadius: 20, fontSize: 13, fontWeight: 700
+                }}>
+                  Ảnh {activeImageIndex + 1} / {postImages.length}
+                </div>
+              </>
+            )}
+
+            {/* Close button */}
             <button
               type="button"
               onClick={() => setPreviewEnlargedImage(null)}
+              title="Đóng (ESC)"
               style={{
-                position: 'absolute', top: -12, right: -12, width: 32, height: 32, borderRadius: '50%',
+                position: 'absolute', top: -14, right: -14, width: 34, height: 34, borderRadius: '50%',
                 background: '#ffffff', color: '#0f172a', border: 'none', cursor: 'pointer',
-                fontWeight: 800, fontSize: 16, boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
+                fontWeight: 900, fontSize: 16, boxShadow: '0 4px 14px rgba(0,0,0,0.4)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center'
               }}
             >
               ✕
@@ -468,44 +738,72 @@ const FEELINGS_LIST = [
   '💪 Đang cố gắng',
 ];
 
-const PRESET_IMAGES = [
-  { label: '🌿 Bầu trời xanh', url: 'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=800&q=80' },
-  { label: '🍵 Góc đọc sách', url: 'https://images.unsplash.com/photo-1544717305-2782549b5136?w=800&q=80' },
-  { label: '🌅 Bình minh', url: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=800&q=80' },
-  { label: '🌧️ Mưa êm dịu', url: 'https://images.unsplash.com/photo-1515694346937-94d85e41e6f0?w=800&q=80' },
-];
-
 function CreatePostModal({ onClose, onSubmit, currentUser }) {
   const [content, setContent] = useState('');
   const [category, setCategory] = useState(CATEGORIES[1].value);
-  const [imageUrl, setImageUrl] = useState('');
+  const [imageUrls, setImageUrls] = useState([]);
+  const [urlInput, setUrlInput] = useState('');
   const [selectedTheme, setSelectedTheme] = useState('none');
   const [selectedFeeling, setSelectedFeeling] = useState('');
   const [isAnonymous, setIsAnonymous] = useState(true);
-  const [enableAiSentiment, setEnableAiSentiment] = useState(true);
-  const [showImagePicker, setShowImagePicker] = useState(false);
   const [showThemes, setShowThemes] = useState(false);
   const [showFeelings, setShowFeelings] = useState(false);
   const [formError, setFormError] = useState('');
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [uploadProgressText, setUploadProgressText] = useState('');
   const [uploadError, setUploadError] = useState('');
   const fileInputRef = useRef(null);
 
   const handleFileSelect = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    if (imageUrls.length + files.length > 10) {
+      setUploadError(`Bạn chỉ có thể đính kèm tối đa 10 ảnh (hiện đã có ${imageUrls.length} ảnh).`);
+      return;
+    }
+
     setUploadingImage(true);
     setUploadError('');
+    setUploadProgressText(`Đang chuẩn bị tải ${files.length} ảnh...`);
     try {
-      const res = await uploadImageToCloudinary(file, 'post_images');
-      setImageUrl(res.url);
-      setSelectedTheme('none');
+      const uploadedUrls = [];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        if (!file.type.startsWith('image/')) continue;
+        if (file.size > 10 * 1024 * 1024) continue;
+        setUploadProgressText(`Đang tải ảnh ${i + 1}/${files.length} lên Cloudinary...`);
+        const res = await uploadImageToCloudinary(file, 'post_images');
+        if (res?.url) uploadedUrls.push(res.url);
+      }
+      if (uploadedUrls.length > 0) {
+        setImageUrls(prev => [...prev, ...uploadedUrls]);
+        setSelectedTheme('none');
+      }
     } catch (err) {
       setUploadError(err.message || 'Lỗi tải ảnh lên Cloudinary.');
     } finally {
       setUploadingImage(false);
+      setUploadProgressText('');
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
+  };
+
+  const handleAddUrl = () => {
+    const trimmed = urlInput.trim();
+    if (!trimmed) return;
+    if (imageUrls.length >= 10) {
+      setUploadError('Tối đa 10 hình ảnh cho một bài viết.');
+      return;
+    }
+    setImageUrls(prev => [...prev, trimmed]);
+    setUrlInput('');
+    setSelectedTheme('none');
+    setUploadError('');
+  };
+
+  const handleRemoveImage = (indexToRemove) => {
+    setImageUrls(prev => prev.filter((_, idx) => idx !== indexToRemove));
   };
 
   const authorDisplayName = isAnonymous
@@ -513,7 +811,7 @@ function CreatePostModal({ onClose, onSubmit, currentUser }) {
     : (currentUser?.fullName || 'Ngô Tấn Lộc');
 
   const currentTheme = BG_THEMES.find(t => t.id === selectedTheme) || BG_THEMES[0];
-  const isGradientTheme = selectedTheme !== 'none' && !imageUrl;
+  const isGradientTheme = selectedTheme !== 'none' && imageUrls.length === 0;
 
   const handlePost = () => {
     if (!content.trim()) {
@@ -524,7 +822,7 @@ function CreatePostModal({ onClose, onSubmit, currentUser }) {
     onSubmit({
       content: finalContent,
       category,
-      imageUrl: imageUrl.trim() || null
+      imageUrl: imageUrls.length > 0 ? imageUrls.join(',') : null
     });
     onClose();
   };
@@ -651,7 +949,7 @@ function CreatePostModal({ onClose, onSubmit, currentUser }) {
                   )}
                 </div>
 
-                <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
                   {/* Chế độ danh tính */}
                   <button
                     type="button"
@@ -659,7 +957,7 @@ function CreatePostModal({ onClose, onSubmit, currentUser }) {
                     style={{
                       display: 'flex', alignItems: 'center', gap: 4,
                       background: '#f1f5f9', border: '1px solid #cbd5e1',
-                      borderRadius: 14, padding: '2px 8px', fontSize: 11.5,
+                      borderRadius: 14, padding: '3px 10px', fontSize: 11.5,
                       fontWeight: 700, color: '#334155', cursor: 'pointer'
                     }}
                   >
@@ -673,7 +971,7 @@ function CreatePostModal({ onClose, onSubmit, currentUser }) {
                     onChange={e => setCategory(e.target.value)}
                     style={{
                       background: '#f0fdfa', border: '1px solid #99f6e4',
-                      borderRadius: 14, padding: '2px 8px', fontSize: 11.5,
+                      borderRadius: 14, padding: '3px 10px', fontSize: 11.5,
                       fontWeight: 700, color: '#0d9488', cursor: 'pointer', outline: 'none'
                     }}
                   >
@@ -681,59 +979,25 @@ function CreatePostModal({ onClose, onSubmit, currentUser }) {
                       <option key={c.value} value={c.value}>{c.label}</option>
                     ))}
                   </select>
+
+                  {/* Chọn cảm xúc / tâm trạng */}
+                  <button
+                    type="button"
+                    onClick={() => setShowFeelings(v => !v)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 4,
+                      background: selectedFeeling ? '#fef3c7' : '#f8fafc',
+                      border: '1px solid #cbd5e1',
+                      borderRadius: 14, padding: '3px 10px', fontSize: 11.5,
+                      fontWeight: 700, color: selectedFeeling ? '#b45309' : '#475569',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <span>{selectedFeeling ? selectedFeeling : '😊 Cảm xúc'}</span>
+                    <span>▾</span>
+                  </button>
                 </div>
               </div>
-            </div>
-
-            {/* Quick feature pill buttons (như trong ảnh Facebook) */}
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', padding: '4px 0' }}>
-              <button
-                type="button"
-                onClick={() => setIsAnonymous(v => !v)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 4, padding: '5px 12px',
-                  borderRadius: 20, border: '1px solid #e2e8f0', background: isAnonymous ? '#f0fdfa' : '#fff',
-                  color: isAnonymous ? '#0d9488' : '#475569', fontSize: 12, fontWeight: 700, cursor: 'pointer'
-                }}
-              >
-                <span>👥 Mọi người</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setShowFeelings(v => !v)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 4, padding: '5px 12px',
-                  borderRadius: 20, border: '1px solid #e2e8f0', background: selectedFeeling ? '#fef3c7' : '#fff',
-                  color: selectedFeeling ? '#b45309' : '#475569', fontSize: 12, fontWeight: 700, cursor: 'pointer'
-                }}
-              >
-                <span>😊 Cảm xúc/hoạt động</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setShowImagePicker(v => !v)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 4, padding: '5px 12px',
-                  borderRadius: 20, border: '1px solid #e2e8f0', background: imageUrl ? '#f0fdfa' : '#fff',
-                  color: imageUrl ? '#0d9488' : '#475569', fontSize: 12, fontWeight: 700, cursor: 'pointer'
-                }}
-              >
-                <span>🖼️ Ảnh/video</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setCategory('Góc học tập')}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 4, padding: '5px 12px',
-                  borderRadius: 20, border: '1px solid #e2e8f0', background: '#fff',
-                  color: '#475569', fontSize: 12, fontWeight: 700, cursor: 'pointer'
-                }}
-              >
-                <span>📍 ĐH Lạc Hồng</span>
-              </button>
             </div>
 
             {/* Feelings Picker Popup */}
@@ -853,33 +1117,35 @@ function CreatePostModal({ onClose, onSubmit, currentUser }) {
               </div>
             </div>
 
-            {/* ──────── THÊM ẢNH HOẶC KÉO THẢ (NHƯ HÌNH FACEBOOK) ──────── */}
+            {/* ──────── THÊM ẢNH HOẶC KÉO THẢ (HỖ TRỢ NHIỀU ẢNH) ──────── */}
             <div style={{
-              border: '2px dashed #cbd5e1',
+              border: imageUrls.length > 0 ? '1px solid #cbd5e1' : '2px dashed #cbd5e1',
               borderRadius: 12,
-              padding: '16px',
-              textAlign: 'center',
+              padding: '14px 16px',
+              textAlign: imageUrls.length > 0 ? 'left' : 'center',
               background: '#f8fafc',
               position: 'relative'
             }}>
-              {!imageUrl ? (
+              {/* Nút tải ảnh lên Cloudinary (hỗ trợ chọn nhiều file) */}
+              <input
+                type="file"
+                ref={fileInputRef}
+                accept="image/*"
+                multiple
+                style={{ display: 'none' }}
+                onChange={handleFileSelect}
+              />
+
+              {imageUrls.length === 0 ? (
                 <div>
-                  <div style={{ fontSize: 24, marginBottom: 4 }}>🖼️</div>
+                  <div style={{ fontSize: 26, marginBottom: 4 }}>🖼️</div>
                   <strong style={{ fontSize: 13.5, color: '#1e293b', display: 'block', marginBottom: 2 }}>
-                    Thêm ảnh đính kèm bài viết
+                    Đính kèm hình ảnh
                   </strong>
                   <p style={{ fontSize: 11.5, color: '#64748b', margin: '0 0 12px' }}>
-                    Tải trực tiếp ảnh lên Cloudinary hoặc dán đường dẫn ảnh / chọn ảnh tĩnh tâm mẫu
+                    Tải ảnh từ máy tính lên Cloudinary hoặc dán đường dẫn ảnh
                   </p>
 
-                  {/* Nút tải ảnh lên Cloudinary */}
-                  <input
-                    type="file"
-                    ref={fileInputRef}
-                    accept="image/*"
-                    style={{ display: 'none' }}
-                    onChange={handleFileSelect}
-                  />
                   <div style={{ marginBottom: 12 }}>
                     <button
                       type="button"
@@ -902,7 +1168,7 @@ function CreatePostModal({ onClose, onSubmit, currentUser }) {
                       }}
                     >
                       <span>📷</span>
-                      <span>{uploadingImage ? 'Đang tải lên Cloudinary...' : 'Tải ảnh từ máy (Cloudinary)'}</span>
+                      <span>{uploadingImage ? uploadProgressText : 'Chọn ảnh từ máy (Có thể chọn nhiều ảnh)'}</span>
                     </button>
                     {uploadError && (
                       <p style={{ color: '#ef4444', fontSize: 11.5, margin: '6px 0 0' }}>
@@ -911,134 +1177,132 @@ function CreatePostModal({ onClose, onSubmit, currentUser }) {
                     )}
                   </div>
                   
-                  <div style={{ display: 'flex', gap: 6, justifyContent: 'center', flexWrap: 'wrap' }}>
-                    {PRESET_IMAGES.map(img => (
+
+                  <div style={{ display: 'flex', gap: 6, justifyContent: 'center', maxWidth: 420, margin: '0 auto' }}>
+                    <input
+                      type="url"
+                      placeholder="Hoặc dán URL ảnh tại đây (https://...)"
+                      value={urlInput}
+                      onChange={e => setUrlInput(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddUrl(); } }}
+                      style={{
+                        flex: 1, padding: '6px 10px', fontSize: 11.5, borderRadius: 6,
+                        border: '1px solid #cbd5e1', outline: 'none'
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddUrl}
+                      disabled={!urlInput.trim()}
+                      style={{
+                        padding: '6px 12px', background: '#0f766e', color: '#fff', border: 'none',
+                        borderRadius: 6, fontSize: 11.5, fontWeight: 700, cursor: urlInput.trim() ? 'pointer' : 'default'
+                      }}
+                    >
+                      Thêm
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <strong style={{ fontSize: 13, color: '#1e293b' }}>
+                        Danh sách ảnh đính kèm ({imageUrls.length}/10):
+                      </strong>
+                      {uploadingImage && (
+                        <span style={{ fontSize: 11.5, color: '#0d9488', fontWeight: 600 }}>
+                          ⏳ {uploadProgressText}
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', gap: 6 }}>
                       <button
-                        key={img.label}
                         type="button"
-                        onClick={() => { setImageUrl(img.url); setSelectedTheme('none'); }}
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={uploadingImage || imageUrls.length >= 10}
                         style={{
-                          fontSize: 11, padding: '4px 8px', borderRadius: 6,
-                          border: '1px solid #cbd5e1', background: '#fff',
-                          color: '#475569', cursor: 'pointer', fontWeight: 600
+                          padding: '4px 10px', background: '#0d9488', color: '#fff', border: 'none',
+                          borderRadius: 6, fontSize: 11.5, fontWeight: 700, cursor: 'pointer'
                         }}
                       >
-                        {img.label}
+                        + Thêm ảnh
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => setImageUrls([])}
+                        style={{
+                          padding: '4px 8px', background: '#fee2e2', color: '#dc2626', border: 'none',
+                          borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer'
+                        }}
+                      >
+                        Xóa tất cả
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Thumbnail strip */}
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(84px, 1fr))',
+                    gap: 8,
+                    maxHeight: 190,
+                    overflowY: 'auto',
+                    padding: 2
+                  }}>
+                    {imageUrls.map((url, idx) => (
+                      <div
+                        key={idx}
+                        style={{
+                          position: 'relative',
+                          width: '100%',
+                          paddingTop: '100%',
+                          borderRadius: 8,
+                          overflow: 'hidden',
+                          border: '1px solid #cbd5e1',
+                          background: '#090d16'
+                        }}
+                      >
+                        <img
+                          src={url}
+                          alt={`Thumbnail ${idx + 1}`}
+                          style={{
+                            position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
+                            objectFit: 'cover'
+                          }}
+                        />
+                        <span style={{
+                          position: 'absolute', top: 3, left: 3, background: 'rgba(0,0,0,0.65)',
+                          color: '#fff', fontSize: 10, fontWeight: 800, padding: '1px 5px', borderRadius: 4
+                        }}>
+                          #{idx + 1}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveImage(idx)}
+                          title="Xóa ảnh này"
+                          style={{
+                            position: 'absolute', top: 3, right: 3, width: 20, height: 20,
+                            borderRadius: '50%', background: '#dc2626', color: '#fff', border: 'none',
+                            fontSize: 11, fontWeight: 900, cursor: 'pointer', display: 'flex',
+                            alignItems: 'center', justifyContent: 'center'
+                          }}
+                        >
+                          ✕
+                        </button>
+                      </div>
                     ))}
                   </div>
 
-                  <input
-                    type="url"
-                    placeholder="Hoặc dán URL ảnh tại đây (https://...)"
-                    value={imageUrl}
-                    onChange={e => { setImageUrl(e.target.value); if (e.target.value) setSelectedTheme('none'); }}
-                    style={{
-                      width: '90%', maxWidth: 360, marginTop: 10,
-                      padding: '6px 12px', fontSize: 11.5, borderRadius: 6,
-                      border: '1px solid #cbd5e1', outline: 'none'
-                    }}
-                  />
-                </div>
-              ) : (
-                <div style={{ position: 'relative' }}>
-                  <img
-                    src={imageUrl}
-                    alt="Đính kèm"
-                    style={{ width: '100%', maxHeight: 180, objectFit: 'cover', borderRadius: 8, display: 'block' }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setImageUrl('')}
-                    style={{
-                      position: 'absolute', top: 8, right: 8,
-                      background: 'rgba(0,0,0,0.6)', color: '#fff',
-                      border: 'none', borderRadius: '50%', width: 26, height: 26,
-                      cursor: 'pointer', fontSize: 13, fontWeight: 900
-                    }}
-                  >
-                    ✕
-                  </button>
+                  {uploadError && (
+                    <p style={{ color: '#ef4444', fontSize: 11.5, margin: '8px 0 0', textAlign: 'center' }}>
+                      ⚠️ {uploadError}
+                    </p>
+                  )}
                 </div>
               )}
             </div>
 
-            {/* ──────── 3 Ô HÀNH ĐỘNG NHANH (NHƯ HÌNH FACEBOOK) ──────── */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-              <div
-                onClick={() => setContent(c => c + ' #CanHoTroTamLy')}
-                style={{
-                  border: '1px solid #e2e8f0', borderRadius: 10, padding: '10px 8px',
-                  textAlign: 'center', cursor: 'pointer', background: '#ffffff', transition: 'all 0.15s'
-                }}
-                onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
-                onMouseLeave={e => e.currentTarget.style.background = '#ffffff'}
-              >
-                <div style={{ fontSize: 18, marginBottom: 2 }}>📞</div>
-                <strong style={{ fontSize: 12, color: '#334155', display: 'block' }}>Nhận cuộc gọi</strong>
-                <span style={{ fontSize: 10, color: '#94a3b8' }}>Kết nối SafeRoom</span>
-              </div>
-
-              <div
-                onClick={() => setShowThemes(v => !v)}
-                style={{
-                  border: '1px solid #e2e8f0', borderRadius: 10, padding: '10px 8px',
-                  textAlign: 'center', cursor: 'pointer', background: '#ffffff', transition: 'all 0.15s'
-                }}
-                onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
-                onMouseLeave={e => e.currentTarget.style.background = '#ffffff'}
-              >
-                <div style={{ fontSize: 18, marginBottom: 2 }}>🎞️</div>
-                <strong style={{ fontSize: 12, color: '#334155', display: 'block' }}>Ảnh GIF / Nền</strong>
-                <span style={{ fontSize: 10, color: '#94a3b8' }}>Màu tâm trạng</span>
-              </div>
-
-              <div
-                onClick={() => setContent(c => '[Cột mốc]: ' + c)}
-                style={{
-                  border: '1px solid #e2e8f0', borderRadius: 10, padding: '10px 8px',
-                  textAlign: 'center', cursor: 'pointer', background: '#ffffff', transition: 'all 0.15s'
-                }}
-                onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
-                onMouseLeave={e => e.currentTarget.style.background = '#ffffff'}
-              >
-                <div style={{ fontSize: 18, marginBottom: 2 }}>🚩</div>
-                <strong style={{ fontSize: 12, color: '#334155', display: 'block' }}>Cột mốc</strong>
-                <span style={{ fontSize: 10, color: '#94a3b8' }}>Học kỳ / Đồ án</span>
-              </div>
-            </div>
-
-            {/* ──────── PHẦN CHIA SẺ VÀ CÀI ĐẶT ──────── */}
-            <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: 10 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                <div>
-                  <strong style={{ fontSize: 13, color: '#1e293b', display: 'block' }}>🌐 Đối tượng bài viết</strong>
-                  <span style={{ fontSize: 11.5, color: '#64748b' }}>
-                    {isAnonymous ? 'Chế độ ẩn danh (Bảo vệ MSSV & Tên thật)' : 'Công khai với toàn trường'}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setIsAnonymous(v => !v)}
-                  style={{ background: 'none', border: 'none', color: '#0d9488', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
-                >
-                  Thay đổi ›
-                </button>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  <strong style={{ fontSize: 13, color: '#1e293b', display: 'block' }}>✨ Thêm nhãn AI Sentiment</strong>
-                  <span style={{ fontSize: 11.5, color: '#64748b' }}>Tự động phân loại cảm xúc & hỗ trợ đa ngôn ngữ</span>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={enableAiSentiment}
-                  onChange={e => setEnableAiSentiment(e.target.checked)}
-                  style={{ width: 18, height: 18, cursor: 'pointer', accentColor: '#0d9488' }}
-                />
-              </div>
-            </div>
 
             {formError && (
               <InPageNotification type="warning" message={formError} onClose={() => setFormError('')} />
@@ -1176,14 +1440,10 @@ function CreatePostModal({ onClose, onSubmit, currentUser }) {
                 </div>
               )}
 
-              {/* Image preview */}
-              {imageUrl && (
-                <div style={{ width: '100%', background: '#000', maxHeight: 260, overflow: 'hidden' }}>
-                  <img
-                    src={imageUrl}
-                    alt="Xem trước ảnh"
-                    style={{ width: '100%', maxHeight: 260, objectFit: 'cover', display: 'block' }}
-                  />
+              {/* Multi-image gallery preview */}
+              {imageUrls.length > 0 && !isGradientTheme && (
+                <div style={{ width: '100%', padding: '0 12px 10px' }}>
+                  <PostMediaGallery images={imageUrls} />
                 </div>
               )}
 

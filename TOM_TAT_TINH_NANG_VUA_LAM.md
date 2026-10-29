@@ -34,24 +34,42 @@
 
 ---
 
-## 3. Đăng ký Khóa học Cho Nhập Tay Tự Do
+## 3. Tối Giản Form Đăng Ký (Khóa học & Email)
 
-* **Vấn đề cũ**: Ô chọn khóa học dạng dropdown bắt buộc chọn danh sách có sẵn, sinh viên khó nhập đúng khóa thực tế.
-* **Cách làm**: Chuyển ô chọn sang ô nhập chữ tự do (`<input type="text" placeholder="VD: K2021, K2022, K2023..." />`), hỗ trợ validate đầy đủ.
+* **Vấn đề cũ**:
+  * Ô chọn khóa học dropdown bị gò bó.
+  * Xuất hiện nhiều đoạn chữ trùng lặp, rườm rà (vừa ghi nhãn `Khóa học (Năm tuyển sinh)`, vừa có hint góc phải `VD: 2024, 2025...`, vừa placeholder dài dòng và câu giải thích bên dưới dài lê thê).
+  * Email cũng có dòng ghi chú thừa không cần thiết.
+* **Cách làm**:
+  * Tinh giản nhãn và placeholder siêu gọn gàng:
+    * **Khóa học \***: placeholder `VD: 2024, K24...` (bỏ câu giải thích thừa và nhãn phụ).
+    * **Email \***: placeholder `sv@lhu.edu.vn` (bỏ câu giải thích thừa).
 * **Tệp chỉnh sửa**:
-  * `frontend/src/features/auth/pages/RegisterPage.jsx`
+  * [RegisterPage.jsx](file:///c:/PTUD/PTUD/frontend/src/features/auth/pages/RegisterPage.jsx)
 
 ---
 
-## 4. Giao diện Đăng bài Facebook-Style 2 Cột (Có Xem Trước)
+## 4. Giao diện Đăng bài Facebook-Style 2 Cột & Media Gallery Đa Ảnh Chuẩn Tỉ Lệ
 
-* **Vấn đề cũ**: Form đăng bài đơn điệu, không xem trước được nội dung và ảnh hiển thị.
+* **Vấn đề cũ**:
+  * Form đăng bài đơn điệu, không xem trước được nội dung và ảnh hiển thị.
+  * Chỉ cho phép tải 1 ảnh duy nhất, ảnh bị ép cứng chiều cao (`maxHeight: 340`) và `object-fit: cover` khiến ảnh bị cắt xén (bẹp/mất chi tiết quan trọng).
 * **Cách làm**:
-  * Thiết kế lại giao diện đăng bài dạng **2 cột song song**:
-    * **Cột trái (Soạn thảo)**: Chọn ẩn danh / công khai, chọn tâm trạng, chọn màu nền gradient, dán link ảnh hoặc chọn ảnh mẫu tĩnh tâm thiên nhiên, chọn nhãn AI Sentiment.
-    * **Cột phải (Live Preview)**: Hiển thị ngay tức thì bản xem trước bài viết thực tế trông như thế nào khi đăng lên bảng tin.
+  * **Hỗ trợ Đăng Nhiều Ảnh (Tối đa 10 ảnh)**: Cho phép chọn đồng thời nhiều file ảnh từ máy tính tải lên Cloudinary, quản lý dạng thumbnail với số thứ tự, nút xóa từng ảnh hoặc thêm tiếp.
+  * **Chỉnh Scale ảnh Chuẩn Tỉ Lệ (PostMediaGallery)**:
+    * 1 ảnh: Scale tự nhiên (`objectFit: 'contain'`, `maxHeight: 520px`), nền tối dịu mắt, không bao giờ bị cắt xén hay bóp méo hình ảnh.
+    * 2 ảnh: Lưới cân xứng 2 cột song song.
+    * 3 ảnh: 1 ảnh lớn bên trái + 2 ảnh xếp tầng bên phải.
+    * 4+ ảnh: Lưới Facebook 2x2, ảnh thứ 4 hiển thị overlay `+N ảnh` đếm số ảnh còn lại.
+  * **Tối Giản Hóa Form (Loại Bỏ Tính Năng Thừa)**:
+    * Bỏ hàng nút tag trùng lặp (`Mọi người`, `Ảnh/video`, `ĐH Lạc Hồng`).
+    * Bỏ 3 ô hành động giả lập (`Nhận cuộc gọi`, `Ảnh GIF`, `Cột mốc`) gây rối mắt.
+    * Bỏ các ảnh mẫu tĩnh tâm Unsplash rườm rà.
+    * Bỏ khối cài đặt trùng lặp ở đáy form và checkbox AI sentiment thừa.
+    * Tinh gọn thanh công cụ trên đầu: chỉ giữ **Chế độ ẩn danh/công khai**, **Chọn chủ đề** và **Chọn cảm xúc**.
 * **Tệp chỉnh sửa**:
-  * `frontend/src/features/student/pages/CommunityFeedPage.jsx`
+  * [CommunityFeedPage.jsx](file:///c:/PTUD/PTUD/frontend/src/features/student/pages/CommunityFeedPage.jsx)
+  * [ModerationPage.jsx](file:///c:/PTUD/PTUD/frontend/src/features/expert/pages/ModerationPage.jsx)
 
 ---
 

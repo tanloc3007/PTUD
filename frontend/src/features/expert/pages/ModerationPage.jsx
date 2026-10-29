@@ -291,22 +291,46 @@ export default function ExpertModerationPage() {
                     background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10,
                     padding: '12px 14px', marginBottom: 14
                   }}>
-                    <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center' }}>
-                      <div style={{ width: 140, height: 95, borderRadius: 8, overflow: 'hidden', border: '1px solid #cbd5e1', background: '#000', flexShrink: 0 }}>
-                        <img
-                          src={post.imageUrl}
-                          alt="Đính kèm"
-                          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                          onError={e => { e.currentTarget.style.display = 'none'; }}
-                        />
-                      </div>
-                      <div style={{ flex: 1, minWidth: 220 }}>
-                        <div style={{ fontSize: 12.5, fontWeight: 700, color: '#334155', marginBottom: 4 }}>
-                          Kiểm duyệt hình ảnh đính kèm:
-                        </div>
-                        <div style={{ fontSize: 11.5, color: '#64748b', marginBottom: 8, wordBreak: 'break-all' }}>
-                          URL: {post.imageUrl.length > 50 ? post.imageUrl.substring(0, 50) + '...' : post.imageUrl}
-                        </div>
+                    {(() => {
+                      const imgs = (post.imageUrl || '').split(',').map(s => s.trim()).filter(Boolean);
+                      return (
+                        <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+                          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', maxWidth: 480 }}>
+                            {imgs.map((img, idx) => (
+                              <div
+                                key={idx}
+                                onClick={() => setPreviewImage(img)}
+                                title="Nhấp để xem ảnh lớn"
+                                style={{
+                                  width: 120, height: 85, borderRadius: 8, overflow: 'hidden',
+                                  border: '1px solid #cbd5e1', background: '#090d16', flexShrink: 0,
+                                  cursor: 'zoom-in', position: 'relative'
+                                }}
+                              >
+                                <img
+                                  src={img}
+                                  alt={`Ảnh ${idx + 1}`}
+                                  style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                                  onError={e => { e.currentTarget.style.display = 'none'; }}
+                                />
+                                {imgs.length > 1 && (
+                                  <span style={{
+                                    position: 'absolute', bottom: 2, right: 2, background: 'rgba(0,0,0,0.65)',
+                                    color: '#fff', fontSize: 10, fontWeight: 700, padding: '1px 5px', borderRadius: 4
+                                  }}>
+                                    #{idx + 1}
+                                  </span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                          <div style={{ flex: 1, minWidth: 220 }}>
+                            <div style={{ fontSize: 12.5, fontWeight: 700, color: '#334155', marginBottom: 4 }}>
+                              Kiểm duyệt hình ảnh đính kèm ({imgs.length} ảnh):
+                            </div>
+                            <div style={{ fontSize: 11.5, color: '#64748b', marginBottom: 8, wordBreak: 'break-all' }}>
+                              {imgs.length === 1 ? `URL: ${imgs[0].length > 50 ? imgs[0].substring(0, 50) + '...' : imgs[0]}` : `Đính kèm ${imgs.length} hình ảnh`}
+                            </div>
                         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                           <button
                             type="button"
@@ -350,8 +374,10 @@ export default function ExpertModerationPage() {
                         </div>
                       </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
+              </div>
+            )}
 
                 {post.detectedKeywords && (
                   <p style={{ fontSize: 12, color: '#dc2626', margin: '0 0 12px', fontWeight: 600 }}>

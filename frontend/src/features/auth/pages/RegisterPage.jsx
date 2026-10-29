@@ -224,31 +224,26 @@ export default function RegisterPage() {
 
                 {/* Khóa học */}
                 <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                    <label style={{ ...labelStyle, margin: 0 }}>Khóa học (Năm tuyển sinh) <span style={{ color: '#ef4444' }}>*</span></label>
-                    <span style={{ fontSize: 11, color: '#0d9488', fontWeight: 700 }}>VD: 2024, 2025, K24...</span>
-                  </div>
+                  <label style={labelStyle}>Khóa học <span style={{ color: '#ef4444' }}>*</span></label>
                   <input
                     type="text"
                     style={inputStyle}
-                    placeholder="Nhập khóa học hoặc năm tuyển sinh (VD: 2024, K24...)"
+                    placeholder="VD: 2024, K24..."
                     value={form.yearOfStudy}
                     onChange={e => set('yearOfStudy', e.target.value)}
                   />
-                  <p style={hintStyle}>Nhập năm tuyển sinh hoặc khóa học của bạn để định danh lớp sinh viên.</p>
                 </div>
 
                 {/* Email */}
                 <div>
-                  <label style={labelStyle}>Email liên lạc <span style={{ color: '#ef4444' }}>*</span></label>
+                  <label style={labelStyle}>Email <span style={{ color: '#ef4444' }}>*</span></label>
                   <input
                     type="email"
                     style={inputStyle}
-                    placeholder="sv@lhu.edu.vn hoặc gmail..."
+                    placeholder="sv@lhu.edu.vn"
                     value={form.email}
                     onChange={e => set('email', e.target.value)}
                   />
-                  <p style={hintStyle}>Email dùng để nhận thông báo lịch hẹn và xác thực tài khoản.</p>
                 </div>
               </div>
             )}
