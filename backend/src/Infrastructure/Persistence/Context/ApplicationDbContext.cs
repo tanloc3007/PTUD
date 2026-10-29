@@ -23,6 +23,7 @@ public class ApplicationDbContext : IApplicationDbContext
     public List<CommunityComment> CommunityComments { get; set; } = new();
     public List<NlpRiskAlert> NlpRiskAlerts { get; set; } = new();
     public List<AuditLog> AuditLogs { get; set; } = new();
+    public List<UserNotification> Notifications { get; set; } = new();
 
     public ApplicationDbContext(string? connectionString = null)
     {
@@ -63,6 +64,42 @@ public class ApplicationDbContext : IApplicationDbContext
 
             IF OBJECT_ID('dbo.NlpRiskAlerts', 'U') IS NOT NULL AND COL_LENGTH('dbo.NlpRiskAlerts', 'CommentId') IS NULL 
                 ALTER TABLE dbo.NlpRiskAlerts ADD CommentId UNIQUEIDENTIFIER NULL;
+
+            IF OBJECT_ID('dbo.UserNotifications', 'U') IS NULL
+            BEGIN
+                CREATE TABLE dbo.UserNotifications (
+                    Id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+                    UserId UNIQUEIDENTIFIER NULL,
+                    TargetRole NVARCHAR(50) NOT NULL DEFAULT 'All',
+                    Title NVARCHAR(200) NOT NULL,
+                    Message NVARCHAR(MAX) NOT NULL,
+                    Category NVARCHAR(50) NOT NULL DEFAULT 'System',
+                    Type NVARCHAR(50) NOT NULL DEFAULT 'info',
+                    ActionUrl NVARCHAR(500) NULL,
+                    IsRead BIT NOT NULL DEFAULT 0,
+                    CreatedAt DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+                    ReadAt DATETIME2 NULL
+                );
+            END
+            IF OBJECT_ID('dbo.UserNotifications', 'U') IS NOT NULL
+            BEGIN
+                UPDATE dbo.UserNotifications 
+                SET Title = N'Lượt thích từ cộng đồng', 
+                    Message = N'Bài viết của bạn nhận được 4 lượt thích và phản hồi từ chuyên viên.'
+                WHERE Category = 'Community';
+
+                UPDATE dbo.UserNotifications 
+                SET Title = N'Nhật ký cảm xúc', 
+                    Message = N'Đã lưu tâm trạng Bình yên (năng lượng 7/10).'
+                WHERE Category = 'Mood';
+            END
+
+            IF OBJECT_ID('dbo.AuditLogs', 'U') IS NOT NULL
+            BEGIN
+                UPDATE dbo.AuditLogs 
+                SET Details = REPLACE(Details, N'Chuyên viên Chuyên viên', N'Chuyên viên') 
+                WHERE Details LIKE N'%Chuyên viên Chuyên viên%';
+            END
         ", conn))
         {
             try { alterCmd.ExecuteNonQuery(); } catch { }
@@ -411,13 +448,41 @@ public class ApplicationDbContext : IApplicationDbContext
                 {
                     Id = reader.GetGuid(0),
                     ActionType = reader.GetString(1),
-                    Details = reader.GetString(2),
+                    Details = reader.GetString(2).Replace("Chuyên viên Chuyên viên", "Chuyên viên"),
                     ActorRole = reader.GetString(3),
                     ActorId = reader.IsDBNull(4) ? null : reader.GetGuid(4),
                     IpAddress = reader.IsDBNull(5) ? null : reader.GetString(5),
                     CreatedAt = reader.GetDateTime(6)
                 });
             }
+        }
+
+        // 15. UserNotifications
+        using (var cmd = new SqlCommand("SELECT Id, UserId, TargetRole, Title, Message, Category, Type, ActionUrl, IsRead, CreatedAt, ReadAt FROM dbo.UserNotifications ORDER BY CreatedAt DESC", conn))
+        using (var reader = cmd.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                Notifications.Add(new UserNotification
+                {
+                    Id = reader.GetGuid(0),
+                    UserId = reader.IsDBNull(1) ? null : reader.GetGuid(1),
+                    TargetRole = reader.GetString(2),
+                    Title = reader.GetString(3),
+                    Message = reader.GetString(4),
+                    Category = reader.GetString(5),
+                    Type = reader.GetString(6),
+                    ActionUrl = reader.IsDBNull(7) ? null : reader.GetString(7),
+                    IsRead = reader.GetBoolean(8),
+                    CreatedAt = reader.GetDateTime(9),
+                    ReadAt = reader.IsDBNull(10) ? null : reader.GetDateTime(10)
+                });
+            }
+        }
+
+        if (Notifications.Count == 0)
+        {
+            SeedInitialNotifications();
         }
 
         // Wire relation between Questions and Tests
@@ -836,6 +901,34 @@ public class ApplicationDbContext : IApplicationDbContext
                 cmd.Parameters.AddWithValue("@CreatedAt", log.CreatedAt);
                 await cmd.ExecuteNonQueryAsync(cancellationToken);
             }
+
+            // 14. Sync UserNotifications
+            foreach (var notif in Notifications)
+            {
+                using var cmd = new SqlCommand(@"
+                    IF NOT EXISTS (SELECT 1 FROM dbo.UserNotifications WHERE Id = @Id)
+                    BEGIN
+                        INSERT INTO dbo.UserNotifications (Id, UserId, TargetRole, Title, Message, Category, Type, ActionUrl, IsRead, CreatedAt, ReadAt)
+                        VALUES (@Id, @UserId, @TargetRole, @Title, @Message, @Category, @Type, @ActionUrl, @IsRead, @CreatedAt, @ReadAt)
+                    END
+                    ELSE
+                    BEGIN
+                        UPDATE dbo.UserNotifications SET IsRead = @IsRead, ReadAt = @ReadAt WHERE Id = @Id
+                    END", conn);
+
+                cmd.Parameters.AddWithValue("@Id", notif.Id);
+                cmd.Parameters.AddWithValue("@UserId", (object?)notif.UserId ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@TargetRole", notif.TargetRole);
+                cmd.Parameters.AddWithValue("@Title", notif.Title);
+                cmd.Parameters.AddWithValue("@Message", notif.Message);
+                cmd.Parameters.AddWithValue("@Category", notif.Category);
+                cmd.Parameters.AddWithValue("@Type", notif.Type);
+                cmd.Parameters.AddWithValue("@ActionUrl", (object?)notif.ActionUrl ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@IsRead", notif.IsRead);
+                cmd.Parameters.AddWithValue("@CreatedAt", notif.CreatedAt);
+                cmd.Parameters.AddWithValue("@ReadAt", (object?)notif.ReadAt ?? DBNull.Value);
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
         }
         catch (Exception ex)
         {
@@ -1019,6 +1112,214 @@ public class ApplicationDbContext : IApplicationDbContext
             SentimentScore = 0.70,
             SentimentLabel = "Positive",
             AiAdvice = "Rất vui vì bạn đã có một ngày giải tỏa áp lực. Hãy duy trì thói quen ngủ sớm trước 23h đêm nay nhé!"
+        });
+
+        SeedInitialNotifications();
+    }
+
+    private void SeedInitialNotifications()
+    {
+        var studentId = Guid.Parse("22222222-2222-2222-2222-222222222221");
+        var expertId = Guid.Parse("33333333-3333-3333-3333-333333333330");
+        var adminId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+        var now = DateTime.UtcNow;
+
+        Notifications.AddRange(new[]
+        {
+            // --- Sinh viên ---
+            new UserNotification
+            {
+                Id = Guid.NewGuid(),
+                UserId = studentId,
+                TargetRole = "Student",
+                Title = "Lịch tư vấn trực tuyến đã xác nhận",
+                Message = "Ca hẹn #ST-4569 với ThS. Chuyên viên Tư Vấn Mẫu vào lúc 09:00.",
+                Category = "Appointment",
+                Type = "success",
+                ActionUrl = "/student/booking",
+                IsRead = false,
+                CreatedAt = now.AddMinutes(-25)
+            },
+            new UserNotification
+            {
+                Id = Guid.NewGuid(),
+                UserId = studentId,
+                TargetRole = "Student",
+                Title = "Lượt thích từ cộng đồng",
+                Message = "Bài viết của bạn nhận được 4 lượt thích và phản hồi từ chuyên viên.",
+                Category = "Community",
+                Type = "info",
+                ActionUrl = "/student/community",
+                IsRead = false,
+                CreatedAt = now.AddHours(-2)
+            },
+            new UserNotification
+            {
+                Id = Guid.NewGuid(),
+                UserId = studentId,
+                TargetRole = "Student",
+                Title = "Nhật ký cảm xúc",
+                Message = "Đã lưu tâm trạng Bình yên (năng lượng 7/10).",
+                Category = "Mood",
+                Type = "info",
+                ActionUrl = "/student/journal",
+                IsRead = true,
+                CreatedAt = now.AddHours(-5),
+                ReadAt = now.AddHours(-3)
+            },
+            new UserNotification
+            {
+                Id = Guid.NewGuid(),
+                UserId = studentId,
+                TargetRole = "Student",
+                Title = "Khảo sát DASS-21",
+                Message = "Đã 2 tuần kể từ lần làm trắc nghiệm trước. Hãy làm bài kiểm tra nhanh.",
+                Category = "System",
+                Type = "warning",
+                ActionUrl = "/student/test",
+                IsRead = true,
+                CreatedAt = now.AddDays(-1),
+                ReadAt = now.AddHours(-12)
+            },
+            new UserNotification
+            {
+                Id = Guid.NewGuid(),
+                UserId = studentId,
+                TargetRole = "Student",
+                Title = "Phòng An Yên SafeRoom",
+                Message = "Không gian âm thanh thư giãn và bài tập thở 4-7-8.",
+                Category = "System",
+                Type = "info",
+                ActionUrl = "/student/saferoom",
+                IsRead = true,
+                CreatedAt = now.AddDays(-2),
+                ReadAt = now.AddDays(-1)
+            },
+
+            // --- Chuyên viên ---
+            new UserNotification
+            {
+                Id = Guid.NewGuid(),
+                UserId = expertId,
+                TargetRole = "Expert",
+                Title = "Ca tư vấn trực tuyến mới cần duyệt",
+                Message = "Sinh viên Ẩn Yên #101 vừa đặt lịch tư vấn trực tuyến (#ST-4569). Vui lòng kiểm tra và duyệt lịch.",
+                Category = "Appointment",
+                Type = "appointment",
+                ActionUrl = "/expert/schedule",
+                IsRead = false,
+                CreatedAt = now.AddMinutes(-30)
+            },
+            new UserNotification
+            {
+                Id = Guid.NewGuid(),
+                UserId = expertId,
+                TargetRole = "Expert",
+                Title = "Cảnh báo đỏ NLP (Mức độ Khẩn cấp)",
+                Message = "Phát hiện bài viết của sinh viên có chỉ số rủi ro cao (RiskScore: 94) chứa từ khóa 'buông bỏ, mất ngủ kéo dài'.",
+                Category = "NlpAlert",
+                Type = "danger",
+                ActionUrl = "/expert/analytics",
+                IsRead = false,
+                CreatedAt = now.AddHours(-1)
+            },
+            new UserNotification
+            {
+                Id = Guid.NewGuid(),
+                UserId = expertId,
+                TargetRole = "Expert",
+                Title = "Kiểm duyệt bài viết cộng đồng",
+                Message = "Có 1 bài viết mới đính kèm hình ảnh đang chờ phê duyệt trước khi hiển thị cho sinh viên.",
+                Category = "Community",
+                Type = "warning",
+                ActionUrl = "/expert/moderation",
+                IsRead = true,
+                CreatedAt = now.AddHours(-3),
+                ReadAt = now.AddHours(-1)
+            },
+            new UserNotification
+            {
+                Id = Guid.NewGuid(),
+                UserId = expertId,
+                TargetRole = "Expert",
+                Title = "Sổ tay lâm sàng hoàn tất",
+                Message = "Hồ sơ tham vấn lâm sàng ca #ST-8459 đã được mã hóa và lưu trữ bảo mật thành công.",
+                Category = "System",
+                Type = "success",
+                ActionUrl = "/expert/workspace",
+                IsRead = true,
+                CreatedAt = now.AddDays(-1),
+                ReadAt = now.AddHours(-8)
+            },
+
+            // --- Quản trị viên (Admin) ---
+            new UserNotification
+            {
+                Id = Guid.NewGuid(),
+                UserId = adminId,
+                TargetRole = "Admin",
+                Title = "Cảnh báo phân quyền chuyên viên",
+                Message = "Phát hiện phân quyền chức năng vừa được điều chỉnh cho tài khoản chuyên viên tư vấn.",
+                Category = "Security",
+                Type = "warning",
+                ActionUrl = "/admin/audit",
+                IsRead = false,
+                CreatedAt = now.AddMinutes(-15)
+            },
+            new UserNotification
+            {
+                Id = Guid.NewGuid(),
+                UserId = adminId,
+                TargetRole = "Admin",
+                Title = "Báo động đỏ Triage khẩn cấp (Urgent)",
+                Message = "Kích hoạt cảnh báo nguy cơ khủng hoảng tâm lý 94 điểm trên diễn đàn sinh viên Khoa CNTT.",
+                Category = "NlpAlert",
+                Type = "danger",
+                ActionUrl = "/admin/moderation",
+                IsRead = false,
+                CreatedAt = now.AddHours(-1)
+            },
+            new UserNotification
+            {
+                Id = Guid.NewGuid(),
+                UserId = adminId,
+                TargetRole = "Admin",
+                Title = "Hàng đợi kiểm duyệt nội dung",
+                Message = "2 bài viết và 1 bình luận bị hệ thống gắn cờ đang chờ quản trị viên xử lý.",
+                Category = "Community",
+                Type = "warning",
+                ActionUrl = "/admin/moderation",
+                IsRead = false,
+                CreatedAt = now.AddHours(-4)
+            },
+            new UserNotification
+            {
+                Id = Guid.NewGuid(),
+                UserId = adminId,
+                TargetRole = "Admin",
+                Title = "Báo cáo sức khỏe tâm lý định kỳ",
+                Message = "Đã tổng hợp số liệu tuần 42: Tỷ lệ sinh viên giảm stress sau khi sử dụng SafeRoom đạt 84.2%.",
+                Category = "System",
+                Type = "success",
+                ActionUrl = "/admin/reports",
+                IsRead = true,
+                CreatedAt = now.AddDays(-1),
+                ReadAt = now.AddHours(-10)
+            },
+            new UserNotification
+            {
+                Id = Guid.NewGuid(),
+                UserId = adminId,
+                TargetRole = "Admin",
+                Title = "Từ khóa nhạy cảm mới được nhận diện",
+                Message = "Cụm từ 'mất ngủ kéo dài, vô định' đã được Google Gemini AI nhận diện và tự động thêm vào danh sách theo dõi.",
+                Category = "System",
+                Type = "info",
+                ActionUrl = "/admin/sensitive-keywords",
+                IsRead = true,
+                CreatedAt = now.AddDays(-2),
+                ReadAt = now.AddDays(-1)
+            }
         });
     }
 }

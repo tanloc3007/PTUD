@@ -6,36 +6,35 @@ import { useAuthStore } from '../../auth/store/authStore';
 const PERMISSION_DEFINITIONS = [
   {
     key: 'PERM_WORKSPACE',
-    label: 'Bàn làm việc & Sàng lọc (Workspace)',
-    desc: 'Truy cập bàn làm việc, phân tầng rủi ro sinh viên cần tư vấn (Triage) và phòng SafeRoom.',
-    icon: '🖥️'
+    label: 'Bàn làm việc & Sàng lọc'
   },
   {
     key: 'PERM_SCHEDULE',
-    label: 'Lịch hẹn & Duyệt ca trực (Schedule)',
-    desc: 'Quản lý lịch làm việc cá nhân, phê duyệt / từ chối / đổi lịch hẹn của sinh viên.',
-    icon: '📅'
+    label: 'Lịch hẹn & Duyệt ca trực'
   },
   {
     key: 'PERM_ANALYTICS',
-    label: 'Phân tích & Cảnh báo tâm lý (Analytics)',
-    desc: 'Xem báo cáo thống kê, biểu đồ phân tích tâm lý học đường và danh sách cảnh báo SOS.',
-    icon: '📊'
+    label: 'Phân tích & Cảnh báo tâm lý'
   },
   {
     key: 'PERM_MODERATION',
-    label: 'Kiểm duyệt bài viết & Hình ảnh (Moderation)',
-    desc: 'Kiểm duyệt nội dung bài viết diễn đàn, phát hiện từ khóa rủi ro và duyệt hình ảnh.',
-    icon: '🛡️'
+    label: 'Kiểm duyệt bài viết & Hình ảnh'
   }
 ];
 
 const DEFAULT_USERS = [
-  { id: 'u1', name: 'SV Ẩn Danh #382', email: 'sv382@unimind.edu.vn', role: 'Student', status: 'Active', joinedAt: '2026-09-01', sessionsCount: 3 },
-  { id: 'u2', name: 'ThS. Nguyễn Thanh Hà', email: 'tha@unimind.edu.vn', role: 'Expert', status: 'Active', joinedAt: '2026-08-15', sessionsCount: 145 },
-  { id: 'u3', name: 'SV Ẩn Danh #119', email: 'sv119@unimind.edu.vn', role: 'Student', status: 'Suspended', joinedAt: '2026-09-10', sessionsCount: 1 },
-  { id: 'u4', name: 'Admin Nguyễn Văn A', email: 'admin@unimind.edu.vn', role: 'Admin', status: 'Active', joinedAt: '2026-01-01', sessionsCount: 0 },
-  { id: 'u5', name: 'TS. Lê Văn Minh', email: 'minh@unimind.edu.vn', role: 'Expert', status: 'Active', joinedAt: '2026-08-20', sessionsCount: 98 },
+  { id: '11111111-1111-1111-1111-111111111111', name: 'Quản trị viên Nguyễn Văn An', email: 'admin@unimind.edu.vn', role: 'Admin', status: 'Active', joinedAt: '2026-01-01', sessionsCount: 0 },
+  { id: '22222222-2222-2222-2222-222222222223', name: 'Ngô Tấn Lộc', email: 'loc.ngo@lhu.edu.vn', role: 'Student', status: 'Active', joinedAt: '2026-09-01', sessionsCount: 3 },
+  { id: '22222222-2222-2222-2222-222222222224', name: 'Lê Minh Luân', email: 'luan.le@lhu.edu.vn', role: 'Student', status: 'Active', joinedAt: '2026-09-05', sessionsCount: 2 },
+  { id: '22222222-2222-2222-2222-222222222222', name: 'Sinh viên Nguyễn Hoàng An', email: 'sv_an@unimind.edu.vn', role: 'Student', status: 'Active', joinedAt: '2026-09-08', sessionsCount: 4 },
+  { id: '22222222-2222-2222-2222-222222222221', name: 'Sinh viên Thử Nghiệm', email: 'student@unimind.edu.vn', role: 'Student', status: 'Active', joinedAt: '2026-09-10', sessionsCount: 1 },
+  { id: '33333333-3333-3333-3333-333333333330', name: 'Chuyên viên Tư Vấn Mẫu', email: 'expert@unimind.edu.vn', role: 'Expert', status: 'Active', joinedAt: '2026-08-10', sessionsCount: 100 },
+  { id: '33333333-3333-3333-3333-333333333331', name: 'ThS. Tâm lý Nguyễn Thanh Hà', email: 'ha.nguyen@unimind.edu.vn', role: 'Expert', status: 'Active', joinedAt: '2026-08-15', sessionsCount: 145 },
+  { id: '33333333-3333-3333-3333-333333333332', name: 'TS. Tâm lý Trần Mai Lan', email: 'lan.tran@unimind.edu.vn', role: 'Expert', status: 'Active', joinedAt: '2026-08-18', sessionsCount: 210 },
+  { id: '33333333-3333-3333-3333-333333333333', name: 'ThS. Lê Quốc Bảo', email: 'bao.le@unimind.edu.vn', role: 'Expert', status: 'Active', joinedAt: '2026-08-20', sessionsCount: 98 },
+  { id: '33333333-3333-3333-3333-333333333334', name: 'ThS. Lê Thanh Tâm', email: 'tam.le@unimind.edu.vn', role: 'Expert', status: 'Active', joinedAt: '2026-08-22', sessionsCount: 185 },
+  { id: '33333333-3333-3333-3333-333333333335', name: 'TS. Trần Minh Đức', email: 'duc.tran@unimind.edu.vn', role: 'Expert', status: 'Active', joinedAt: '2026-08-25', sessionsCount: 120 },
+  { id: '33333333-3333-3333-3333-333333333336', name: 'ThS. Vũ Phương Linh', email: 'linh.vu@unimind.edu.vn', role: 'Expert', status: 'Active', joinedAt: '2026-08-28', sessionsCount: 85 }
 ];
 
 const ROLE_BADGE = {
@@ -59,6 +58,7 @@ const DEGREE_OPTIONS = [
 ];
 
 export default function AdminUsersPage() {
+  const currentUser = useAuthStore(state => state.user);
   const [users, setUsers]           = useState(DEFAULT_USERS);
   const [search, setSearch]         = useState('');
   const [roleFilter, setRole]       = useState('');
@@ -92,6 +92,20 @@ export default function AdminUsersPage() {
     async function loadData() {
       const res = await getAllUsers();
       if (res && res.success && Array.isArray(res.data) && res.data.length > 0) {
+        const SESSIONS_MAP = {
+          'admin@unimind.edu.vn': 0,
+          'loc.ngo@lhu.edu.vn': 3,
+          'luan.le@lhu.edu.vn': 2,
+          'sv_an@unimind.edu.vn': 4,
+          'student@unimind.edu.vn': 1,
+          'expert@unimind.edu.vn': 100,
+          'ha.nguyen@unimind.edu.vn': 145,
+          'lan.tran@unimind.edu.vn': 210,
+          'bao.le@unimind.edu.vn': 98,
+          'tam.le@unimind.edu.vn': 185,
+          'duc.tran@unimind.edu.vn': 120,
+          'linh.vu@unimind.edu.vn': 85
+        };
         const mapped = res.data.map(u => ({
           id: u.id,
           name: u.fullName || u.anonymousCode || 'Người dùng',
@@ -99,7 +113,7 @@ export default function AdminUsersPage() {
           role: u.role,
           status: u.isActive !== false ? 'Active' : 'Suspended',
           joinedAt: u.createdAt || new Date().toISOString(),
-          sessionsCount: u.role === 'Expert' ? 24 : (u.role === 'Student' ? 2 : 0)
+          sessionsCount: SESSIONS_MAP[u.email] ?? (u.role === 'Expert' ? 48 : (u.role === 'Student' ? 2 : 0))
         }));
         setUsers(mapped);
       }
@@ -123,7 +137,23 @@ export default function AdminUsersPage() {
     (!roleFilter || u.role === roleFilter)
   );
 
+  const isCurrentUser = (user) => {
+    if (!currentUser) return false;
+    if (currentUser.id && String(user.id) === String(currentUser.id)) return true;
+    if (currentUser.email && user.email && user.email.toLowerCase() === currentUser.email.toLowerCase()) return true;
+    return false;
+  };
+
   const handleChangeRole = async (user, newRole) => {
+    if (newRole === user.role) return;
+    if (isCurrentUser(user)) {
+      setPageNotice({
+        type: 'error',
+        title: 'Hành động không được phép',
+        message: 'Quản trị viên không được phép tự thay đổi vai trò của chính mình.'
+      });
+      return;
+    }
     setUsers(prev => prev.map(u => u.id === user.id ? { ...u, role: newRole } : u));
     try {
       await updateUserRole(user.id, newRole);
@@ -142,6 +172,14 @@ export default function AdminUsersPage() {
   };
 
   const handleToggleStatus = async (user) => {
+    if (isCurrentUser(user)) {
+      setPageNotice({
+        type: 'error',
+        title: 'Hành động không được phép',
+        message: 'Quản trị viên không được phép tự khóa tài khoản của chính mình.'
+      });
+      return;
+    }
     const newStatus = user.status === 'Active' ? 'Suspended' : 'Active';
     setUsers(prev => prev.map(u => u.id === user.id ? { ...u, status: newStatus } : u));
     try {
@@ -434,68 +472,96 @@ export default function AdminUsersPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map(user => (
-                <tr key={user.id}>
-                  <td>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <div
-                        className="admin-avatar"
-                        style={{
-                          width: 32, height: 32, fontSize: 13, fontWeight: 800,
-                          background: user.role === 'Admin' ? '#4f46e5' : user.role === 'Expert' ? '#0284c7' : '#0d9488',
-                          color: '#fff', borderRadius: 6
-                        }}
-                      >
-                        {(user.name[0] || 'U').toUpperCase()}
+              {filtered.map(user => {
+                const isSelf = isCurrentUser(user);
+                return (
+                  <tr key={user.id} style={{ background: isSelf ? '#f8fafc' : undefined }}>
+                    <td>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <div
+                          className="admin-avatar"
+                          style={{
+                            width: 32, height: 32, fontSize: 13, fontWeight: 800,
+                            background: user.role === 'Admin' ? '#4f46e5' : user.role === 'Expert' ? '#0284c7' : '#0d9488',
+                            color: '#fff', borderRadius: 6
+                          }}
+                        >
+                          {(user.name[0] || 'U').toUpperCase()}
+                        </div>
+                        <div>
+                          <p style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--a-text)', margin: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
+                            {user.name}
+                            {isSelf && (
+                              <span style={{
+                                fontSize: 10.5,
+                                background: '#e0e7ff',
+                                color: '#4338ca',
+                                padding: '1px 7px',
+                                borderRadius: 10,
+                                fontWeight: 700
+                              }}>
+                                Bạn
+                              </span>
+                            )}
+                          </p>
+                          <p style={{ fontSize: 11.5, color: 'var(--a-text-muted)', margin: 0 }}>{user.email}</p>
+                        </div>
                       </div>
-                      <div>
-                        <p style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--a-text)', margin: 0 }}>{user.name}</p>
-                        <p style={{ fontSize: 11.5, color: 'var(--a-text-muted)', margin: 0 }}>{user.email}</p>
-                      </div>
-                    </div>
-                  </td>
-                  <td>
-                    <span className={`admin-badge ${ROLE_BADGE[user.role] || 'admin-badge-info'}`}>
-                      {ROLE_LABELS[user.role] || user.role}
-                    </span>
-                  </td>
-                  <td>
-                    <span style={{ fontSize: 12, color: 'var(--a-text-muted)' }}>
-                      {user.role === 'Admin' && 'CSDL Hệ thống'}
-                      {user.role === 'Expert' && 'Cấp bởi Admin'}
-                      {user.role === 'Student' && 'Tự đăng ký'}
-                    </span>
-                  </td>
-                  <td>
-                    <span className={`admin-badge ${user.status === 'Active' ? 'admin-badge-success' : 'admin-badge-error'}`}>
-                      {user.status === 'Active' ? 'Hoạt động' : 'Tạm khóa'}
-                    </span>
-                  </td>
-                  <td style={{ fontSize: 13, color: 'var(--a-text-muted)' }}>
-                    {new Date(user.joinedAt).toLocaleDateString('vi-VN')}
-                  </td>
-                  <td style={{ fontSize: 13, fontWeight: 700, color: 'var(--a-text)' }}>
-                    {user.sessionsCount}
-                  </td>
-                  <td style={{ textAlign: 'center' }}>
-                    <div style={{ display: 'flex', gap: 6, justifyContent: 'center', flexWrap: 'wrap' }}>
-                      <select
-                        className="admin-input"
-                        style={{ padding: '4px 8px', fontSize: 11.5, width: 'auto', minWidth: 120 }}
-                        value={user.role}
-                        onChange={e => handleChangeRole(user, e.target.value)}
-                      >
-                        <option value="Student">Sinh viên</option>
-                        <option value="Expert">Chuyên viên</option>
-                        <option value="Admin">Quản trị viên</option>
-                      </select>
-                      <button
-                        className={`admin-btn ${user.status === 'Active' ? 'admin-btn-danger' : 'admin-btn-outline'}`}
-                        style={{ padding: '4px 10px', fontSize: 11.5, cursor: 'pointer' }}
-                        onClick={() => handleToggleStatus(user)}
-                      >
-                        {user.status === 'Active' ? 'Khóa' : 'Mở khóa'}
-                      </button>
+                    </td>
+                    <td>
+                      <span className={`admin-badge ${ROLE_BADGE[user.role] || 'admin-badge-info'}`}>
+                        {ROLE_LABELS[user.role] || user.role}
+                      </span>
+                    </td>
+                    <td>
+                      <span style={{ fontSize: 12, color: 'var(--a-text-muted)' }}>
+                        {user.role === 'Admin' && 'CSDL Hệ thống'}
+                        {user.role === 'Expert' && 'Cấp bởi Admin'}
+                        {user.role === 'Student' && 'Tự đăng ký'}
+                      </span>
+                    </td>
+                    <td>
+                      <span className={`admin-badge ${user.status === 'Active' ? 'admin-badge-success' : 'admin-badge-error'}`}>
+                        {user.status === 'Active' ? 'Hoạt động' : 'Tạm khóa'}
+                      </span>
+                    </td>
+                    <td style={{ fontSize: 13, color: 'var(--a-text-muted)' }}>
+                      {new Date(user.joinedAt).toLocaleDateString('vi-VN')}
+                    </td>
+                    <td style={{ fontSize: 13, fontWeight: 700, color: 'var(--a-text)' }}>
+                      {user.sessionsCount}
+                    </td>
+                    <td style={{ textAlign: 'center' }}>
+                      <div style={{ display: 'flex', gap: 6, justifyContent: 'center', flexWrap: 'wrap' }}>
+                        <select
+                          className="admin-input"
+                          style={{
+                            padding: '4px 8px', fontSize: 11.5, width: 'auto', minWidth: 120,
+                            cursor: isSelf ? 'not-allowed' : 'pointer',
+                            opacity: isSelf ? 0.6 : 1
+                          }}
+                          value={user.role}
+                          onChange={e => handleChangeRole(user, e.target.value)}
+                          disabled={isSelf}
+                          title={isSelf ? 'Bạn không thể tự thay đổi vai trò của chính mình' : 'Thay đổi vai trò'}
+                        >
+                          <option value="Student">Sinh viên</option>
+                          <option value="Expert">Chuyên viên</option>
+                          <option value="Admin">Quản trị viên</option>
+                        </select>
+                        <button
+                          className={`admin-btn ${user.status === 'Active' ? 'admin-btn-danger' : 'admin-btn-outline'}`}
+                          style={{
+                            padding: '4px 10px', fontSize: 11.5,
+                            cursor: isSelf ? 'not-allowed' : 'pointer',
+                            opacity: isSelf ? 0.45 : 1
+                          }}
+                          onClick={() => !isSelf && handleToggleStatus(user)}
+                          disabled={isSelf}
+                          title={isSelf ? 'Quản trị viên không được phép tự khóa tài khoản của chính mình' : (user.status === 'Active' ? 'Khóa tài khoản này' : 'Mở khóa tài khoản')}
+                        >
+                          {user.status === 'Active' ? 'Khóa' : 'Mở khóa'}
+                        </button>
 
                       {user.role === 'Expert' && (
                         <button
@@ -508,7 +574,7 @@ export default function AdminUsersPage() {
                           onClick={() => handleOpenPermModal(user)}
                           title="Phân quyền chi tiết các chức năng cho chuyên viên này"
                         >
-                          🛡️ Phân quyền
+                          Phân quyền
                           {expertsPermMap[user.id] && Array.isArray(expertsPermMap[user.id].permissions) && (
                             <span style={{
                               fontSize: 10,
@@ -525,7 +591,8 @@ export default function AdminUsersPage() {
                     </div>
                   </td>
                 </tr>
-              ))}
+              );
+            })}
               {filtered.length === 0 && (
                 <tr>
                   <td colSpan="7" style={{ textAlign: 'center', padding: '36px 16px', color: 'var(--a-text-muted)' }}>
@@ -729,13 +796,13 @@ export default function AdminUsersPage() {
             maxHeight: '90vh', overflowY: 'auto',
             padding: '24px 28px', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2)'
           }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
               <div>
-                <h2 style={{ margin: '0 0 4px', fontSize: 18, fontWeight: 900, color: '#111827', display: 'flex', alignItems: 'center', gap: 8 }}>
-                  🛡️ Phân Quyền Chức Năng Chuyên Viên
+                <h2 style={{ margin: '0 0 4px', fontSize: 18, fontWeight: 800, color: '#111827' }}>
+                  Phân quyền chức năng chuyên viên
                 </h2>
-                <p style={{ margin: 0, fontSize: 12.5, color: '#6b7280' }}>
-                  Thiết lập các phân hệ chuyên môn mà <strong>{selectedExpert.name}</strong> được phép truy cập
+                <p style={{ margin: 0, fontSize: 13, color: '#6b7280' }}>
+                  Chuyên viên: <strong>{selectedExpert.name}</strong>
                 </p>
               </div>
               <button
@@ -746,47 +813,32 @@ export default function AdminUsersPage() {
               </button>
             </div>
 
-            <InPageNotification
-              type="info"
-              message="Phân quyền theo chức năng: Quản trị viên tích chọn trực tiếp các phân hệ cho phép chuyên viên thao tác. Khi lưu, trang của chuyên viên đó sẽ tự động làm mới (refresh) để quyền mới được thực thi ngay lập tức."
-            />
-
-            {/* Quick Actions theo chức năng */}
-            <div style={{ margin: '14px 0 16px', background: '#f8fafc', padding: '12px 14px', borderRadius: 10, border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: '#334155' }}>
-                  ⚙️ Phân quyền theo chức năng:
-                </div>
-                <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 2 }}>
-                  Tích chọn các chức năng độc lập cho phép chuyên viên truy cập
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button
-                  type="button"
-                  onClick={() => handleApplyPreset('all')}
-                  style={{
-                    fontSize: 12, padding: '6px 14px', borderRadius: 6, cursor: 'pointer',
-                    background: currentPerms.length === 4 ? '#059669' : '#fff',
-                    color: currentPerms.length === 4 ? '#fff' : '#047857',
-                    border: '1px solid #a7f3d0', fontWeight: 700
-                  }}
-                >
-                  ✓ Chọn tất cả ({PERMISSION_DEFINITIONS.length}/{PERMISSION_DEFINITIONS.length})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleApplyPreset('none')}
-                  style={{
-                    fontSize: 12, padding: '6px 14px', borderRadius: 6, cursor: 'pointer',
-                    background: currentPerms.length === 0 ? '#ef4444' : '#fff',
-                    color: currentPerms.length === 0 ? '#fff' : '#b91c1c',
-                    border: '1px solid #fca5a5', fontWeight: 700
-                  }}
-                >
-                  ✕ Bỏ chọn tất cả (0/{PERMISSION_DEFINITIONS.length})
-                </button>
-              </div>
+            {/* Quick Actions */}
+            <div style={{ margin: '14px 0 16px', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => handleApplyPreset('all')}
+                style={{
+                  fontSize: 12, padding: '6px 14px', borderRadius: 6, cursor: 'pointer',
+                  background: currentPerms.length === PERMISSION_DEFINITIONS.length ? '#059669' : '#fff',
+                  color: currentPerms.length === PERMISSION_DEFINITIONS.length ? '#fff' : '#047857',
+                  border: '1px solid #a7f3d0', fontWeight: 600
+                }}
+              >
+                Chọn tất cả
+              </button>
+              <button
+                type="button"
+                onClick={() => handleApplyPreset('none')}
+                style={{
+                  fontSize: 12, padding: '6px 14px', borderRadius: 6, cursor: 'pointer',
+                  background: currentPerms.length === 0 ? '#ef4444' : '#fff',
+                  color: currentPerms.length === 0 ? '#fff' : '#b91c1c',
+                  border: '1px solid #fca5a5', fontWeight: 600
+                }}
+              >
+                Bỏ chọn tất cả
+              </button>
             </div>
 
             {/* Checkbox list */}
@@ -797,7 +849,7 @@ export default function AdminUsersPage() {
                   <label
                     key={perm.key}
                     style={{
-                      display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 14px',
+                      display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px',
                       borderRadius: 10, cursor: 'pointer',
                       background: isChecked ? '#f0f9ff' : '#fff',
                       border: isChecked ? '1.5px solid #0284c7' : '1px solid #e5e7eb',
@@ -808,17 +860,11 @@ export default function AdminUsersPage() {
                       type="checkbox"
                       checked={isChecked}
                       onChange={() => handleTogglePerm(perm.key)}
-                      style={{ marginTop: 3, width: 17, height: 17, accentColor: '#0284c7', cursor: 'pointer' }}
+                      style={{ width: 17, height: 17, accentColor: '#0284c7', cursor: 'pointer' }}
                     />
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 13.5, fontWeight: 800, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span>{perm.icon}</span>
-                        <span>{perm.label}</span>
-                      </div>
-                      <div style={{ fontSize: 12, color: '#64748b', marginTop: 2, lineHeight: 1.4 }}>
-                        {perm.desc}
-                      </div>
-                    </div>
+                    <span style={{ fontSize: 13.5, fontWeight: 600, color: '#1e293b' }}>
+                      {perm.label}
+                    </span>
                   </label>
                 );
               })}
@@ -827,7 +873,7 @@ export default function AdminUsersPage() {
             {/* Actions */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 14, borderTop: '1px solid #e5e7eb' }}>
               <span style={{ fontSize: 12.5, color: '#64748b', fontWeight: 600 }}>
-                Đã chọn: <strong style={{ color: '#0284c7' }}>{currentPerms.length}/4</strong> quyền chức năng
+                Đã chọn: <strong style={{ color: '#0284c7' }}>{currentPerms.length}/{PERMISSION_DEFINITIONS.length}</strong>
               </span>
               <div style={{ display: 'flex', gap: 10 }}>
                 <button
@@ -843,9 +889,9 @@ export default function AdminUsersPage() {
                   className="admin-btn admin-btn-primary"
                   onClick={handleSavePermissions}
                   disabled={permSaving}
-                  style={{ background: '#0284c7', fontWeight: 800 }}
+                  style={{ background: '#0284c7', fontWeight: 700 }}
                 >
-                  {permSaving ? 'Đang lưu...' : 'Lưu phân quyền'}
+                  {permSaving ? 'Đang lưu...' : 'Lưu'}
                 </button>
               </div>
             </div>

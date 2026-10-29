@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Outlet, NavLink, useNavigate, Link, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../../features/auth/store/authStore';
 import axiosClient, { logout } from '../../features/auth/api/authApi';
+import NotificationBell from '../../features/notifications/components/NotificationBell';
 import '../../shared/styles/unimind-student-theme.css';
 
 const DESKTOP_NAV = [
@@ -30,7 +31,11 @@ export default function StudentLayout() {
 
   // Active meeting detection (Chỉ hiển thị cho sinh viên đã đặt lịch với chuyên viên)
   const [activeMeeting, setActiveMeeting] = useState(null);
-  const [dismissedMeetingId, setDismissedMeetingId] = useState(null);
+  const [dismissedMeetingId, setDismissedMeetingId] = useState(() => {
+    try { return sessionStorage.getItem('unimind_dismissed_meeting'); } catch { return null; }
+  });
+  const [endedNotice, setEndedNotice] = useState(null);
+  const prevMeetingRef = useRef(null);
 
   useEffect(() => {
     const studentId = user?.id || '22222222-2222-2222-2222-222222222221';
@@ -39,9 +44,19 @@ export default function StudentLayout() {
     const checkActiveMeeting = () => {
       axiosClient.get(`/appointments/student/${studentId}/active-meeting`)
         .then(res => {
-          if (res.data?.data?.hasActiveMeeting) {
-            setActiveMeeting(res.data.data);
+          const meeting = res.data?.data;
+          if (meeting && meeting.hasActiveMeeting) {
+            setActiveMeeting(meeting);
+            prevMeetingRef.current = meeting;
           } else {
+            // Khi chuyên viên đã out khỏi phòng / cuộc họp kết thúc
+            if (prevMeetingRef.current) {
+              setEndedNotice(`Cuộc họp tư vấn trực tuyến (#${prevMeetingRef.current.bookingCode || 'ST'}) đã kết thúc.`);
+              setTimeout(() => {
+                setEndedNotice(null);
+              }, 4000);
+              prevMeetingRef.current = null;
+            }
             setActiveMeeting(null);
           }
         })
@@ -156,6 +171,9 @@ export default function StudentLayout() {
               <span>{isMobile ? 'Vào phòng' : `🔴 Vào phòng (${activeMeeting.expertName})`}</span>
             </button>
           )}
+
+          {/* Notification Bell Component */}
+          <NotificationBell role="Student" />
 
           {!isMobile ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -327,7 +345,10 @@ export default function StudentLayout() {
               </span>
             </div>
             <button
-              onClick={() => setDismissedMeetingId(activeMeeting.appointmentId)}
+              onClick={() => {
+                setDismissedMeetingId(activeMeeting.appointmentId);
+                try { sessionStorage.setItem('unimind_dismissed_meeting', activeMeeting.appointmentId); } catch {}
+              }}
               title="Thu nhỏ thông báo"
               style={{
                 background: 'none',
@@ -374,7 +395,10 @@ export default function StudentLayout() {
               <span>🎥</span> Tham gia ngay
             </button>
             <button
-              onClick={() => setDismissedMeetingId(activeMeeting.appointmentId)}
+              onClick={() => {
+                setDismissedMeetingId(activeMeeting.appointmentId);
+                try { sessionStorage.setItem('unimind_dismissed_meeting', activeMeeting.appointmentId); } catch {}
+              }}
               style={{
                 padding: '9px 12px',
                 background: '#f1f5f9',
@@ -389,6 +413,47 @@ export default function StudentLayout() {
               Tạm ẩn
             </button>
           </div>
+        </div>
+      )}
+
+      {/* ══════════════ THÔNG BÁO NHẸ: CUỘC HỌP ĐÃ KẾT THÚC (TỰ ĐỘNG TẮT SAU 4S) ══════════════ */}
+      {endedNotice && (
+        <div style={{
+          position: 'fixed',
+          top: 72,
+          right: isMobile ? 12 : 24,
+          maxWidth: 'calc(100vw - 24px)',
+          background: 'rgba(15, 23, 42, 0.94)',
+          backdropFilter: 'blur(12px)',
+          color: '#ffffff',
+          borderRadius: 12,
+          padding: '12px 18px',
+          boxShadow: '0 10px 30px rgba(0, 0, 0, 0.25)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          zIndex: 9999,
+          animation: 'slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+          fontSize: 13,
+          fontWeight: 600
+        }}>
+          <span style={{ fontSize: 16 }}>ℹ️</span>
+          <span>{endedNotice}</span>
+          <button
+            onClick={() => setEndedNotice(null)}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#94a3b8',
+              cursor: 'pointer',
+              marginLeft: 8,
+              fontSize: 16,
+              padding: 0,
+              lineHeight: 1
+            }}
+          >
+            ✕
+          </button>
         </div>
       )}
 

@@ -3,6 +3,7 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../features/auth/store/authStore';
 import { logout } from '../../features/auth/api/authApi';
 import ThemeToggle from '../../shared/components/ThemeToggle';
+import NotificationBell from '../../features/notifications/components/NotificationBell';
 import '../../shared/styles/unimind-admin-theme.css';
 
 const THEME_KEY    = 'unimind-admin-theme';
@@ -168,6 +169,7 @@ export default function AdminLayout() {
 
           {/* Right: controls */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <NotificationBell role="Admin" theme={theme} />
             <ThemeToggle theme={theme} onToggle={toggleTheme} />
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

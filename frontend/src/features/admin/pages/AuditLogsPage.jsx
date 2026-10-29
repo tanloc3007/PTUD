@@ -2,23 +2,31 @@ import { useState, useEffect, useCallback } from 'react';
 import { getAuditLogs, getAuditLogHistory } from '../api/adminApi';
 
 const ACTION_META = {
-  STUDENT_REGISTERED:    { icon: '👤', color: '#0d9488', bg: '#f0fdfa', border: '#99f6e4', label: 'Đăng ký sinh viên' },
-  USER_PROVISIONED:      { icon: '🔑', color: '#0284c7', bg: '#f0f9ff', border: '#bae6fd', label: 'Cấp tài khoản' },
-  APPOINTMENT_SCHEDULED: { icon: '📅', color: '#7c3aed', bg: '#f5f3ff', border: '#ddd6fe', label: 'Đặt lịch hẹn' },
-  KEYWORD_ADDED:         { icon: '🔍', color: '#d97706', bg: '#fffbeb', border: '#fde68a', label: 'Thêm từ khóa' },
-  CRISIS_TRIAGE_FLAGGED: { icon: '🚨', color: '#dc2626', bg: '#fef2f2', border: '#fecaca', label: 'Cảnh báo AI Triage' },
-  ROLE_CHANGED:          { icon: '🔒', color: '#4338ca', bg: '#eef2ff', border: '#c7d2fe', label: 'Thay đổi quyền' },
-  ADMIN_MODERATE_POST:   { icon: '🛡️', color: '#e11d48', bg: '#fff1f2', border: '#fecdd3', label: 'Admin duyệt bài' },
-  ADMIN_TOGGLE_USER_STATUS: { icon: '🔒', color: '#dc2626', bg: '#fef2f2', border: '#fecaca', label: 'Khóa / Mở tài khoản' },
-  ADMIN_ADD_KEYWORD:     { icon: '➕', color: '#d97706', bg: '#fffbeb', border: '#fde68a', label: 'Thêm từ khóa nguy cơ' },
-  ADMIN_DELETE_KEYWORD:  { icon: '🗑️', color: '#64748b', bg: '#f8fafc', border: '#cbd5e1', label: 'Xóa từ khóa' },
-  ADMIN_UPDATE_ROLE:     { icon: '👑', color: '#4338ca', bg: '#eef2ff', border: '#c7d2fe', label: 'Cấp vai trò người dùng' },
-  MODERATE_IMAGE:        { icon: '🖼️', color: '#8b5cf6', bg: '#f5f3ff', border: '#ddd6fe', label: 'Kiểm duyệt ảnh' },
-  SYSTEM:                { icon: '⚙️', color: '#475569', bg: '#f8fafc', border: '#cbd5e1', label: 'Hệ thống' },
+  STUDENT_REGISTERED:       { color: '#0d9488', bg: '#f0fdfa', border: '#99f6e4', label: 'Đăng ký sinh viên' },
+  USER_PROVISIONED:         { color: '#0284c7', bg: '#f0f9ff', border: '#bae6fd', label: 'Cấp tài khoản' },
+  APPOINTMENT_SCHEDULED:    { color: '#7c3aed', bg: '#f5f3ff', border: '#ddd6fe', label: 'Đặt lịch hẹn' },
+  KEYWORD_ADDED:            { color: '#d97706', bg: '#fffbeb', border: '#fde68a', label: 'Thêm từ khóa' },
+  CRISIS_TRIAGE_FLAGGED:    { color: '#dc2626', bg: '#fef2f2', border: '#fecaca', label: 'Cảnh báo AI Triage' },
+  ROLE_CHANGED:             { color: '#4338ca', bg: '#eef2ff', border: '#c7d2fe', label: 'Thay đổi quyền' },
+  ADMIN_MODERATE_POST:      { color: '#e11d48', bg: '#fff1f2', border: '#fecdd3', label: 'Admin duyệt bài' },
+  ADMIN_TOGGLE_USER_STATUS: { color: '#dc2626', bg: '#fef2f2', border: '#fecaca', label: 'Khóa / Mở tài khoản' },
+  ADMIN_ADD_KEYWORD:        { color: '#d97706', bg: '#fffbeb', border: '#fde68a', label: 'Thêm từ khóa nguy cơ' },
+  ADMIN_DELETE_KEYWORD:     { color: '#64748b', bg: '#f8fafc', border: '#cbd5e1', label: 'Xóa từ khóa' },
+  ADMIN_UPDATE_ROLE:        { color: '#4338ca', bg: '#eef2ff', border: '#c7d2fe', label: 'Cấp vai trò người dùng' },
+  MODERATE_IMAGE:           { color: '#8b5cf6', bg: '#f5f3ff', border: '#ddd6fe', label: 'Kiểm duyệt ảnh' },
+  EXPERT_START_MEETING:     { color: '#0284c7', bg: '#f0f9ff', border: '#bae6fd', label: 'Mở phòng tư vấn' },
+  MODERATE_COMMENT:         { color: '#e11d48', bg: '#fff1f2', border: '#fecdd3', label: 'Duyệt bình luận' },
+  SYSTEM:                   { color: '#475569', bg: '#f8fafc', border: '#cbd5e1', label: 'Hệ thống' },
 };
 
 function getMeta(actionType) {
-  return ACTION_META[actionType] || { icon: '📋', color: '#475569', bg: '#f8fafc', border: '#cbd5e1', label: actionType };
+  if (ACTION_META[actionType]) return ACTION_META[actionType];
+  return {
+    color: '#475569',
+    bg: '#f8fafc',
+    border: '#cbd5e1',
+    label: actionType ? actionType.replace(/_/g, ' ') : 'Hệ thống'
+  };
 }
 
 function formatTime(iso) {
@@ -123,22 +131,19 @@ export default function AuditLogsPage() {
     <div className="admin-page-shell" style={{ width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}>
       
       {/* ── Page Header ────────────────────────────────────── */}
-      <div style={{ marginBottom: 22 }}>
-        <h1 className="admin-page-title" style={{ fontSize: 22, fontWeight: 900, color: 'var(--a-text, #1e1b4b)', margin: '0 0 6px', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+      <div style={{ marginBottom: 20 }}>
+        <h1 className="admin-page-title" style={{ fontSize: 22, fontWeight: 900, color: 'var(--a-text, #1e1b4b)', margin: 0, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
           Nhật Ký Hoạt Động Hệ Thống
         </h1>
-        <p className="admin-page-subtitle" style={{ fontSize: 13, color: 'var(--a-text-muted, #6b7280)', margin: 0 }}>
-          Giám sát toàn bộ thao tác bảo mật, thay đổi dữ liệu và cảnh báo an toàn — đồng bộ thời gian thực từ SQL Server
-        </p>
       </div>
 
-      {/* ── 4 Stat Cards Grid (Full Width & Beautiful Accent) ────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14, marginBottom: 22, width: '100%' }}>
+      {/* ── 4 Stat Cards Grid (Clean, Full Width) ────────────────── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14, marginBottom: 20, width: '100%' }}>
         {[
-          { icon: '📜', label: 'Tổng bản ghi hệ thống', value: totalCount || logs.length, sub: 'Ghi nhận trong CSDL', border: '#4338ca', color: '#4338ca' },
-          { icon: '🔍', label: 'Bản ghi đang hiển thị', value: filtered.length, sub: 'Khớp theo bộ lọc', border: '#0284c7', color: '#0284c7' },
-          { icon: '📅', label: 'Nhóm theo ngày', value: groups.length, sub: 'Dòng thời gian hoạt động', border: '#0d9488', color: '#0d9488' },
-          { icon: '🛡️', label: 'Sự kiện AI & Bảo mật', value: securityAlertsCount, sub: 'Cần chú ý giám sát', border: '#dc2626', color: '#dc2626' },
+          { label: 'Tổng bản ghi hệ thống', value: totalCount || logs.length, border: '#4338ca', color: '#4338ca' },
+          { label: 'Bản ghi đang hiển thị', value: filtered.length, border: '#0284c7', color: '#0284c7' },
+          { label: 'Nhóm theo ngày', value: groups.length, border: '#0d9488', color: '#0d9488' },
+          { label: 'Sự kiện AI & Bảo mật', value: securityAlertsCount, border: '#dc2626', color: '#dc2626' },
         ].map(s => (
           <div
             key={s.label}
@@ -151,21 +156,14 @@ export default function AuditLogsPage() {
               boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
               display: 'flex',
               flexDirection: 'column',
-              justifyContent: 'space-between',
+              justifyContent: 'center',
+              gap: 8,
               transition: 'transform 0.15s, box-shadow 0.15s'
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--a-text-muted, #6b7280)' }}>{s.label}</span>
-              <span style={{ fontSize: 18 }}>{s.icon}</span>
-            </div>
-            <div>
-              <div style={{ fontSize: 26, fontWeight: 900, color: s.color, lineHeight: 1.1, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
-                {s.value.toLocaleString()}
-              </div>
-              <span style={{ fontSize: 11.5, color: 'var(--a-text-muted, #94a3b8)', marginTop: 4, display: 'block' }}>
-                {s.sub}
-              </span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--a-text-muted, #6b7280)' }}>{s.label}</span>
+            <div style={{ fontSize: 26, fontWeight: 900, color: s.color, lineHeight: 1, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+              {s.value.toLocaleString()}
             </div>
           </div>
         ))}
@@ -177,9 +175,6 @@ export default function AuditLogsPage() {
         {/* Search & Main Dropdowns */}
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
           <div style={{ position: 'relative', flex: 1, minWidth: 260 }}>
-            <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 14, color: '#94a3b8', pointerEvents: 'none' }}>
-              🔍
-            </span>
             <input
               className="admin-input"
               placeholder="Tìm theo hành động, người thực hiện, đối tượng, IP..."
@@ -187,8 +182,8 @@ export default function AuditLogsPage() {
               onChange={e => setSearch(e.target.value)}
               style={{
                 width: '100%',
-                paddingLeft: 34,
-                paddingRight: 12,
+                paddingLeft: 14,
+                paddingRight: 14,
                 paddingTop: 9,
                 paddingBottom: 9,
                 borderRadius: 9,
@@ -207,7 +202,7 @@ export default function AuditLogsPage() {
           >
             <option value="">Tất cả loại thao tác</option>
             {actionTypes.map(a => (
-              <option key={a} value={a}>{getMeta(a).icon} {getMeta(a).label}</option>
+              <option key={a} value={a}>{getMeta(a).label}</option>
             ))}
           </select>
 
@@ -236,7 +231,7 @@ export default function AuditLogsPage() {
             onClick={() => { setSearch(''); setActionFilter(''); setMonthFilter(''); setYearFilter(new Date().getFullYear().toString()); setPage(1); }}
             style={{ padding: '9px 16px', fontSize: 13, cursor: 'pointer', borderRadius: 9, fontWeight: 700 }}
           >
-            ↺ Đặt lại
+            Đặt lại
           </button>
         </div>
 
@@ -245,11 +240,11 @@ export default function AuditLogsPage() {
           <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--a-text-muted)', marginRight: 4 }}>Lọc nhanh:</span>
           {[
             { key: '', label: 'Tất cả' },
-            { key: 'CRISIS_TRIAGE_FLAGGED', label: '🚨 Cảnh báo AI' },
-            { key: 'STUDENT_REGISTERED', label: '👤 Đăng ký mới' },
-            { key: 'APPOINTMENT_SCHEDULED', label: '📅 Đặt lịch' },
-            { key: 'ROLE_CHANGED', label: '🔒 Quyền hạn' },
-            { key: 'KEYWORD_ADDED', label: '🔍 Từ khóa' },
+            { key: 'CRISIS_TRIAGE_FLAGGED', label: 'Cảnh báo AI' },
+            { key: 'STUDENT_REGISTERED', label: 'Đăng ký mới' },
+            { key: 'APPOINTMENT_SCHEDULED', label: 'Đặt lịch' },
+            { key: 'ROLE_CHANGED', label: 'Quyền hạn' },
+            { key: 'KEYWORD_ADDED', label: 'Từ khóa' },
           ].map(tag => {
             const isSelected = actionFilter === tag.key;
             return (
@@ -258,7 +253,7 @@ export default function AuditLogsPage() {
                 type="button"
                 onClick={() => { setActionFilter(tag.key); setPage(1); }}
                 style={{
-                  padding: '4px 12px',
+                  padding: '5px 14px',
                   borderRadius: 20,
                   fontSize: 12,
                   fontWeight: isSelected ? 800 : 600,
@@ -279,12 +274,10 @@ export default function AuditLogsPage() {
       {/* ── Timeline Log Display ─────────────────────────────────────────── */}
       {loading ? (
         <div style={{ padding: '48px 0', textAlign: 'center', color: 'var(--a-text-muted)', fontSize: 14 }}>
-          <div style={{ fontSize: 32, marginBottom: 12 }}>⏳</div>
           Đang truy xuất nhật ký hoạt động từ cơ sở dữ liệu...
         </div>
       ) : filtered.length === 0 ? (
         <div className="admin-card" style={{ padding: '48px 0', textAlign: 'center', color: 'var(--a-text-muted)' }}>
-          <div style={{ fontSize: 36, marginBottom: 10 }}>📭</div>
           <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: 'var(--a-text)' }}>Không tìm thấy nhật ký phù hợp</p>
           <p style={{ margin: '4px 0 0', fontSize: 13 }}>Thử thay đổi bộ lọc hoặc nhấn nút Đặt lại</p>
         </div>
@@ -307,10 +300,8 @@ export default function AuditLogsPage() {
                   whiteSpace: 'nowrap',
                   boxShadow: '0 2px 6px rgba(67,56,202,0.2)',
                   display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6
+                  alignItems: 'center'
                 }}>
-                  <span>📅</span>
                   <span>{group.dateLabel}</span>
                 </div>
                 <div style={{ flex: 1, height: 1, background: '#e2e8f0' }} />
@@ -323,79 +314,74 @@ export default function AuditLogsPage() {
               <div className="admin-card" style={{ padding: 0, overflow: 'hidden', borderRadius: 14, boxShadow: '0 2px 8px rgba(0,0,0,0.03)' }}>
                 {group.items.map((log, idx) => {
                   const meta = getMeta(log.actionType);
+                  const cleanDetails = (log.details || '').replace(/Chuyên viên Chuyên viên/g, 'Chuyên viên');
+                  
+                  // Filter out redundant target if target is identical to details or already inside details
+                  const rawTarget = (log.target || '').replace(/Chuyên viên Chuyên viên/g, 'Chuyên viên').trim();
+                  const isTargetRedundant = !rawTarget || 
+                    rawTarget === cleanDetails.trim() || 
+                    cleanDetails.includes(rawTarget);
+
                   return (
                     <div
                       key={log.id || idx}
                       style={{
-                        display: 'flex', gap: 16, padding: '16px 20px',
+                        padding: '16px 20px',
                         borderBottom: idx < group.items.length - 1 ? '1px solid #f1f5f9' : 'none',
-                        alignItems: 'flex-start',
+                        borderLeft: `4px solid ${meta.border}`,
                         transition: 'background 0.15s',
                         background: '#ffffff'
                       }}
                       onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
                       onMouseLeave={e => e.currentTarget.style.background = '#ffffff'}
                     >
-                      {/* Icon container */}
-                      <div style={{
-                        width: 40, height: 40, borderRadius: 12, flexShrink: 0,
-                        background: meta.bg, border: `1.5px solid ${meta.border}`,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontSize: 18, marginTop: 2
-                      }}>
-                        {meta.icon}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                          <span style={{
+                            fontSize: 11.5, fontWeight: 800, background: meta.bg,
+                            color: meta.color, padding: '3px 9px', borderRadius: 6, border: `1px solid ${meta.border}`
+                          }}>
+                            {meta.label}
+                          </span>
+                          <span style={{ fontSize: 13.5, fontWeight: 800, color: '#0f172a' }}>
+                            {log.actorEmail || log.actorRole || 'Hệ thống'}
+                          </span>
+                          {log.actorRole && (
+                            <span style={{
+                              fontSize: 11, background: '#f1f5f9',
+                              border: '1px solid #e2e8f0', padding: '2px 8px', borderRadius: 4,
+                              color: '#475569', fontWeight: 700
+                            }}>
+                              {log.actorRole}
+                            </span>
+                          )}
+                        </div>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, flexShrink: 0 }}>
+                          <span style={{ fontSize: 12.5, fontWeight: 800, color: '#1e293b' }}>
+                            {formatTime(log.createdAt)}
+                          </span>
+                          <span style={{ fontSize: 11, color: '#64748b' }}>
+                            {timeAgo(log.createdAt)}
+                          </span>
+                        </div>
                       </div>
 
-                      {/* Content Details */}
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                            <span style={{
-                              fontSize: 11.5, fontWeight: 800, background: meta.bg,
-                              color: meta.color, padding: '3px 9px', borderRadius: 6, border: `1px solid ${meta.border}`
-                            }}>
-                              {meta.label}
-                            </span>
-                            <span style={{ fontSize: 13.5, fontWeight: 800, color: '#0f172a' }}>
-                              {log.actorEmail || log.actorRole || 'System AI'}
-                            </span>
-                            {log.actorRole && (
-                              <span style={{
-                                fontSize: 11, background: '#f1f5f9',
-                                border: '1px solid #e2e8f0', padding: '2px 8px', borderRadius: 4,
-                                color: '#475569', fontWeight: 700
-                              }}>
-                                {log.actorRole}
-                              </span>
-                            )}
-                          </div>
+                      <p style={{ fontSize: 13.5, color: '#334155', margin: '0 0 6px', lineHeight: 1.6 }}>
+                        {cleanDetails}
+                      </p>
 
-                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, flexShrink: 0 }}>
-                            <span style={{ fontSize: 12.5, fontWeight: 800, color: '#1e293b' }}>
-                              {formatTime(log.createdAt)}
-                            </span>
-                            <span style={{ fontSize: 11, color: '#64748b' }}>
-                              {timeAgo(log.createdAt)}
-                            </span>
-                          </div>
-                        </div>
-
-                        <p style={{ fontSize: 13.5, color: '#334155', margin: '0 0 6px', lineHeight: 1.6 }}>
-                          {log.details}
-                        </p>
-
-                        <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center' }}>
-                          {log.target && (
-                            <span style={{ fontSize: 12, color: '#64748b' }}>
-                              🎯 Đối tượng: <strong style={{ color: '#0f172a' }}>{log.target}</strong>
-                            </span>
-                          )}
-                          {log.ipAddress && (
-                            <span style={{ fontSize: 12, color: '#64748b' }}>
-                              🌐 IP: <code style={{ fontSize: 11.5, background: '#f1f5f9', padding: '2px 6px', borderRadius: 4, color: '#0284c7' }}>{log.ipAddress}</code>
-                            </span>
-                          )}
-                        </div>
+                      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center' }}>
+                        {!isTargetRedundant && (
+                          <span style={{ fontSize: 12, color: '#64748b' }}>
+                            Đối tượng: <strong style={{ color: '#0f172a' }}>{rawTarget}</strong>
+                          </span>
+                        )}
+                        {log.ipAddress && (
+                          <span style={{ fontSize: 12, color: '#64748b' }}>
+                            IP: <code style={{ fontSize: 11.5, background: '#f1f5f9', padding: '2px 6px', borderRadius: 4, color: '#0284c7' }}>{log.ipAddress}</code>
+                          </span>
+                        )}
                       </div>
                     </div>
                   );

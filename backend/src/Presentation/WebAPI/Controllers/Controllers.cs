@@ -36,6 +36,37 @@ public static class ControllerAuthExtensions
         }
         return null;
     }
+
+    public static string? GetUserRoleFromRequest(this HttpRequest request)
+    {
+        if (request.Headers.TryGetValue("Authorization", out var authHeader))
+        {
+            var token = authHeader.ToString().Replace("Bearer ", "").Trim();
+            var parts = token.Split('.');
+            if (parts.Length >= 2)
+            {
+                try
+                {
+                    string payload = parts[1];
+                    payload = payload.Replace('-', '+').Replace('_', '/');
+                    switch (payload.Length % 4)
+                    {
+                        case 2: payload += "=="; break;
+                        case 3: payload += "="; break;
+                    }
+                    var bytes = Convert.FromBase64String(payload);
+                    var json = System.Text.Encoding.UTF8.GetString(bytes);
+                    using var doc = System.Text.Json.JsonDocument.Parse(json);
+                    if (doc.RootElement.TryGetProperty("role", out var role))
+                    {
+                        return role.GetString();
+                    }
+                }
+                catch { }
+            }
+        }
+        return null;
+    }
 }
 
 [ApiController]
@@ -752,6 +783,16 @@ public class AdminController : ControllerBase
     }
 
     /// <summary>
+    /// Lấy danh sách các bài viết & nhật ký cảm xúc theo phân loại tâm trạng (Dành cho pop-up phân bố cảm xúc)
+    /// </summary>
+    [HttpGet("dashboard/mood-items")]
+    public async Task<ActionResult<Result<List<MoodItemDto>>>> GetMoodItems([FromQuery] string? mood = null)
+    {
+        var result = await _adminService.GetMoodItemsAsync(mood);
+        return Ok(result);
+    }
+
+    /// <summary>
     /// Hàng đợi kiểm duyệt bài viết & thảo luận forum (Bài chứa từ khóa nhạy cảm/quá tiêu cực)
     /// </summary>
     [HttpGet("moderation-queue")]
@@ -811,22 +852,25 @@ public class AdminController : ControllerBase
     }
 
     /// <summary>
-    /// Khóa hoặc mở khóa tài khoản
+    /// Khóa hoặc mở khóa tài khoản (ngăn chặn Admin tự khóa chính mình)
     /// </summary>
     [HttpPatch("users/{userId:guid}/toggle-status")]
-    public async Task<ActionResult<Result>> ToggleUserStatus(Guid userId)
+    public async Task<ActionResult<Result>> ToggleUserStatus(Guid userId, [FromQuery] Guid? adminId = null)
     {
-        var result = await _adminService.ToggleUserStatusAsync(userId);
+        var currentAdminId = adminId ?? Request.GetUserIdFromRequest();
+        var result = await _adminService.ToggleUserStatusAsync(userId, currentAdminId);
+        if (!result.Success) return BadRequest(result);
         return Ok(result);
     }
 
     /// <summary>
-    /// Cập nhật vai trò người dùng
+    /// Cập nhật vai trò người dùng (ngăn chặn Admin tự tước quyền của chính mình)
     /// </summary>
     [HttpPatch("users/{userId:guid}/role")]
-    public async Task<ActionResult<Result<UserDto>>> UpdateUserRole(Guid userId, [FromBody] UpdateUserRoleRequest request)
+    public async Task<ActionResult<Result<UserDto>>> UpdateUserRole(Guid userId, [FromBody] UpdateUserRoleRequest request, [FromQuery] Guid? adminId = null)
     {
-        var result = await _adminService.UpdateUserRoleAsync(userId, request.Role);
+        var currentAdminId = adminId ?? Request.GetUserIdFromRequest();
+        var result = await _adminService.UpdateUserRoleAsync(userId, request.Role, currentAdminId);
         if (!result.Success) return BadRequest(result);
         return Ok(result);
     }
@@ -927,6 +971,87 @@ public class AdminController : ControllerBase
         var targetAdminId = adminId ?? Request.GetUserIdFromRequest() ?? Guid.Parse("11111111-1111-1111-1111-111111111111");
         var result = await _adminService.UpdateExpertPermissionsAsync(expertId, request, targetAdminId);
         if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+}
+
+/// <summary>
+/// Quản lý thông báo đa phân hệ (Sinh viên, Chuyên viên, Quản trị viên)
+/// </summary>
+[ApiController]
+[Route("api/notifications")]
+public class NotificationsController : ControllerBase
+{
+    private readonly INotificationService _notificationService;
+
+    public NotificationsController(INotificationService notificationService)
+    {
+        _notificationService = notificationService;
+    }
+
+    /// <summary>
+    /// Lấy danh sách thông báo theo vai trò và người dùng
+    /// </summary>
+    [HttpGet]
+    public async Task<ActionResult<Result<List<UserNotificationDto>>>> GetNotifications(
+        [FromQuery] Guid? userId = null,
+        [FromQuery] string? role = null,
+        [FromQuery] bool? unreadOnly = null,
+        [FromQuery] int limit = 50)
+    {
+        var targetUserId = userId ?? Request.GetUserIdFromRequest() ?? Guid.Parse("22222222-2222-2222-2222-222222222221");
+        var targetRole = role ?? Request.GetUserRoleFromRequest() ?? "Student";
+        var result = await _notificationService.GetNotificationsAsync(targetUserId, targetRole, unreadOnly, limit);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Lấy số lượng thông báo chưa đọc để hiển thị badge trên biểu tượng chuông
+    /// </summary>
+    [HttpGet("unread-count")]
+    public async Task<ActionResult<Result<int>>> GetUnreadCount(
+        [FromQuery] Guid? userId = null,
+        [FromQuery] string? role = null)
+    {
+        var targetUserId = userId ?? Request.GetUserIdFromRequest() ?? Guid.Parse("22222222-2222-2222-2222-222222222221");
+        var targetRole = role ?? Request.GetUserRoleFromRequest() ?? "Student";
+        var result = await _notificationService.GetUnreadCountAsync(targetUserId, targetRole);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Đánh dấu một thông báo là đã đọc
+    /// </summary>
+    [HttpPatch("{id:guid}/read")]
+    public async Task<ActionResult<Result>> MarkAsRead(Guid id, [FromQuery] Guid? userId = null)
+    {
+        var targetUserId = userId ?? Request.GetUserIdFromRequest() ?? Guid.Empty;
+        var result = await _notificationService.MarkAsReadAsync(id, targetUserId);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Đánh dấu tất cả thông báo là đã đọc
+    /// </summary>
+    [HttpPost("read-all")]
+    public async Task<ActionResult<Result>> MarkAllAsRead(
+        [FromQuery] Guid? userId = null,
+        [FromQuery] string? role = null)
+    {
+        var targetUserId = userId ?? Request.GetUserIdFromRequest() ?? Guid.Parse("22222222-2222-2222-2222-222222222221");
+        var targetRole = role ?? Request.GetUserRoleFromRequest() ?? "Student";
+        var result = await _notificationService.MarkAllAsReadAsync(targetUserId, targetRole);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Xóa một thông báo
+    /// </summary>
+    [HttpDelete("{id:guid}")]
+    public async Task<ActionResult<Result>> DeleteNotification(Guid id, [FromQuery] Guid? userId = null)
+    {
+        var targetUserId = userId ?? Request.GetUserIdFromRequest() ?? Guid.Empty;
+        var result = await _notificationService.DeleteNotificationAsync(id, targetUserId);
         return Ok(result);
     }
 }

@@ -95,3 +95,14 @@ export async function updateExpertPermissions(expertId, permissions) {
   const res = await axiosClient.patch(`/admin/experts/${expertId}/permissions`, { permissions });
   return res.data;
 }
+
+/** Lấy danh sách các bài viết & nhật ký theo cảm xúc cho popup phân bố cảm xúc */
+export async function getMoodItems(mood = '') {
+  try {
+    const res = await axiosClient.get('/admin/dashboard/mood-items', { params: { mood } });
+    return res.data;
+  } catch (err) {
+    console.warn('API /admin/dashboard/mood-items error:', err);
+    return null;
+  }
+}

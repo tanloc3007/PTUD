@@ -18,6 +18,7 @@ public interface IApplicationDbContext
     List<CommunityComment> CommunityComments { get; }
     List<NlpRiskAlert> NlpRiskAlerts { get; }
     List<AuditLog> AuditLogs { get; }
+    List<UserNotification> Notifications { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

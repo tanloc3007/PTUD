@@ -76,6 +76,7 @@ public interface IExpertWorkspaceService
 public interface IAdminService
 {
     Task<Result<DashboardStatsDto>> GetSystemDashboardAsync();
+    Task<Result<List<MoodItemDto>>> GetMoodItemsAsync(string? mood);
     Task<Result<AdminReportsDto>> GetReportsAsync();
     Task<Result<List<AuditLogDto>>> GetAuditLogsAsync();
     Task<Result<AuditLogHistoryResponseDto>> GetAuditLogHistoryAsync(Guid? userId, string? date, int? month, int? year, int page, int pageSize);
@@ -85,8 +86,8 @@ public interface IAdminService
     Task<Result<List<CommentDto>>> GetFlaggedCommentsAsync();
     Task<Result> ModerateCommentAsync(Guid commentId, ModerateCommentRequest request, Guid adminUserId);
     Task<Result<List<UserDto>>> GetAllUsersAsync();
-    Task<Result> ToggleUserStatusAsync(Guid userId);
-    Task<Result<UserDto>> UpdateUserRoleAsync(Guid userId, string newRole);
+    Task<Result> ToggleUserStatusAsync(Guid userId, Guid? callerAdminId = null);
+    Task<Result<UserDto>> UpdateUserRoleAsync(Guid userId, string newRole, Guid? callerAdminId = null);
     Task<Result<ExpertDto>> CreateExpertAsync(CreateExpertRequest request);
     Task<Result<List<SensitiveKeywordDto>>> GetSensitiveKeywordsAsync();
     Task<Result<SensitiveKeywordDto>> AddSensitiveKeywordAsync(AddSensitiveKeywordRequest request);
@@ -94,5 +95,14 @@ public interface IAdminService
     Task<Result<ModerationTestDto>> TestModerationAsync(string content);
     Task<Result<List<ExpertPermissionDto>>> GetExpertsPermissionsAsync();
     Task<Result> UpdateExpertPermissionsAsync(Guid expertId, UpdateExpertPermissionsRequest request, Guid adminId);
+}
+
+public interface INotificationService
+{
+    Task<Result<List<UserNotificationDto>>> GetNotificationsAsync(Guid userId, string? role, bool? unreadOnly, int limit = 50);
+    Task<Result<int>> GetUnreadCountAsync(Guid userId, string? role);
+    Task<Result> MarkAsReadAsync(Guid notificationId, Guid userId);
+    Task<Result> MarkAllAsReadAsync(Guid userId, string? role);
+    Task<Result> DeleteNotificationAsync(Guid notificationId, Guid userId);
 }
 

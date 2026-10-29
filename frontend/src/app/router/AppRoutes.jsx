@@ -13,6 +13,7 @@ const RegisterPage = lazy(() => import('../../features/auth/pages/RegisterPage')
 // Shared
 const ForbiddenPage = lazy(() => import('../../shared/components/ForbiddenPage'));
 const NotFoundPage  = lazy(() => import('../../shared/components/NotFoundPage'));
+const NotificationsPage = lazy(() => import('../../features/notifications/pages/NotificationsPage'));
 
 // Student Pages
 const StudentHomePage      = lazy(() => import('../../features/student/pages/HomePage'));
@@ -74,14 +75,15 @@ export default function AppRoutes() {
         <StudentRoute><StudentLayout /></StudentRoute>
       }>
         <Route index element={<Navigate to="/student/home" replace />} />
-        <Route path="home"      element={wrap(<StudentHomePage />)} />
-        <Route path="community" element={wrap(<CommunityFeedPage />)} />
-        <Route path="booking"   element={wrap(<StudentBookingPage />)} />
-        <Route path="journal"   element={wrap(<JournalPage />)} />
-        <Route path="test"      element={wrap(<TestPage />)} />
-        <Route path="saferoom"  element={wrap(<SafeRoomPage />)} />
-        <Route path="profile"   element={wrap(<StudentProfilePage />)} />
-        <Route path="meeting/:id" element={wrap(<StudentMeetingRoomPage />)} />
+        <Route path="home"          element={wrap(<StudentHomePage />)} />
+        <Route path="community"     element={wrap(<CommunityFeedPage />)} />
+        <Route path="booking"       element={wrap(<StudentBookingPage />)} />
+        <Route path="journal"       element={wrap(<JournalPage />)} />
+        <Route path="test"          element={wrap(<TestPage />)} />
+        <Route path="saferoom"      element={wrap(<SafeRoomPage />)} />
+        <Route path="profile"       element={wrap(<StudentProfilePage />)} />
+        <Route path="meeting/:id"   element={wrap(<StudentMeetingRoomPage />)} />
+        <Route path="notifications" element={wrap(<NotificationsPage role="Student" />)} />
       </Route>
 
       {/* ══════════════ EXPERT ══════════════ */}
@@ -89,12 +91,13 @@ export default function AppRoutes() {
         <ExpertRoute><ExpertLayout /></ExpertRoute>
       }>
         <Route index element={<Navigate to="/expert/workspace" replace />} />
-        <Route path="workspace"  element={wrap(<ExpertWorkspacePage />)} />
-        <Route path="schedule"   element={wrap(<ExpertSchedulePage />)} />
-        <Route path="analytics"  element={wrap(<ExpertAnalyticsPage />)} />
-        <Route path="moderation" element={wrap(<ExpertModerationPage />)} />
-        <Route path="profile"    element={wrap(<ExpertProfilePage />)} />
-        <Route path="consultation" element={wrap(<ExpertConsultationPage />)} />
+        <Route path="workspace"     element={wrap(<ExpertWorkspacePage />)} />
+        <Route path="schedule"      element={wrap(<ExpertSchedulePage />)} />
+        <Route path="analytics"     element={wrap(<ExpertAnalyticsPage />)} />
+        <Route path="moderation"    element={wrap(<ExpertModerationPage />)} />
+        <Route path="profile"       element={wrap(<ExpertProfilePage />)} />
+        <Route path="consultation"  element={wrap(<ExpertConsultationPage />)} />
+        <Route path="notifications" element={wrap(<NotificationsPage role="Expert" />)} />
       </Route>
 
       {/* ══════════════ ADMIN ══════════════ */}
@@ -102,13 +105,14 @@ export default function AppRoutes() {
         <AdminRoute><AdminLayout /></AdminRoute>
       }>
         <Route index element={<Navigate to="/admin/dashboard" replace />} />
-        <Route path="dashboard"  element={wrap(<AdminDashboardPage />)} />
-        <Route path="users"      element={wrap(<AdminUsersPage />)} />
-        <Route path="moderation" element={wrap(<AdminModerationPage />)} />
-        <Route path="keywords"   element={wrap(<AdminKeywordsPage />)} />
-        <Route path="tests"      element={wrap(<AdminTestsPage />)} />
-        <Route path="reports"    element={wrap(<AdminReportsPage />)} />
-        <Route path="audit-logs" element={wrap(<AdminAuditPage />)} />
+        <Route path="dashboard"     element={wrap(<AdminDashboardPage />)} />
+        <Route path="users"         element={wrap(<AdminUsersPage />)} />
+        <Route path="moderation"    element={wrap(<AdminModerationPage />)} />
+        <Route path="keywords"      element={wrap(<AdminKeywordsPage />)} />
+        <Route path="tests"         element={wrap(<AdminTestsPage />)} />
+        <Route path="reports"       element={wrap(<AdminReportsPage />)} />
+        <Route path="audit-logs"    element={wrap(<AdminAuditPage />)} />
+        <Route path="notifications" element={wrap(<NotificationsPage role="Admin" />)} />
       </Route>
 
     </Routes>

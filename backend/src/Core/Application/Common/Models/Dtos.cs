@@ -335,6 +335,21 @@ public record MeetingChatDto(Guid Id, Guid AppointmentId, string SenderRole, str
 // 6. ADMIN & EXPERT DTOs
 public record MoodDistributionDto(string Label, string MoodKey, int Count, double Percentage, string Color);
 public record MoodTrendPointDto(string Label, double AvgScore, int TotalEntries);
+public record MoodItemDto(
+    Guid Id,
+    string ItemType,
+    string Title,
+    string Content,
+    string AuthorPseudonym,
+    string? StudentRoleTag,
+    string MoodLabel,
+    string MoodKey,
+    string? CategoryTag,
+    string? Triggers,
+    int? EnergyLevel,
+    int RiskScore,
+    DateTime CreatedAt
+);
 
 public record DashboardStatsDto(
     int TotalStudents,
@@ -540,5 +555,29 @@ public record ActiveMeetingDto(
     string? RoomLocation = null,
     string? ConsultationType = null,
     DateTime? StartedAt = null
+);
+
+public record UserNotificationDto(
+    Guid Id,
+    Guid? UserId,
+    string TargetRole,
+    string Title,
+    string Message,
+    string Category,
+    string Type,
+    string? ActionUrl,
+    bool IsRead,
+    DateTime CreatedAt,
+    DateTime? ReadAt
+);
+
+public record CreateNotificationRequest(
+    Guid? UserId,
+    string TargetRole,
+    string Title,
+    string Message,
+    string Category,
+    string Type,
+    string? ActionUrl
 );
 

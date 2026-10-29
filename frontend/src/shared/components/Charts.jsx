@@ -167,7 +167,9 @@ export function ModernDonutPieChart({
   subtitle = '',
   size = 150,
   donutRatio = 0.56,
-  emptyText = 'Chưa có dữ liệu cảm xúc'
+  emptyText = 'Chưa có dữ liệu cảm xúc',
+  onSelectMood = null,
+  selectedMood = null,
 }) {
   const [hoveredSlice, setHoveredSlice] = useState(null);
 
@@ -240,7 +242,7 @@ export function ModernDonutPieChart({
   return (
     <div style={{ width: '100%', boxSizing: 'border-box' }}>
       {(title || subtitle) && (
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 6 }}>
           {title && (
             <h3 style={{ fontSize: 14, fontWeight: 800, color: 'var(--a-text, #1e1b4b)', margin: 0 }}>
               {title}
@@ -251,6 +253,12 @@ export function ModernDonutPieChart({
               {subtitle}
             </span>
           )}
+        </div>
+      )}
+
+      {onSelectMood && (
+        <div style={{ fontSize: 11, color: '#6366f1', fontWeight: 600, marginBottom: 10 }}>
+          Nhấp vào từng mục để xem danh sách bài viết liên quan
         </div>
       )}
 
@@ -266,19 +274,21 @@ export function ModernDonutPieChart({
           <svg width={size} height={size} style={{ overflow: 'visible', filter: 'drop-shadow(0 4px 10px rgba(0,0,0,0.06))' }}>
             {slices.map((s, i) => {
               const isHovered = hoveredSlice === i;
+              const isSelected = selectedMood && (selectedMood === s.label || selectedMood === s.moodKey);
               return (
                 <path
                   key={i}
-                  d={describeSlice(s.startAngle, s.sweep, isHovered ? 4 : 0)}
+                  d={describeSlice(s.startAngle, s.sweep, isHovered || isSelected ? 4 : 0)}
                   fill={s.color}
-                  stroke="var(--a-surface, #ffffff)"
-                  strokeWidth="2.5"
-                  opacity={hoveredSlice !== null ? (isHovered ? 1 : 0.6) : 0.95}
+                  stroke={isSelected ? '#1e1b4b' : 'var(--a-surface, #ffffff)'}
+                  strokeWidth={isSelected ? '3.5' : '2.5'}
+                  opacity={isSelected ? 1 : hoveredSlice !== null ? (isHovered ? 1 : 0.6) : 0.95}
                   style={{ cursor: 'pointer', transition: 'all 0.25s ease' }}
                   onMouseEnter={() => setHoveredSlice(i)}
                   onMouseLeave={() => setHoveredSlice(null)}
+                  onClick={() => onSelectMood?.(s)}
                 >
-                  <title>{`${s.label}: ${s.count} (${s.pctDisplay}%)`}</title>
+                  <title>{`${s.label}: ${s.count} (${s.pctDisplay}%) - Bấm để xem bài viết`}</title>
                 </path>
               );
             })}
@@ -300,12 +310,13 @@ export function ModernDonutPieChart({
         <div style={{
           display: 'flex',
           flexDirection: 'column',
-          gap: 8,
+          gap: 6,
           flex: 1,
           minWidth: 160,
         }}>
           {slices.map((s, i) => {
             const isHovered = hoveredSlice === i;
+            const isSelected = selectedMood && (selectedMood === s.label || selectedMood === s.moodKey);
             return (
               <div
                 key={i}
@@ -313,14 +324,21 @@ export function ModernDonutPieChart({
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between',
-                  padding: '5px 8px',
-                  borderRadius: 6,
-                  background: isHovered ? 'var(--a-primary-muted, rgba(67,56,202,0.06))' : 'transparent',
+                  padding: '6px 10px',
+                  borderRadius: 8,
+                  background: isSelected
+                    ? 'rgba(99, 102, 241, 0.12)'
+                    : isHovered
+                    ? 'var(--a-primary-muted, rgba(67,56,202,0.06))'
+                    : 'transparent',
+                  border: isSelected ? `1.5px solid ${s.color}` : '1.5px solid transparent',
                   cursor: 'pointer',
-                  transition: 'background 0.15s ease',
+                  transition: 'all 0.15s ease',
                 }}
                 onMouseEnter={() => setHoveredSlice(i)}
                 onMouseLeave={() => setHoveredSlice(null)}
+                onClick={() => onSelectMood?.(s)}
+                title="Bấm để xem danh sách bài viết liên quan"
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                   <div style={{
@@ -329,12 +347,12 @@ export function ModernDonutPieChart({
                     borderRadius: 3,
                     background: s.color,
                     flexShrink: 0,
-                    boxShadow: isHovered ? `0 0 6px ${s.color}` : 'none',
+                    boxShadow: isHovered || isSelected ? `0 0 6px ${s.color}` : 'none',
                   }} />
                   <span style={{
                     fontSize: 12,
-                    fontWeight: isHovered ? 800 : 600,
-                    color: 'var(--a-text, #1e1b4b)',
+                    fontWeight: isHovered || isSelected ? 800 : 600,
+                    color: isSelected ? '#1e1b4b' : 'var(--a-text, #1e1b4b)',
                     whiteSpace: 'nowrap',
                     textOverflow: 'ellipsis',
                     overflow: 'hidden',

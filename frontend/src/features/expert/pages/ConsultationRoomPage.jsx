@@ -86,6 +86,16 @@ export default function ConsultationRoomPage() {
     return () => clearInterval(timer);
   }, [isMeetingStarted]);
 
+  // Cleanup: khi chuyên viên rời trang hoặc chuyển tab khác, tự động đóng phòng họp
+  useEffect(() => {
+    return () => {
+      const targetId = selectedAppt?.id || appointmentId;
+      if (isMeetingStarted && targetId) {
+        axiosClient.post(`/appointments/${targetId}/end-meeting`).catch(() => {});
+      }
+    };
+  }, [isMeetingStarted, selectedAppt?.id, appointmentId]);
+
   const formatTime = (totalSecs) => {
     const m = Math.floor(totalSecs / 60).toString().padStart(2, '0');
     const s = (totalSecs % 60).toString().padStart(2, '0');

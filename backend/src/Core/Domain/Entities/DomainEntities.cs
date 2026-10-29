@@ -233,3 +233,18 @@ public class AuditLog
     public string? IpAddress { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
+
+public class UserNotification
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid? UserId { get; set; }
+    public string TargetRole { get; set; } = "All"; // Student, Expert, Admin, All
+    public string Title { get; set; } = string.Empty;
+    public string Message { get; set; } = string.Empty;
+    public string Category { get; set; } = "System"; // Appointment, Community, Mood, NlpAlert, System, Security
+    public string Type { get; set; } = "info"; // info, success, warning, danger, appointment
+    public string? ActionUrl { get; set; }
+    public bool IsRead { get; set; } = false;
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? ReadAt { get; set; }
+}

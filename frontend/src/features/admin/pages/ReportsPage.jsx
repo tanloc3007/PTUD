@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import axiosClient from '../../auth/api/authApi';
 import InPageNotification from '../../../shared/components/InPageNotification';
 import { ModernBarChart, ModernDonutPieChart } from '../../../shared/components/Charts';
+import MoodPostsPopup from '../components/MoodPostsPopup';
 
 const DEFAULT_MOOD_DIST = [
   { label: 'Vui vẻ / Hạnh phúc', count: 48, percentage: 32, color: '#10b981' },
@@ -13,6 +14,7 @@ const DEFAULT_MOOD_DIST = [
 
 export default function AdminReportsPage() {
   const [reports, setReports] = useState(null);
+  const [selectedMood, setSelectedMood] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -108,6 +110,8 @@ export default function AdminReportsPage() {
                 title="Phân bố cảm xúc sinh viên"
                 subtitle="Thống kê thực tế từ nhật ký tâm trạng"
                 size={160}
+                onSelectMood={slice => setSelectedMood(slice)}
+                selectedMood={selectedMood?.label}
               />
             </div>
 
@@ -180,6 +184,13 @@ export default function AdminReportsPage() {
           </div>
         </div>
       )}
+
+      {/* Mood Posts Popup Modal */}
+      <MoodPostsPopup
+        isOpen={Boolean(selectedMood)}
+        onClose={() => setSelectedMood(null)}
+        selectedMood={selectedMood}
+      />
     </div>
   );
 }

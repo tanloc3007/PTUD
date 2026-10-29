@@ -3,6 +3,7 @@ import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../../features/auth/store/authStore';
 import { logout, getMyProfile } from '../../features/auth/api/authApi';
 import ThemeToggle from '../../shared/components/ThemeToggle';
+import NotificationBell from '../../features/notifications/components/NotificationBell';
 import '../../shared/styles/unimind-expert-theme.css';
 
 const THEME_KEY = 'unimind-expert-theme';
@@ -245,6 +246,7 @@ export default function ExpertLayout() {
             )}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <NotificationBell role="Expert" theme={theme} />
             <ThemeToggle theme={theme} onToggle={toggleTheme} />
             <div className="expert-avatar" style={{ width: 34, height: 34, fontSize: 13, borderRadius: 6 }}>{initials}</div>
             {!isMobile && (

@@ -1320,12 +1320,16 @@ public class AppointmentService : IAppointmentService
                 var expUser = exp != null ? _context.Users.FirstOrDefault(u => u.Id == exp.UserId) : null;
                 var slot = _context.TimeSlots.FirstOrDefault(s => s.Id == a.TimeSlotId);
 
-                // Tự động mở phòng khi đến giờ hẹn: Ca đã duyệt (Confirmed) và đến khung giờ hẹn hôm nay (mở trước 15p đến sau 30p) hoặc ngày hẹn <= hôm nay
-                bool isTimeArrived = a.Status == AppointmentStatus.Confirmed && 
+                // Tự động mở phòng khi đến giờ hẹn: Ca trực tuyến đã duyệt (Confirmed) và đến đúng khung giờ hôm nay
+                bool isOnline = a.ConsultationType == LocationType.Online;
+                bool isLiveOrConfirmed = a.Status == AppointmentStatus.Confirmed;
+                bool isTimeArrived = isOnline && isLiveOrConfirmed && 
                                      slot != null && 
-                                     (slot.SlotDate < todayVn || (slot.SlotDate == todayVn && currentTimeVn >= slot.StartTime.AddMinutes(-15) && currentTimeVn <= slot.EndTime.AddMinutes(30)));
+                                     slot.SlotDate == todayVn && 
+                                     currentTimeVn >= slot.StartTime.AddMinutes(-15) && 
+                                     currentTimeVn <= slot.EndTime.AddMinutes(30);
 
-                bool isMeetingReady = a.IsMeetingActive || isTimeArrived;
+                bool isMeetingReady = isOnline && isLiveOrConfirmed && (a.IsMeetingActive || isTimeArrived);
 
                 return new AppointmentDto(
                     a.Id,
@@ -1370,12 +1374,16 @@ public class AppointmentService : IAppointmentService
                 var expUser = exp != null ? _context.Users.FirstOrDefault(u => u.Id == exp.UserId) : null;
                 var slot = _context.TimeSlots.FirstOrDefault(s => s.Id == a.TimeSlotId);
 
-                // Tự động mở phòng khi đến giờ hẹn
-                bool isTimeArrived = a.Status == AppointmentStatus.Confirmed && 
+                // Tự động mở phòng khi đến giờ hẹn: Ca trực tuyến đã duyệt (Confirmed) và đến đúng khung giờ hôm nay
+                bool isOnline = a.ConsultationType == LocationType.Online;
+                bool isLiveOrConfirmed = a.Status == AppointmentStatus.Confirmed;
+                bool isTimeArrived = isOnline && isLiveOrConfirmed && 
                                      slot != null && 
-                                     (slot.SlotDate < todayVn || (slot.SlotDate == todayVn && currentTimeVn >= slot.StartTime.AddMinutes(-15) && currentTimeVn <= slot.EndTime.AddMinutes(30)));
+                                     slot.SlotDate == todayVn && 
+                                     currentTimeVn >= slot.StartTime.AddMinutes(-15) && 
+                                     currentTimeVn <= slot.EndTime.AddMinutes(30);
 
-                bool isMeetingReady = a.IsMeetingActive || isTimeArrived;
+                bool isMeetingReady = isOnline && isLiveOrConfirmed && (a.IsMeetingActive || isTimeArrived);
 
                 return new AppointmentDto(
                     a.Id,
@@ -1512,11 +1520,15 @@ public class AppointmentService : IAppointmentService
         var todayVn = DateOnly.FromDateTime(nowVn);
         var currentTimeVn = TimeOnly.FromDateTime(nowVn);
 
-        bool isTimeArrived = a.Status == AppointmentStatus.Confirmed && 
+        bool isOnline = a.ConsultationType == LocationType.Online;
+        bool isLiveOrConfirmed = a.Status == AppointmentStatus.Confirmed;
+        bool isTimeArrived = isOnline && isLiveOrConfirmed && 
                              slot != null && 
-                             (slot.SlotDate < todayVn || (slot.SlotDate == todayVn && currentTimeVn >= slot.StartTime.AddMinutes(-15) && currentTimeVn <= slot.EndTime.AddMinutes(30)));
+                             slot.SlotDate == todayVn && 
+                             currentTimeVn >= slot.StartTime.AddMinutes(-15) && 
+                             currentTimeVn <= slot.EndTime.AddMinutes(30);
 
-        bool isMeetingReady = a.IsMeetingActive || isTimeArrived;
+        bool isMeetingReady = isOnline && isLiveOrConfirmed && (a.IsMeetingActive || isTimeArrived);
 
         var dto = new AppointmentDto(
             a.Id,
@@ -1560,6 +1572,7 @@ public class AppointmentService : IAppointmentService
         var expert = _context.Experts.FirstOrDefault(e => e.Id == app.ExpertId);
         var expertUser = expert != null ? _context.Users.FirstOrDefault(u => u.Id == expert.UserId) : null;
         var expertName = expertUser?.FullName ?? expert?.Title ?? "Chuyên viên Tâm lý";
+        var expertDisplayName = expertName.StartsWith("Chuyên viên") ? expertName : $"Chuyên viên {expertName}";
 
         _context.AuditLogs.Add(new AuditLog
         {
@@ -1567,7 +1580,7 @@ public class AppointmentService : IAppointmentService
             ActionType = "EXPERT_START_MEETING",
             ActorRole = "Expert",
             ActorId = expertUserId,
-            Details = $"Chuyên viên {expertName} đã mở cuộc họp tư vấn trực tuyến cho ca hẹn #{app.BookingCode} ({app.AnonymousPseudonym})",
+            Details = $"{expertDisplayName} đã mở cuộc họp tư vấn trực tuyến cho ca hẹn #{app.BookingCode} ({app.AnonymousPseudonym})",
             IpAddress = "127.0.0.1",
             CreatedAt = DateTime.UtcNow
         });
@@ -1603,30 +1616,29 @@ public class AppointmentService : IAppointmentService
         return Result.Ok("Đã đóng phòng tư vấn trực tuyến");
     }
 
-    public Task<Result<ActiveMeetingDto>> GetActiveMeetingForStudentAsync(Guid studentId)
+    public async Task<Result<ActiveMeetingDto>> GetActiveMeetingForStudentAsync(Guid studentId)
     {
-        var nowVn = DateTime.UtcNow.AddHours(7);
-        var todayVn = DateOnly.FromDateTime(nowVn);
-        var currentTimeVn = TimeOnly.FromDateTime(nowVn);
-
         var activeAppt = _context.Appointments
             .Where(a => a.StudentId == studentId && 
+                        a.IsMeetingActive && 
                         a.Status != AppointmentStatus.Completed && 
                         a.Status != AppointmentStatus.Cancelled &&
                         a.Status != AppointmentStatus.Rejected)
             .OrderByDescending(a => a.MeetingStartedAt ?? a.CreatedAt)
-            .AsEnumerable()
-            .FirstOrDefault(a => {
-                if (a.IsMeetingActive) return true;
-                if (a.Status != AppointmentStatus.Confirmed) return false;
-                var slot = _context.TimeSlots.FirstOrDefault(s => s.Id == a.TimeSlotId);
-                if (slot == null) return false;
-                return (slot.SlotDate < todayVn || (slot.SlotDate == todayVn && currentTimeVn >= slot.StartTime.AddMinutes(-15) && currentTimeVn <= slot.EndTime.AddMinutes(30)));
-            });
+            .FirstOrDefault();
+
+        // Tự động đóng nếu phòng họp bị bỏ quên quá 4 tiếng
+        if (activeAppt != null && activeAppt.MeetingStartedAt.HasValue && DateTime.UtcNow - activeAppt.MeetingStartedAt.Value > TimeSpan.FromHours(4))
+        {
+            activeAppt.IsMeetingActive = false;
+            activeAppt.UpdatedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+            activeAppt = null;
+        }
 
         if (activeAppt == null)
         {
-            return Task.FromResult(Result<ActiveMeetingDto>.Ok(new ActiveMeetingDto(false)));
+            return Result<ActiveMeetingDto>.Ok(new ActiveMeetingDto(false));
         }
 
         var expert = _context.Experts.FirstOrDefault(e => e.Id == activeAppt.ExpertId);
@@ -1643,7 +1655,7 @@ public class AppointmentService : IAppointmentService
             StartedAt: activeAppt.MeetingStartedAt ?? activeAppt.CreatedAt
         );
 
-        return Task.FromResult(Result<ActiveMeetingDto>.Ok(dto));
+        return Result<ActiveMeetingDto>.Ok(dto);
     }
 
     public async Task<Result<bool>> VerifyMeetingParticipantAsync(Guid appointmentId, Guid userId)
@@ -2327,6 +2339,114 @@ public class AdminService : IAdminService
         return Task.FromResult(Result<DashboardStatsDto>.Ok(stats));
     }
 
+    public Task<Result<List<MoodItemDto>>> GetMoodItemsAsync(string? mood)
+    {
+        var items = new List<MoodItemDto>();
+
+        // 1. From MoodJournals
+        foreach (var j in _context.MoodJournals.OrderByDescending(x => x.CreatedAt))
+        {
+            string label, key;
+            switch (j.MoodState)
+            {
+                case MoodType.Stressed:
+                    label = "Căng thẳng / Lo âu"; key = "Stressed"; break;
+                case MoodType.Exhausted:
+                    label = "Kiệt sức / Mệt mỏi"; key = "Exhausted"; break;
+                case MoodType.Peaceful:
+                    label = "Bình tĩnh / Ổn định"; key = "Peaceful"; break;
+                case MoodType.Great:
+                    label = "Vui vẻ / Hạnh phúc"; key = "Great"; break;
+                case MoodType.Sad:
+                default:
+                    label = "Buồn bã / Chán nản"; key = "Sad"; break;
+            }
+
+            var hash = Math.Abs(j.StudentId.GetHashCode() % 900 + 100);
+            items.Add(new MoodItemDto(
+                Id: j.Id,
+                ItemType: "Journal",
+                Title: !string.IsNullOrWhiteSpace(j.Triggers) ? $"Tác nhân: {j.Triggers}" : $"Nhật ký tâm trạng {label}",
+                Content: j.JournalContent,
+                AuthorPseudonym: $"Bạn Ẩn Yên #{hash}",
+                StudentRoleTag: "Sinh viên (Nhật ký ẩn danh)",
+                MoodLabel: label,
+                MoodKey: key,
+                CategoryTag: "Nhật ký tâm trạng",
+                Triggers: j.Triggers,
+                EnergyLevel: j.EnergyLevel,
+                RiskScore: Math.Max(0, (10 - j.EnergyLevel) * 10),
+                CreatedAt: j.CreatedAt
+            ));
+        }
+
+        // 2. From CommunityPosts
+        foreach (var p in _context.CommunityPosts.OrderByDescending(x => x.CreatedAt))
+        {
+            string label, key;
+            var text = (p.Content + " " + p.CategoryTag + " " + (p.StressLevelTag ?? "")).ToLower();
+            if (text.Contains("stress") || text.Contains("căng thẳng") || text.Contains("lo âu") || text.Contains("áp lực") || text.Contains("deadline") || p.IsExtremeCrisis)
+            {
+                label = "Căng thẳng / Lo âu"; key = "Stressed";
+            }
+            else if (text.Contains("exhaust") || text.Contains("kiệt sức") || text.Contains("mệt mỏi") || text.Contains("không ngủ"))
+            {
+                label = "Kiệt sức / Mệt mỏi"; key = "Exhausted";
+            }
+            else if (text.Contains("buồn") || text.Contains("chán") || text.Contains("tủi thân") || text.Contains("cô đơn"))
+            {
+                label = "Buồn bã / Chán nản"; key = "Sad";
+            }
+            else if (text.Contains("vui") || text.Contains("hạnh phúc") || text.Contains("tích cực") || p.SentimentLabel == "Positive")
+            {
+                label = "Vui vẻ / Hạnh phúc"; key = "Great";
+            }
+            else
+            {
+                label = "Bình tĩnh / Ổn định"; key = "Peaceful";
+            }
+
+            items.Add(new MoodItemDto(
+                Id: p.Id,
+                ItemType: "Post",
+                Title: p.CategoryTag ?? "Bài viết cộng đồng",
+                Content: p.Content,
+                AuthorPseudonym: string.IsNullOrWhiteSpace(p.AnonymousPseudonym) ? "Thành viên ẩn danh" : p.AnonymousPseudonym,
+                StudentRoleTag: p.StudentRoleTag,
+                MoodLabel: label,
+                MoodKey: key,
+                CategoryTag: p.CategoryTag,
+                Triggers: p.StressLevelTag,
+                EnergyLevel: null,
+                RiskScore: p.RiskScore,
+                CreatedAt: p.CreatedAt
+            ));
+        }
+
+        // Filter by mood if specified
+        if (!string.IsNullOrWhiteSpace(mood))
+        {
+            var m = mood.Trim().ToLower();
+            items = items.Where(x => 
+                x.MoodLabel.ToLower().Contains(m) || 
+                x.MoodKey.ToLower() == m ||
+                (m.Contains("căng thẳng") && (x.MoodKey == "Stressed" || x.MoodLabel.Contains("Căng thẳng"))) ||
+                (m.Contains("kiệt sức") && (x.MoodKey == "Exhausted" || x.MoodLabel.Contains("Kiệt sức"))) ||
+                (m.Contains("bình tĩnh") && (x.MoodKey == "Peaceful" || x.MoodLabel.Contains("Bình tĩnh"))) ||
+                (m.Contains("vui") && (x.MoodKey == "Great" || x.MoodLabel.Contains("Vui vẻ"))) ||
+                (m.Contains("buồn") && (x.MoodKey == "Sad" || x.MoodLabel.Contains("Buồn bã"))) ||
+                (m == "stressed" && (x.MoodKey == "Stressed" || x.MoodLabel.Contains("Căng thẳng"))) ||
+                (m == "exhausted" && (x.MoodKey == "Exhausted" || x.MoodLabel.Contains("Kiệt sức"))) ||
+                (m == "peaceful" && (x.MoodKey == "Peaceful" || x.MoodLabel.Contains("Bình tĩnh"))) ||
+                (m == "great" && (x.MoodKey == "Great" || x.MoodLabel.Contains("Vui vẻ"))) ||
+                (m == "sad" && (x.MoodKey == "Sad" || x.MoodLabel.Contains("Buồn bã")))
+            ).ToList();
+        }
+
+        var sorted = items.OrderByDescending(x => x.CreatedAt).ToList();
+        return Task.FromResult(Result<List<MoodItemDto>>.Ok(sorted));
+    }
+
     public Task<Result<AdminReportsDto>> GetReportsAsync()
     {
         var totalStudents = _context.Users.Count(u => u.Role == UserRole.Student);
@@ -2462,7 +2582,7 @@ public class AdminService : IAdminService
 
         foreach (var l in _context.AuditLogs.OrderByDescending(x => x.CreatedAt))
         {
-            logs.Add(new AuditLogDto(l.Id, l.ActionType, l.Details, l.ActorRole, "admin@unimind.edu.vn", l.Details, l.IpAddress, l.CreatedAt));
+            logs.Add(new AuditLogDto(l.Id, l.ActionType, l.Details, l.ActorRole, "admin@unimind.edu.vn", string.Empty, l.IpAddress, l.CreatedAt));
         }
 
         if (logs.Count < 10)
@@ -2678,10 +2798,20 @@ public class AdminService : IAdminService
         return Task.FromResult(Result<List<UserDto>>.Ok(list));
     }
 
-    public async Task<Result> ToggleUserStatusAsync(Guid userId)
+    public async Task<Result> ToggleUserStatusAsync(Guid userId, Guid? callerAdminId = null)
     {
+        if (callerAdminId.HasValue && callerAdminId.Value == userId)
+        {
+            return Result.Fail("Quản trị viên không được phép tự khóa tài khoản của chính mình.", "CANNOT_LOCK_SELF");
+        }
+
         var user = _context.Users.FirstOrDefault(u => u.Id == userId);
         if (user == null) return Result.Fail("Không tìm thấy người dùng", "NOT_FOUND");
+
+        if (callerAdminId.HasValue && user.Id == callerAdminId.Value)
+        {
+            return Result.Fail("Quản trị viên không được phép tự khóa tài khoản của chính mình.", "CANNOT_LOCK_SELF");
+        }
 
         user.IsActive = !user.IsActive;
         _context.AuditLogs.Add(new AuditLog
@@ -2689,6 +2819,7 @@ public class AdminService : IAdminService
             Id = Guid.NewGuid(),
             ActionType = "ADMIN_TOGGLE_USER_STATUS",
             ActorRole = "Admin",
+            ActorId = callerAdminId,
             Details = $"Admin {(user.IsActive ? "mở khóa" : "khóa")} tài khoản: {user.FullName} ({user.Email}, MSSV: {user.MSSV})",
             IpAddress = "127.0.0.1",
             CreatedAt = DateTime.UtcNow
@@ -2759,13 +2890,18 @@ public class AdminService : IAdminService
         return Result.Ok("Đã xóa từ khóa khỏi danh sách");
     }
 
-    public async Task<Result<UserDto>> UpdateUserRoleAsync(Guid userId, string newRole)
+    public async Task<Result<UserDto>> UpdateUserRoleAsync(Guid userId, string newRole, Guid? callerAdminId = null)
     {
         var user = _context.Users.FirstOrDefault(u => u.Id == userId);
         if (user == null) return Result<UserDto>.Fail("Không tìm thấy người dùng", "NOT_FOUND");
 
         if (!Enum.TryParse<UserRole>(newRole, true, out var parsedRole))
             return Result<UserDto>.Fail("Vai trò không hợp lệ", "INVALID_ROLE");
+
+        if (callerAdminId.HasValue && user.Id == callerAdminId.Value && parsedRole != UserRole.Admin)
+        {
+            return Result<UserDto>.Fail("Quản trị viên không thể tự giáng chức hoặc tước quyền Admin của chính mình.", "CANNOT_DEMOTE_SELF");
+        }
 
         user.Role = parsedRole;
         user.UpdatedAt = DateTime.UtcNow;
@@ -2774,6 +2910,7 @@ public class AdminService : IAdminService
             Id = Guid.NewGuid(),
             ActionType = "ADMIN_UPDATE_ROLE",
             ActorRole = "Admin",
+            ActorId = callerAdminId,
             Details = $"Cập nhật phân quyền tài khoản: {user.FullName} ({user.Email}) thành vai trò {parsedRole}",
             IpAddress = "127.0.0.1",
             CreatedAt = DateTime.UtcNow
@@ -2790,7 +2927,7 @@ public class AdminService : IAdminService
         var allLogs = new List<AuditLogDto>();
 
         foreach (var l in _context.AuditLogs.OrderByDescending(x => x.CreatedAt))
-            allLogs.Add(new AuditLogDto(l.Id, l.ActionType, l.Details, l.ActorRole, "system@unimind.edu.vn", l.Details, l.IpAddress, l.CreatedAt));
+            allLogs.Add(new AuditLogDto(l.Id, l.ActionType, l.Details, l.ActorRole, "system@unimind.edu.vn", string.Empty, l.IpAddress, l.CreatedAt));
 
         foreach (var u in _context.Users.OrderByDescending(x => x.CreatedAt).Take(20))
             allLogs.Add(new AuditLogDto(Guid.NewGuid(), u.Role == UserRole.Student ? "STUDENT_REGISTERED" : "USER_PROVISIONED",
@@ -3017,5 +3154,101 @@ public class AdminService : IAdminService
         );
 
         return Result<ModerationTestDto>.Ok(dto);
+    }
+}
+
+public class NotificationService : INotificationService
+{
+    private readonly IApplicationDbContext _context;
+
+    public NotificationService(IApplicationDbContext context)
+    {
+        _context = context;
+    }
+
+    public Task<Result<List<UserNotificationDto>>> GetNotificationsAsync(Guid userId, string? role, bool? unreadOnly, int limit = 50)
+    {
+        var targetRole = role ?? "Student";
+        var query = _context.Notifications.AsQueryable();
+
+        query = query.Where(n => (n.UserId.HasValue && n.UserId.Value == userId) || 
+                                 n.TargetRole.Equals("All", StringComparison.OrdinalIgnoreCase) || 
+                                 n.TargetRole.Equals(targetRole, StringComparison.OrdinalIgnoreCase));
+
+        if (unreadOnly == true)
+        {
+            query = query.Where(n => !n.IsRead);
+        }
+
+        var list = query
+            .OrderByDescending(n => n.CreatedAt)
+            .Take(limit)
+            .Select(n => new UserNotificationDto(
+                n.Id,
+                n.UserId,
+                n.TargetRole,
+                n.Title,
+                n.Message,
+                n.Category,
+                n.Type,
+                n.ActionUrl,
+                n.IsRead,
+                n.CreatedAt,
+                n.ReadAt
+            ))
+            .ToList();
+
+        return Task.FromResult(Result<List<UserNotificationDto>>.Ok(list));
+    }
+
+    public Task<Result<int>> GetUnreadCountAsync(Guid userId, string? role)
+    {
+        var targetRole = role ?? "Student";
+        var count = _context.Notifications
+            .Count(n => !n.IsRead && ((n.UserId.HasValue && n.UserId.Value == userId) || 
+                                      n.TargetRole.Equals("All", StringComparison.OrdinalIgnoreCase) || 
+                                      n.TargetRole.Equals(targetRole, StringComparison.OrdinalIgnoreCase)));
+
+        return Task.FromResult(Result<int>.Ok(count));
+    }
+
+    public async Task<Result> MarkAsReadAsync(Guid notificationId, Guid userId)
+    {
+        var notif = _context.Notifications.FirstOrDefault(n => n.Id == notificationId);
+        if (notif == null) return Result.Fail("Không tìm thấy thông báo", "NOT_FOUND");
+
+        notif.IsRead = true;
+        notif.ReadAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
+        return Result.Ok("Đã đánh dấu đã đọc");
+    }
+
+    public async Task<Result> MarkAllAsReadAsync(Guid userId, string? role)
+    {
+        var targetRole = role ?? "Student";
+        var unread = _context.Notifications
+            .Where(n => !n.IsRead && ((n.UserId.HasValue && n.UserId.Value == userId) || 
+                                      n.TargetRole.Equals("All", StringComparison.OrdinalIgnoreCase) || 
+                                      n.TargetRole.Equals(targetRole, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+
+        foreach (var n in unread)
+        {
+            n.IsRead = true;
+            n.ReadAt = DateTime.UtcNow;
+        }
+
+        await _context.SaveChangesAsync();
+        return Result.Ok($"Đã đánh dấu đã đọc {unread.Count} thông báo");
+    }
+
+    public async Task<Result> DeleteNotificationAsync(Guid notificationId, Guid userId)
+    {
+        var notif = _context.Notifications.FirstOrDefault(n => n.Id == notificationId);
+        if (notif == null) return Result.Fail("Không tìm thấy thông báo", "NOT_FOUND");
+
+        _context.Notifications.Remove(notif);
+        await _context.SaveChangesAsync();
+        return Result.Ok("Đã xóa thông báo");
     }
 }

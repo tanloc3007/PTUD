@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import axiosClient from '../../auth/api/authApi';
 import { ModernBarChart, ModernDonutPieChart } from '../../../shared/components/Charts';
+import MoodPostsPopup from '../components/MoodPostsPopup';
 
 const DEFAULT_STATS = {
   totalStudents: 0,
@@ -56,6 +57,7 @@ function StatCard({ label, value, sub, highlight }) {
 export default function AdminDashboardPage() {
   const [stats, setStats]         = useState(DEFAULT_STATS);
   const [moodDist, setMoodDist]   = useState(DEFAULT_MOOD_DIST);
+  const [selectedMood, setSelectedMood] = useState(null);
   const [crisisAlerts, setCrisis] = useState([]);
   const [moderQueue, setModQueue] = useState([]);
   const [loading, setLoading]     = useState(true);
@@ -120,6 +122,8 @@ export default function AdminDashboardPage() {
             title="Phân bố cảm xúc sinh viên"
             subtitle="Thống kê thực tế từ nhật ký tâm trạng"
             size={160}
+            onSelectMood={slice => setSelectedMood(slice)}
+            selectedMood={selectedMood?.label}
           />
         </div>
 
@@ -267,6 +271,13 @@ export default function AdminDashboardPage() {
           </div>
         </div>
       )}
+
+      {/* Mood Posts Popup Modal */}
+      <MoodPostsPopup
+        isOpen={Boolean(selectedMood)}
+        onClose={() => setSelectedMood(null)}
+        selectedMood={selectedMood}
+      />
     </div>
   );
 }
