@@ -12,6 +12,7 @@ const SIDEBAR_WIDTH = 250;
 const NAV_ITEMS = [
   { to: '/admin/dashboard',  label: 'Dashboard tổng quan' },
   { to: '/admin/users',      label: 'Quản lý người dùng' },
+  { to: '/admin/roles',      label: 'Vai trò & phân quyền' },
   { to: '/admin/moderation', label: 'Kiểm duyệt nội dung' },
   { to: '/admin/keywords',   label: 'Bộ lọc từ khóa' },
   { to: '/admin/tests',      label: 'Quản lý bài trắc nghiệm' },

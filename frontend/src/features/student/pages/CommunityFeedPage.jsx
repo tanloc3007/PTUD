@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+﻿import { useState, useEffect, useCallback, useRef } from 'react';
 import axiosClient from '../../auth/api/authApi';
 import { useAuthStore } from '../../auth/store/authStore';
 import InPageNotification from '../../../shared/components/InPageNotification';
@@ -18,12 +18,12 @@ export function formatCategory(cat) {
 }
 
 const CATEGORIES = [
-  { label: 'Tất cả',                 value: '' },
-  { label: 'Góc học tập',             value: 'Góc học tập' },
-  { label: 'Gia đình & Bạn bè',      value: 'Gia đình & Bạn bè' },
-  { label: 'Chuyện thường ngày',      value: 'Chuyện thường ngày' },
-  { label: 'Góc tâm sự',             value: 'Góc tâm sự' },
-  { label: 'Định hướng & Tương lai', value: 'Định hướng & Tương lai' },
+  { label: 'Tất cả',                 value: '',                       icon: '🌟', desc: 'Toàn bộ bài viết chia sẻ' },
+  { label: 'Góc học tập',            value: 'Góc học tập',            icon: '📚', desc: 'Đồ án, thi cử, áp lực học tập' },
+  { label: 'Gia đình & Bạn bè',      value: 'Gia đình & Bạn bè',      icon: '👨‍👩‍👧', desc: 'Mối quan hệ gia đình & bè bạn' },
+  { label: 'Chuyện thường ngày',     value: 'Chuyện thường ngày',     icon: '☕', desc: 'Những khoảnh khắc thường nhật' },
+  { label: 'Góc tâm sự',             value: 'Góc tâm sự',             icon: '💭', desc: 'Nỗi lòng, cô đơn, trăn trở' },
+  { label: 'Định hướng & Tương lai', value: 'Định hướng & Tương lai', icon: '🚀', desc: 'Sự nghiệp, việc làm & tương lai' },
 ];
 
 function timeAgo(date) {
@@ -53,7 +53,7 @@ export function parseImageUrls(raw) {
 export function PostMediaGallery({ images, onImageClick }) {
   if (!images || images.length === 0) return null;
 
-  // 1 ảnh: Scale tự nhiên, giữ nguyên tỉ lệ aspect ratio, nền tối dịu mắt, không bị cắt xén
+  // ── 1 ảnh: Toàn chiều rộng, giữ tỉ lệ, không crop ──
   if (images.length === 1) {
     return (
       <div
@@ -61,26 +61,22 @@ export function PostMediaGallery({ images, onImageClick }) {
         style={{
           borderRadius: 12,
           overflow: 'hidden',
-          border: '1px solid var(--s-border, #e2e8f0)',
-          background: '#090d16',
-          maxHeight: 520,
+          background: '#000',
+          maxHeight: 500,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           cursor: 'zoom-in',
-          transition: 'transform 0.15s ease'
         }}
       >
         <img
           src={images[0]}
           alt="Hình ảnh đính kèm"
           style={{
-            maxWidth: '100%',
-            maxHeight: 520,
-            width: 'auto',
-            height: 'auto',
+            width: '100%',
+            maxHeight: 500,
             objectFit: 'contain',
-            display: 'block'
+            display: 'block',
           }}
           onError={e => { e.currentTarget.style.display = 'none'; }}
         />
@@ -88,25 +84,22 @@ export function PostMediaGallery({ images, onImageClick }) {
     );
   }
 
-  // 2 ảnh: Cân xứng 2 cột song song
+  // ── 2 ảnh: 2 cột bằng nhau, chiều cao 300px ──
   if (images.length === 2) {
     return (
       <div style={{
         display: 'grid',
         gridTemplateColumns: '1fr 1fr',
-        gap: 6,
+        gap: 3,
         borderRadius: 12,
         overflow: 'hidden',
-        border: '1px solid var(--s-border, #e2e8f0)',
-        maxHeight: 380,
-        height: 320,
-        background: '#090d16'
+        height: 300,
       }}>
         {images.map((img, idx) => (
           <div
             key={idx}
             onClick={() => onImageClick?.(img, idx)}
-            style={{ position: 'relative', overflow: 'hidden', cursor: 'zoom-in', height: '100%' }}
+            style={{ overflow: 'hidden', cursor: 'zoom-in' }}
           >
             <img
               src={img}
@@ -120,106 +113,96 @@ export function PostMediaGallery({ images, onImageClick }) {
     );
   }
 
-  // 3 ảnh: 1 ảnh lớn bên trái, 2 ảnh xếp tầng bên phải
+  // ── 3 ảnh: 1 ảnh lớn trái chiếm 60%, 2 ảnh xếp dọc bên phải ──
   if (images.length === 3) {
     return (
       <div style={{
         display: 'grid',
-        gridTemplateColumns: '1.2fr 1fr',
+        gridTemplateColumns: '3fr 2fr',
         gridTemplateRows: '1fr 1fr',
-        gap: 6,
+        gap: 3,
         borderRadius: 12,
         overflow: 'hidden',
-        border: '1px solid var(--s-border, #e2e8f0)',
-        maxHeight: 400,
         height: 360,
-        background: '#090d16'
       }}>
         <div
           onClick={() => onImageClick?.(images[0], 0)}
-          style={{ gridRow: 'span 2', overflow: 'hidden', cursor: 'zoom-in', height: '100%' }}
+          style={{ gridRow: 'span 2', overflow: 'hidden', cursor: 'zoom-in' }}
         >
-          <img
-            src={images[0]}
-            alt="Ảnh 1"
+          <img src={images[0]} alt="Ảnh 1"
             style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-            onError={e => { e.currentTarget.style.display = 'none'; }}
-          />
+            onError={e => { e.currentTarget.style.display = 'none'; }} />
         </div>
-        <div
-          onClick={() => onImageClick?.(images[1], 1)}
-          style={{ overflow: 'hidden', cursor: 'zoom-in', height: '100%' }}
-        >
-          <img
-            src={images[1]}
-            alt="Ảnh 2"
-            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-            onError={e => { e.currentTarget.style.display = 'none'; }}
-          />
-        </div>
-        <div
-          onClick={() => onImageClick?.(images[2], 2)}
-          style={{ overflow: 'hidden', cursor: 'zoom-in', height: '100%' }}
-        >
-          <img
-            src={images[2]}
-            alt="Ảnh 3"
-            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-            onError={e => { e.currentTarget.style.display = 'none'; }}
-          />
-        </div>
+        {[1, 2].map(idx => (
+          <div key={idx} onClick={() => onImageClick?.(images[idx], idx)}
+            style={{ overflow: 'hidden', cursor: 'zoom-in' }}>
+            <img src={images[idx]} alt={`Ảnh ${idx + 1}`}
+              style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+              onError={e => { e.currentTarget.style.display = 'none'; }} />
+          </div>
+        ))}
       </div>
     );
   }
 
-  // 4 ảnh trở lên: Layout dạng lưới Facebook 2x2, ảnh thứ 4 hiển thị overlay "+N" nếu còn ảnh
-  const remaining = images.length - 4;
-  return (
-    <div style={{
-      display: 'grid',
-      gridTemplateColumns: '1fr 1fr',
-      gridTemplateRows: '1fr 1fr',
-      gap: 6,
-      borderRadius: 12,
-      overflow: 'hidden',
-      border: '1px solid var(--s-border, #e2e8f0)',
-      maxHeight: 420,
-      height: 380,
-      background: '#090d16'
-    }}>
-      {images.slice(0, 4).map((img, idx) => {
-        const isLastAndOverflow = idx === 3 && remaining > 0;
-        return (
-          <div
-            key={idx}
-            onClick={() => onImageClick?.(img, idx)}
-            style={{ position: 'relative', overflow: 'hidden', cursor: 'zoom-in', height: '100%' }}
-          >
-            <img
-              src={img}
-              alt={`Ảnh ${idx + 1}`}
+  // ── 4 ảnh: Lưới 2×2 bằng nhau như Facebook ──
+  if (images.length === 4) {
+    return (
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: '1fr 1fr',
+        gridTemplateRows: '1fr 1fr',
+        gap: 3,
+        borderRadius: 12,
+        overflow: 'hidden',
+        height: 360,
+      }}>
+        {images.map((img, idx) => (
+          <div key={idx} onClick={() => onImageClick?.(img, idx)}
+            style={{ overflow: 'hidden', cursor: 'zoom-in' }}>
+            <img src={img} alt={`Ảnh ${idx + 1}`}
               style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-              onError={e => { e.currentTarget.style.display = 'none'; }}
-            />
-            {isLastAndOverflow && (
-              <div style={{
-                position: 'absolute',
-                inset: 0,
-                background: 'rgba(15, 23, 42, 0.75)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#ffffff',
-                fontSize: 26,
-                fontWeight: 800,
-                backdropFilter: 'blur(3px)'
-              }}>
-                +{remaining}
-              </div>
-            )}
+              onError={e => { e.currentTarget.style.display = 'none'; }} />
           </div>
-        );
-      })}
+        ))}
+      </div>
+    );
+  }
+
+  // ── 5+ ảnh: Ảnh đầu hàng trên full-width, 4 ảnh nhỏ hàng dưới ──
+  const remaining = images.length - 5;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 3, borderRadius: 12, overflow: 'hidden' }}>
+      <div
+        onClick={() => onImageClick?.(images[0], 0)}
+        style={{ height: 240, overflow: 'hidden', cursor: 'zoom-in' }}
+      >
+        <img src={images[0]} alt="Ảnh 1"
+          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+          onError={e => { e.currentTarget.style.display = 'none'; }} />
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 3, height: 120 }}>
+        {images.slice(1, 5).map((img, idx) => {
+          const realIdx = idx + 1;
+          const isLast = idx === 3 && remaining > 0;
+          return (
+            <div key={realIdx} onClick={() => onImageClick?.(img, realIdx)}
+              style={{ position: 'relative', overflow: 'hidden', cursor: 'zoom-in' }}>
+              <img src={img} alt={`Ảnh ${realIdx + 1}`}
+                style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                onError={e => { e.currentTarget.style.display = 'none'; }} />
+              {isLast && (
+                <div style={{
+                  position: 'absolute', inset: 0,
+                  background: 'rgba(15,23,42,0.75)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  color: '#fff', fontSize: 22, fontWeight: 900, backdropFilter: 'blur(2px)'
+                }}>+{remaining}</div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -297,11 +280,6 @@ function PostCard({ post, onReact, onComment, onDelete, currentUser }) {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-          {post.stressLevelTag && (
-            <span className={`s-badge ${post.isExtremeCrisis ? 's-badge-error' : 's-badge-warning'}`} style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>
-              {post.stressLevelTag}
-            </span>
-          )}
           {canDelete && (
             <button
               onClick={() => onDelete(post.id, post.anonymousPseudonym)}
@@ -716,16 +694,6 @@ function PostCard({ post, onReact, onComment, onDelete, currentUser }) {
   );
 }
 
-const BG_THEMES = [
-  { id: 'none', label: 'Mặc định', bg: '#ffffff', color: '#1e293b' },
-  { id: 'sunset', label: 'Hoàng hôn', bg: 'linear-gradient(135deg, #f97316 0%, #ef4444 100%)', color: '#ffffff' },
-  { id: 'midnight', label: 'Đêm tím', bg: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)', color: '#ffffff' },
-  { id: 'emerald', label: 'Ngọc bích', bg: 'linear-gradient(135deg, #0d9488 0%, #10b981 100%)', color: '#ffffff' },
-  { id: 'ocean', label: 'Đại dương', bg: 'linear-gradient(135deg, #0284c7 0%, #2563eb 100%)', color: '#ffffff' },
-  { id: 'rose', label: 'Cánh hồng', bg: 'linear-gradient(135deg, #ec4899 0%, #f43f5e 100%)', color: '#ffffff' },
-  { id: 'dark', label: 'Trầm tĩnh', bg: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)', color: '#ffffff' },
-];
-
 const FEELINGS_LIST = [
   '😊 Hạnh phúc',
   '☕ Thư thái',
@@ -743,10 +711,8 @@ function CreatePostModal({ onClose, onSubmit, currentUser }) {
   const [category, setCategory] = useState(CATEGORIES[1].value);
   const [imageUrls, setImageUrls] = useState([]);
   const [urlInput, setUrlInput] = useState('');
-  const [selectedTheme, setSelectedTheme] = useState('none');
   const [selectedFeeling, setSelectedFeeling] = useState('');
   const [isAnonymous, setIsAnonymous] = useState(true);
-  const [showThemes, setShowThemes] = useState(false);
   const [showFeelings, setShowFeelings] = useState(false);
   const [formError, setFormError] = useState('');
   const [uploadingImage, setUploadingImage] = useState(false);
@@ -765,23 +731,22 @@ function CreatePostModal({ onClose, onSubmit, currentUser }) {
 
     setUploadingImage(true);
     setUploadError('');
-    setUploadProgressText(`Đang chuẩn bị tải ${files.length} ảnh...`);
+    setUploadProgressText(`Đang tải ${files.length} ảnh...`);
     try {
       const uploadedUrls = [];
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         if (!file.type.startsWith('image/')) continue;
         if (file.size > 10 * 1024 * 1024) continue;
-        setUploadProgressText(`Đang tải ảnh ${i + 1}/${files.length} lên Cloudinary...`);
+        setUploadProgressText(`Đang tải ảnh ${i + 1}/${files.length}...`);
         const res = await uploadImageToCloudinary(file, 'post_images');
         if (res?.url) uploadedUrls.push(res.url);
       }
       if (uploadedUrls.length > 0) {
         setImageUrls(prev => [...prev, ...uploadedUrls]);
-        setSelectedTheme('none');
       }
     } catch (err) {
-      setUploadError(err.message || 'Lỗi tải ảnh lên Cloudinary.');
+      setUploadError(err.message || 'Lỗi tải ảnh lên.');
     } finally {
       setUploadingImage(false);
       setUploadProgressText('');
@@ -798,7 +763,6 @@ function CreatePostModal({ onClose, onSubmit, currentUser }) {
     }
     setImageUrls(prev => [...prev, trimmed]);
     setUrlInput('');
-    setSelectedTheme('none');
     setUploadError('');
   };
 
@@ -809,9 +773,6 @@ function CreatePostModal({ onClose, onSubmit, currentUser }) {
   const authorDisplayName = isAnonymous
     ? (currentUser?.anonymousCode || 'Bạn Ẩn Danh')
     : (currentUser?.fullName || 'Ngô Tấn Lộc');
-
-  const currentTheme = BG_THEMES.find(t => t.id === selectedTheme) || BG_THEMES[0];
-  const isGradientTheme = selectedTheme !== 'none' && imageUrls.length === 0;
 
   const handlePost = () => {
     if (!content.trim()) {
@@ -853,59 +814,42 @@ function CreatePostModal({ onClose, onSubmit, currentUser }) {
         animation: 'fadeInModal 0.2s ease-out'
       }}>
         
-        {/* ══════════════ MODAL HEADER (FACEBOOK STYLE) ══════════════ */}
+        {/* ══════════════ MODAL HEADER ══════════════ */}
         <div style={{
-          height: 56,
+          height: 54,
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '0 16px',
+          justifyContent: 'center',
+          padding: '0 18px',
           borderBottom: '1px solid #e5e7eb',
           position: 'relative'
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <button
-              onClick={onClose}
-              aria-label="Đóng"
-              style={{
-                width: 36, height: 36, borderRadius: '50%',
-                background: '#f1f5f9', border: 'none', cursor: 'pointer',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 18, color: '#475569', fontWeight: 800, transition: 'all 0.15s'
-              }}
-              onMouseEnter={e => e.currentTarget.style.background = '#e2e8f0'}
-              onMouseLeave={e => e.currentTarget.style.background = '#f1f5f9'}
-            >
-              ✕
-            </button>
-            <div style={{
-              width: 32, height: 32, borderRadius: '50%',
-              background: '#0d9488', color: '#ffffff',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontWeight: 900, fontSize: 16
-            }}>
-              U
-            </div>
-          </div>
-
           <h2 style={{
-            fontSize: 18,
+            fontSize: 17,
             fontWeight: 800,
             color: '#0f172a',
             margin: 0,
-            position: 'absolute',
-            left: '50%',
-            transform: 'translateX(-50%)',
             fontFamily: "'Plus Jakarta Sans', sans-serif"
           }}>
             Tạo bài viết
           </h2>
 
-          <div style={{ display: 'flex', gap: 8 }}>
-            <span style={{ fontSize: 12, background: '#f0fdfa', color: '#0d9488', padding: '4px 10px', borderRadius: 20, fontWeight: 700 }}>
-              🛡️ Privacy-by-Design
-            </span>
-          </div>
+          <button
+            onClick={onClose}
+            aria-label="Đóng"
+            style={{
+              position: 'absolute',
+              right: 14,
+              width: 34, height: 34, borderRadius: '50%',
+              background: '#f1f5f9', border: 'none', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 16, color: '#475569', fontWeight: 800, transition: 'all 0.15s'
+            }}
+            onMouseEnter={e => e.currentTarget.style.background = '#e2e8f0'}
+            onMouseLeave={e => e.currentTarget.style.background = '#f1f5f9'}
+          >
+            ✕
+          </button>
         </div>
 
         {/* ══════════════ MODAL BODY: DUAL-PANEL (EDITOR + LIVE PREVIEW) ══════════════ */}
@@ -914,7 +858,7 @@ function CreatePostModal({ onClose, onSubmit, currentUser }) {
           display: 'grid',
           gridTemplateColumns: '1.18fr 0.82fr',
           overflow: 'hidden',
-          height: 'calc(100% - 56px)'
+          height: 'calc(100% - 54px)'
         }}>
           
           {/* ───────────── CỘT TRÁI: FORM SOẠN THẢO BÀI VIẾT ───────────── */}
@@ -930,10 +874,10 @@ function CreatePostModal({ onClose, onSubmit, currentUser }) {
             {/* User row & Audience Selector */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <div style={{
-                width: 44, height: 44, borderRadius: '50%',
+                width: 42, height: 42, borderRadius: '50%',
                 background: 'linear-gradient(135deg, #0d9488 0%, #14b8a6 100%)',
                 color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontWeight: 900, fontSize: 18, flexShrink: 0
+                fontWeight: 900, fontSize: 17, flexShrink: 0
               }}>
                 {authorDisplayName.charAt(0).toUpperCase()}
               </div>
@@ -961,8 +905,8 @@ function CreatePostModal({ onClose, onSubmit, currentUser }) {
                       fontWeight: 700, color: '#334155', cursor: 'pointer'
                     }}
                   >
-                    <span>{isAnonymous ? '🔒 Ẩn danh toàn trường' : '👥 Công khai họ tên'}</span>
-                    <span>▾</span>
+                    <span>{isAnonymous ? 'Ẩn danh' : 'Công khai'}</span>
+                    <span style={{ fontSize: 10, color: '#94a3b8' }}>▾</span>
                   </button>
 
                   {/* Chọn chủ đề */}
@@ -993,8 +937,8 @@ function CreatePostModal({ onClose, onSubmit, currentUser }) {
                       cursor: 'pointer'
                     }}
                   >
-                    <span>{selectedFeeling ? selectedFeeling : '😊 Cảm xúc'}</span>
-                    <span>▾</span>
+                    <span>{selectedFeeling ? selectedFeeling : 'Cảm xúc'}</span>
+                    <span style={{ fontSize: 10, color: '#94a3b8' }}>▾</span>
                   </button>
                 </div>
               </div>
@@ -1025,17 +969,16 @@ function CreatePostModal({ onClose, onSubmit, currentUser }) {
               </div>
             )}
 
-            {/* Content Textarea with Aa / Emoji */}
+            {/* Khung soạn thảo văn bản */}
             <div style={{
               position: 'relative',
               borderRadius: 12,
               border: '1px solid #cbd5e1',
-              background: isGradientTheme ? currentTheme.bg : '#ffffff',
-              padding: isGradientTheme ? '28px 18px 46px' : '14px 14px 46px',
+              background: '#ffffff',
+              padding: '12px 14px 28px',
               minHeight: 140,
               display: 'flex',
-              flexDirection: 'column',
-              transition: 'background 0.3s ease'
+              flexDirection: 'column'
             }}>
               <textarea
                 value={content}
@@ -1047,86 +990,39 @@ function CreatePostModal({ onClose, onSubmit, currentUser }) {
                   border: 'none',
                   outline: 'none',
                   resize: 'none',
-                  fontSize: isGradientTheme ? 18 : 14.5,
-                  fontWeight: isGradientTheme ? 800 : 500,
-                  color: isGradientTheme ? '#ffffff' : '#0f172a',
-                  textAlign: isGradientTheme ? 'center' : 'left',
-                  minHeight: isGradientTheme ? 90 : 80,
+                  fontSize: 14.5,
+                  fontWeight: 500,
+                  color: '#0f172a',
+                  lineHeight: 1.6,
+                  minHeight: 88,
                   fontFamily: "'Plus Jakarta Sans', sans-serif",
                   boxSizing: 'border-box'
                 }}
               />
 
-              {/* Bottom toolbar inside textarea: Aa and Emoji button */}
+              {/* Chỉ hiển thị số ký tự ở góc dưới phải (đã bỏ nút Aa và icon mặt cười) */}
               <div style={{
                 position: 'absolute',
-                bottom: 10,
-                left: 12,
+                bottom: 8,
                 right: 12,
                 display: 'flex',
-                justifyContent: 'space-between',
                 alignItems: 'center'
               }}>
-                {/* Aa Button to pick Facebook status gradient theme */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <button
-                    type="button"
-                    onClick={() => setShowThemes(v => !v)}
-                    title="Đổi màu nền tâm trạng (Aa)"
-                    style={{
-                      width: 28, height: 28, borderRadius: 6,
-                      background: 'linear-gradient(135deg, #f97316 0%, #ec4899 50%, #6366f1 100%)',
-                      color: '#ffffff', fontWeight: 900, fontSize: 12, border: 'none',
-                      cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center'
-                    }}
-                  >
-                    Aa
-                  </button>
-
-                  {/* Themes palette picker */}
-                  {showThemes && (
-                    <div style={{ display: 'flex', gap: 5, background: '#ffffff', padding: '4px 6px', borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.15)', border: '1px solid #cbd5e1' }}>
-                      {BG_THEMES.map(t => (
-                        <div
-                          key={t.id}
-                          onClick={() => { setSelectedTheme(t.id); setShowThemes(false); }}
-                          title={t.label}
-                          style={{
-                            width: 20, height: 20, borderRadius: 4,
-                            background: t.bg, cursor: 'pointer',
-                            border: selectedTheme === t.id ? '2px solid #0f766e' : '1px solid #cbd5e1'
-                          }}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: 11, color: isGradientTheme ? 'rgba(255,255,255,0.8)' : '#94a3b8' }}>
-                    {content.length}/2000
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setContent(c => c + ' 😊')}
-                    style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer' }}
-                  >
-                    🙂
-                  </button>
-                </div>
+                <span style={{ fontSize: 11.5, color: '#94a3b8', fontWeight: 500 }}>
+                  {content.length}/2000
+                </span>
               </div>
             </div>
 
-            {/* ──────── THÊM ẢNH HOẶC KÉO THẢ (HỖ TRỢ NHIỀU ẢNH) ──────── */}
+            {/* ──────── THÊM ẢNH (HỖ TRỢ NHIỀU ẢNH) ──────── */}
             <div style={{
-              border: imageUrls.length > 0 ? '1px solid #cbd5e1' : '2px dashed #cbd5e1',
+              border: imageUrls.length > 0 ? '1px solid #cbd5e1' : '1.5px dashed #cbd5e1',
               borderRadius: 12,
               padding: '14px 16px',
               textAlign: imageUrls.length > 0 ? 'left' : 'center',
               background: '#f8fafc',
               position: 'relative'
             }}>
-              {/* Nút tải ảnh lên Cloudinary (hỗ trợ chọn nhiều file) */}
               <input
                 type="file"
                 ref={fileInputRef}
@@ -1138,15 +1034,11 @@ function CreatePostModal({ onClose, onSubmit, currentUser }) {
 
               {imageUrls.length === 0 ? (
                 <div>
-                  <div style={{ fontSize: 26, marginBottom: 4 }}>🖼️</div>
-                  <strong style={{ fontSize: 13.5, color: '#1e293b', display: 'block', marginBottom: 2 }}>
+                  <strong style={{ fontSize: 13.5, color: '#334155', display: 'block', marginBottom: 8 }}>
                     Đính kèm hình ảnh
                   </strong>
-                  <p style={{ fontSize: 11.5, color: '#64748b', margin: '0 0 12px' }}>
-                    Tải ảnh từ máy tính lên Cloudinary hoặc dán đường dẫn ảnh
-                  </p>
 
-                  <div style={{ marginBottom: 12 }}>
+                  <div style={{ marginBottom: 10 }}>
                     <button
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
@@ -1154,34 +1046,31 @@ function CreatePostModal({ onClose, onSubmit, currentUser }) {
                       style={{
                         display: 'inline-flex',
                         alignItems: 'center',
-                        gap: 6,
-                        padding: '8px 18px',
+                        justifyContent: 'center',
+                        padding: '7px 18px',
                         background: '#0d9488',
                         color: '#ffffff',
                         border: 'none',
                         borderRadius: 8,
                         fontSize: 12.5,
-                        fontWeight: 800,
+                        fontWeight: 700,
                         cursor: uploadingImage ? 'wait' : 'pointer',
-                        boxShadow: '0 2px 8px rgba(13, 148, 136, 0.3)',
                         transition: 'all 0.15s'
                       }}
                     >
-                      <span>📷</span>
-                      <span>{uploadingImage ? uploadProgressText : 'Chọn ảnh từ máy (Có thể chọn nhiều ảnh)'}</span>
+                      {uploadingImage ? uploadProgressText : 'Chọn ảnh từ thiết bị'}
                     </button>
                     {uploadError && (
                       <p style={{ color: '#ef4444', fontSize: 11.5, margin: '6px 0 0' }}>
-                        ⚠️ {uploadError}
+                        {uploadError}
                       </p>
                     )}
                   </div>
-                  
 
-                  <div style={{ display: 'flex', gap: 6, justifyContent: 'center', maxWidth: 420, margin: '0 auto' }}>
+                  <div style={{ display: 'flex', gap: 6, justifyContent: 'center', maxWidth: 380, margin: '0 auto' }}>
                     <input
                       type="url"
-                      placeholder="Hoặc dán URL ảnh tại đây (https://...)"
+                      placeholder="Hoặc dán liên kết ảnh (URL)..."
                       value={urlInput}
                       onChange={e => setUrlInput(e.target.value)}
                       onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddUrl(); } }}
@@ -1195,7 +1084,7 @@ function CreatePostModal({ onClose, onSubmit, currentUser }) {
                       onClick={handleAddUrl}
                       disabled={!urlInput.trim()}
                       style={{
-                        padding: '6px 12px', background: '#0f766e', color: '#fff', border: 'none',
+                        padding: '6px 14px', background: '#0f766e', color: '#fff', border: 'none',
                         borderRadius: 6, fontSize: 11.5, fontWeight: 700, cursor: urlInput.trim() ? 'pointer' : 'default'
                       }}
                     >
@@ -1208,11 +1097,11 @@ function CreatePostModal({ onClose, onSubmit, currentUser }) {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <strong style={{ fontSize: 13, color: '#1e293b' }}>
-                        Danh sách ảnh đính kèm ({imageUrls.length}/10):
+                        Ảnh đính kèm ({imageUrls.length}/10):
                       </strong>
                       {uploadingImage && (
                         <span style={{ fontSize: 11.5, color: '#0d9488', fontWeight: 600 }}>
-                          ⏳ {uploadProgressText}
+                          {uploadProgressText}
                         </span>
                       )}
                     </div>
@@ -1296,13 +1185,12 @@ function CreatePostModal({ onClose, onSubmit, currentUser }) {
 
                   {uploadError && (
                     <p style={{ color: '#ef4444', fontSize: 11.5, margin: '8px 0 0', textAlign: 'center' }}>
-                      ⚠️ {uploadError}
+                      {uploadError}
                     </p>
                   )}
                 </div>
               )}
             </div>
-
 
             {formError && (
               <InPageNotification type="warning" message={formError} onClose={() => setFormError('')} />
@@ -1339,7 +1227,7 @@ function CreatePostModal({ onClose, onSubmit, currentUser }) {
 
           </div>
 
-          {/* ───────────── CỘT PHẢI: BẢN XEM TRƯỚC (LIVE PREVIEW NHƯ HÌNH) ───────────── */}
+          {/* ───────────── CỘT PHẢI: BẢN XEM TRƯỚC (LIVE PREVIEW) ───────────── */}
           <div style={{
             background: '#f8fafc',
             padding: '24px 28px',
@@ -1358,7 +1246,7 @@ function CreatePostModal({ onClose, onSubmit, currentUser }) {
               Bản xem trước
             </h3>
 
-            {/* PREVIEW POST CARD (FACEBOOK STYLE) */}
+            {/* PREVIEW POST CARD */}
             <div style={{
               width: '100%',
               maxWidth: 420,
@@ -1391,7 +1279,7 @@ function CreatePostModal({ onClose, onSubmit, currentUser }) {
                     <div style={{ fontSize: 11.5, color: '#94a3b8', display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
                       <span>Vừa xong</span>
                       <span>•</span>
-                      <span>{isAnonymous ? '🔒 Ẩn danh' : '🌐 Công khai'}</span>
+                      <span>{isAnonymous ? 'Ẩn danh' : 'Công khai'}</span>
                     </div>
                   </div>
                 </div>
@@ -1411,37 +1299,18 @@ function CreatePostModal({ onClose, onSubmit, currentUser }) {
               </div>
 
               {/* Content body preview */}
-              {isGradientTheme ? (
-                <div style={{
-                  background: currentTheme.bg,
-                  padding: '36px 20px',
-                  textAlign: 'center',
-                  color: '#ffffff',
-                  fontSize: 18,
-                  fontWeight: 800,
-                  minHeight: 120,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  lineHeight: 1.5,
-                  wordBreak: 'break-word'
-                }}>
-                  {content || 'Nội dung chia sẻ sẽ hiển thị tại đây...'}
-                </div>
-              ) : (
-                <div style={{ padding: '6px 16px 14px', fontSize: 13.5, color: '#1e293b', lineHeight: 1.6, wordBreak: 'break-word' }}>
-                  {content ? (
-                    content
-                  ) : (
-                    <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>
-                      Nội dung bài viết tâm sự sẽ hiển thị trực quan ở đây...
-                    </span>
-                  )}
-                </div>
-              )}
+              <div style={{ padding: '6px 16px 14px', fontSize: 13.5, color: '#1e293b', lineHeight: 1.6, wordBreak: 'break-word' }}>
+                {content ? (
+                  content
+                ) : (
+                  <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>
+                    Nội dung bài viết tâm sự sẽ hiển thị trực quan ở đây...
+                  </span>
+                )}
+              </div>
 
               {/* Multi-image gallery preview */}
-              {imageUrls.length > 0 && !isGradientTheme && (
+              {imageUrls.length > 0 && (
                 <div style={{ width: '100%', padding: '0 12px 10px' }}>
                   <PostMediaGallery images={imageUrls} />
                 </div>
@@ -1454,13 +1323,12 @@ function CreatePostModal({ onClose, onSubmit, currentUser }) {
                 borderBottom: '1px solid #f1f5f9', marginTop: 4
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <span>💙 1</span>
-                  <span>(Đồng cảm)</span>
+                  <span>1 đồng cảm</span>
                 </div>
                 <div>0 bình luận</div>
               </div>
 
-              {/* Preview Action buttons (Thích, Bình luận, Chia sẻ) */}
+              {/* Preview Action buttons */}
               <div style={{ display: 'flex', padding: '4px 8px' }}>
                 <button
                   type="button"
@@ -1470,7 +1338,8 @@ function CreatePostModal({ onClose, onSubmit, currentUser }) {
                     alignItems: 'center', justifyContent: 'center', gap: 6, cursor: 'default'
                   }}
                 >
-                  <span>👍</span> Thích
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"></path></svg>
+                  Thích
                 </button>
                 <button
                   type="button"
@@ -1480,7 +1349,8 @@ function CreatePostModal({ onClose, onSubmit, currentUser }) {
                     alignItems: 'center', justifyContent: 'center', gap: 6, cursor: 'default'
                   }}
                 >
-                  <span>💬</span> Bình luận
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                  Bình luận
                 </button>
                 <button
                   type="button"
@@ -1490,7 +1360,8 @@ function CreatePostModal({ onClose, onSubmit, currentUser }) {
                     alignItems: 'center', justifyContent: 'center', gap: 6, cursor: 'default'
                   }}
                 >
-                  <span>↗️</span> Chia sẻ
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="6" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>
+                  Chia sẻ
                 </button>
               </div>
             </div>
@@ -1503,7 +1374,7 @@ function CreatePostModal({ onClose, onSubmit, currentUser }) {
               maxWidth: 360,
               lineHeight: 1.5
             }}>
-              🔒 Bản xem trước thời gian thực. Thông tin của bạn được che giấu bí danh theo chuẩn bảo mật sinh viên UniMind.
+              Bản xem trước hiển thị theo thời gian thực.
             </p>
           </div>
 
@@ -1528,6 +1399,30 @@ export default function CommunityFeedPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [loading, setLoading]       = useState(false);
   const [notification, setNotification] = useState(null);
+  const [categoryCounts, setCategoryCounts] = useState({});
+  const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' ? window.innerWidth < 992 : false);
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < 992);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  useEffect(() => {
+    // Tải toàn bộ bài viết để đếm số lượng bài cho từng danh mục
+    axiosClient.get('/community/posts')
+      .then(res => {
+        if (res.data?.data && Array.isArray(res.data.data)) {
+          const counts = { '': res.data.data.length };
+          res.data.data.forEach(p => {
+            const cat = formatCategory(p.categoryTag || p.category);
+            counts[cat] = (counts[cat] || 0) + 1;
+          });
+          setCategoryCounts(counts);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const loadPosts = useCallback(async (cat = activeCategory) => {
     setLoading(true);
@@ -1641,20 +1536,25 @@ export default function CommunityFeedPage() {
   };
 
   return (
-    <div className="student-page-shell">
+    <div className="student-page-shell" style={{ width: '100%', margin: '0 auto' }}>
 
-      {/* Header: Pure Typography */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
+      {/* ══════════════ HEADER ══════════════ */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 22, flexWrap: 'wrap', gap: 12 }}>
         <div>
-          <h1 style={{ fontSize: 22, fontWeight: 900, color: 'var(--s-text)', margin: '0 0 4px', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+          <h1 style={{ fontSize: 23, fontWeight: 900, color: 'var(--s-text)', margin: '0 0 4px', fontFamily: "'Plus Jakarta Sans', sans-serif", letterSpacing: '-0.02em' }}>
             Góc Chia Sẻ Ẩn Danh
           </h1>
           <p style={{ fontSize: 13.5, color: 'var(--s-text-muted)', margin: 0 }}>
-            Không gian lắng nghe — sẻ chia và đồng cảm trong cộng đồng sinh viên (Hỗ trợ song ngữ Tiếng Việt &amp; English)
+            Không gian lắng nghe — sẻ chia và đồng cảm trong cộng đồng sinh viên UniMind
           </p>
         </div>
-        <button className="s-btn s-btn-primary" onClick={() => setShowCreate(true)} style={{ fontSize: 13, padding: '9px 18px' }}>
-          Chia sẻ tâm sự
+        <button
+          className="s-btn s-btn-primary"
+          onClick={() => setShowCreate(true)}
+          style={{ fontSize: 13, padding: '9px 18px', display: 'flex', alignItems: 'center', gap: 8, boxShadow: '0 4px 14px rgba(13, 148, 136, 0.25)' }}
+        >
+          <span>✍️</span>
+          <span>Chia sẻ tâm sự</span>
         </button>
       </div>
 
@@ -1668,112 +1568,319 @@ export default function CommunityFeedPage() {
         />
       )}
 
-      {/* ══════════════ FACEBOOK-STYLE QUICK POST TRIGGER BOX ══════════════ */}
+      {/* ══════════════ TWO-COLUMN MAIN LAYOUT ══════════════ */}
       <div style={{
-        background: '#ffffff',
-        borderRadius: 14,
-        border: '1px solid #e5e7eb',
-        padding: '14px 16px',
-        marginBottom: 20,
-        boxShadow: '0 2px 10px rgba(0,0,0,0.03)',
+        display: 'grid',
+        gridTemplateColumns: isMobile ? '1fr' : '290px minmax(0, 1fr)',
+        gap: 24,
+        alignItems: 'start'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingBottom: 12, borderBottom: '1px solid #f1f5f9' }}>
+
+        {/* ══════════════ CỘT BÊN TRÁI: DANH MỤC MENU DẠNG THANH NGANG ══════════════ */}
+        <aside style={{
+          position: isMobile ? 'relative' : 'sticky',
+          top: isMobile ? 'auto' : 76,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 16,
+          alignSelf: 'start',
+        }}>
+          {/* Card Danh Mục Menu Dạng Thanh Ngang (Tối giản, không icon) */}
           <div style={{
-            width: 40, height: 40, borderRadius: '50%',
-            background: 'linear-gradient(135deg, #0d9488 0%, #14b8a6 100%)',
-            color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontWeight: 800, fontSize: 16, flexShrink: 0
+            background: '#ffffff',
+            borderRadius: 16,
+            border: '1px solid #e5e7eb',
+            boxShadow: '0 2px 10px rgba(0, 0, 0, 0.03)',
+            overflow: 'hidden',
           }}>
-            {(user?.fullName || user?.anonymousCode || 'U').charAt(0).toUpperCase()}
-          </div>
-          <div
-            onClick={() => setShowCreate(true)}
-            style={{
-              flex: 1,
-              background: '#f1f5f9',
-              borderRadius: 24,
-              padding: '10px 18px',
-              color: '#64748b',
-              fontSize: 13.5,
-              cursor: 'pointer',
-              transition: 'all 0.15s ease',
-            }}
-            onMouseEnter={e => e.currentTarget.style.background = '#e2e8f0'}
-            onMouseLeave={e => e.currentTarget.style.background = '#f1f5f9'}
-          >
-            {user?.fullName || user?.anonymousCode || 'Bạn'} ơi, bạn đang nghĩ gì thế? Chia sẻ ẩn danh cùng UniMind...
-          </div>
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-around', paddingTop: 10 }}>
-          <button
-            type="button"
-            onClick={() => setShowCreate(true)}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', fontSize: 12.5, fontWeight: 700, color: '#0d9488' }}
-          >
-            <span>🖼️</span> Thêm ảnh/video
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowCreate(true)}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', fontSize: 12.5, fontWeight: 700, color: '#f59e0b' }}
-          >
-            <span>😊</span> Cảm xúc/hoạt động
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowCreate(true)}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', fontSize: 12.5, fontWeight: 700, color: '#6366f1' }}
-          >
-            <span>🔒</span> Ẩn danh bảo mật
-          </button>
-        </div>
-      </div>
-
-      {/* Category filter: Clean Text Pills */}
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 22 }}>
-        {CATEGORIES.map(cat => (
-          <button
-            key={cat.value}
-            onClick={() => { setCategory(cat.value); loadPosts(cat.value); }}
-            style={{
-              padding: '6px 14px', borderRadius: 20, fontSize: 12.5, fontWeight: 700, cursor: 'pointer',
-              border: '1.5px solid', transition: 'all 0.15s ease',
-              borderColor: activeCategory === cat.value ? 'var(--s-primary)' : 'var(--s-border)',
-              background: activeCategory === cat.value ? 'var(--s-primary-soft)' : 'var(--s-surface)',
-              color: activeCategory === cat.value ? 'var(--s-primary)' : 'var(--s-text-muted)',
-              fontFamily: "'Manrope', sans-serif",
-            }}
-          >
-            {cat.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Posts */}
-      {loading ? (
-        <div style={{ display: 'flex', justifyContent: 'center', padding: '40px 0' }}>
-          <div style={{ width: 32, height: 32, border: '3px solid #e5e7eb', borderTopColor: 'var(--s-primary)', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
-          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-        </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          {posts.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '40px', color: 'var(--s-text-muted)', background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: 14 }}>
-              <p style={{ fontSize: 14, fontWeight: 700, margin: '0 0 6px', color: '#374151' }}>Chưa có bài viết nào trong danh mục này</p>
-              <p style={{ fontSize: 13, margin: 0 }}>Hãy là người đầu tiên chia sẻ câu chuyện của bạn.</p>
+            {/* Header của menu (Không icon) */}
+            <div style={{
+              padding: '14px 18px',
+              borderBottom: '1px solid #f1f5f9',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              background: '#fafbfc'
+            }}>
+              <span style={{
+                fontSize: 12.5,
+                fontWeight: 800,
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+                color: '#475569',
+                fontFamily: "'Plus Jakarta Sans', sans-serif"
+              }}>
+                Chủ đề thảo luận
+              </span>
+              <span style={{
+                fontSize: 11,
+                fontWeight: 700,
+                color: '#0d9488',
+                background: '#f0fdfa',
+                padding: '2px 8px',
+                borderRadius: 12,
+                border: '1px solid #ccfbf1'
+              }}>
+                {CATEGORIES.length - 1} chủ đề
+              </span>
             </div>
-          ) : posts.map(post => (
-            <PostCard
-              key={post.id}
-              post={post}
-              onReact={handleReact}
-              onComment={handleComment}
-              onDelete={handleDeletePost}
-              currentUser={user}
-            />
-          ))}
-        </div>
-      )}
+
+            {/* Danh sách các item menu ngang (Không icon) */}
+            <div style={{
+              padding: '8px 10px',
+              display: 'flex',
+              flexDirection: isMobile ? 'row' : 'column',
+              gap: 4,
+              overflowX: isMobile ? 'auto' : 'visible',
+              whiteSpace: isMobile ? 'nowrap' : 'normal',
+              scrollbarWidth: 'none',
+              WebkitOverflowScrolling: 'touch'
+            }}>
+              {CATEGORIES.map(cat => {
+                const isActive = activeCategory === cat.value;
+                const count = categoryCounts[cat.value] ?? (cat.value === '' ? posts.length : null);
+                return (
+                  <button
+                    key={cat.value}
+                    type="button"
+                    onClick={() => { setCategory(cat.value); loadPosts(cat.value); }}
+                    style={{
+                      width: isMobile ? 'auto' : '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: isMobile ? '9px 16px' : '11px 14px',
+                      borderRadius: 10,
+                      border: isActive ? '1px solid #99f6e4' : '1px solid transparent',
+                      borderLeft: isMobile ? (isActive ? '1px solid #99f6e4' : '1px solid transparent') : (isActive ? '4px solid #0d9488' : '1px solid transparent'),
+                      background: isActive ? '#f0fdfa' : 'transparent',
+                      color: isActive ? '#0f766e' : '#334155',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      flexShrink: 0,
+                      transition: 'all 0.15s ease',
+                      boxShadow: isActive ? '0 1px 4px rgba(13, 148, 136, 0.08)' : 'none',
+                      fontFamily: "'Manrope', sans-serif",
+                    }}
+                    onMouseEnter={e => {
+                      if (!isActive) {
+                        e.currentTarget.style.background = '#f8fafc';
+                        if (!isMobile) e.currentTarget.style.transform = 'translateX(2px)';
+                      }
+                    }}
+                    onMouseLeave={e => {
+                      if (!isActive) {
+                        e.currentTarget.style.background = 'transparent';
+                        if (!isMobile) e.currentTarget.style.transform = 'translateX(0)';
+                      }
+                    }}
+                  >
+                    <div style={{ minWidth: 0, paddingRight: 8 }}>
+                      <div style={{
+                        fontSize: 13.5,
+                        fontWeight: isActive ? 800 : 600,
+                        color: isActive ? '#0f766e' : '#1e293b',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis'
+                      }}>
+                        {cat.label}
+                      </div>
+                      {!isMobile && (
+                        <div style={{
+                          fontSize: 11,
+                          color: '#94a3b8',
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          marginTop: 2
+                        }}>
+                          {cat.desc}
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                      {count !== null && count !== undefined && (
+                        <span style={{
+                          fontSize: 11,
+                          fontWeight: 700,
+                          padding: '1px 7px',
+                          borderRadius: 10,
+                          background: isActive ? '#0d9488' : '#f1f5f9',
+                          color: isActive ? '#ffffff' : '#64748b',
+                          transition: 'all 0.15s'
+                        }}>
+                          {count}
+                        </span>
+                      )}
+                      {!isMobile && (
+                        isActive ? (
+                          <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#0d9488' }} />
+                        ) : (
+                          <span style={{ fontSize: 13, color: '#cbd5e1' }}>›</span>
+                        )
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </aside>
+
+        {/* ══════════════ CỘT BÊN PHẢI: FEED BÀI VIẾT CHÍNH ══════════════ */}
+        <section style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+          {/* ══════════════ FACEBOOK-STYLE QUICK POST TRIGGER BOX ══════════════ */}
+          <div style={{
+            background: '#ffffff',
+            borderRadius: 16,
+            border: '1px solid #e5e7eb',
+            padding: '14px 16px',
+            boxShadow: '0 2px 10px rgba(0,0,0,0.03)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingBottom: 12, borderBottom: '1px solid #f1f5f9' }}>
+              <div style={{
+                width: 40, height: 40, borderRadius: '50%',
+                background: 'linear-gradient(135deg, #0d9488 0%, #14b8a6 100%)',
+                color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontWeight: 800, fontSize: 16, flexShrink: 0
+              }}>
+                {(user?.fullName || user?.anonymousCode || 'U').charAt(0).toUpperCase()}
+              </div>
+              <div
+                onClick={() => setShowCreate(true)}
+                style={{
+                  flex: 1,
+                  background: '#f1f5f9',
+                  borderRadius: 24,
+                  padding: '10px 18px',
+                  color: '#64748b',
+                  fontSize: 13.5,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = '#e2e8f0'}
+                onMouseLeave={e => e.currentTarget.style.background = '#f1f5f9'}
+              >
+                {user?.fullName || user?.anonymousCode || 'Bạn'} ơi, bạn đang nghĩ gì thế? Chia sẻ ẩn danh cùng UniMind...
+              </div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-around', paddingTop: 10 }}>
+              <button
+                type="button"
+                onClick={() => setShowCreate(true)}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', fontSize: 12.5, fontWeight: 700, color: '#0d9488' }}
+              >
+                <span>🖼️</span> Thêm ảnh/video
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowCreate(true)}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', fontSize: 12.5, fontWeight: 700, color: '#f59e0b' }}
+              >
+                <span>😊</span> Cảm xúc/hoạt động
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowCreate(true)}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', fontSize: 12.5, fontWeight: 700, color: '#6366f1' }}
+              >
+                <span>🔒</span> Ẩn danh bảo mật
+              </button>
+            </div>
+          </div>
+
+          {/* ══════════════ THANH MENU NGANG CHỈ BÁO BỘ LỌC ĐANG CHỌN ══════════════ */}
+          <div style={{
+            background: '#ffffff',
+            borderRadius: 12,
+            border: '1px solid #e5e7eb',
+            padding: '10px 16px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 10,
+            boxShadow: '0 1px 4px rgba(0,0,0,0.02)'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 12.5, color: '#64748b' }}>Đang xem:</span>
+              <span style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                fontSize: 12.5,
+                fontWeight: 800,
+                color: '#0f766e',
+                background: '#f0fdfa',
+                border: '1px solid #99f6e4',
+                padding: '3px 10px',
+                borderRadius: 8
+              }}>
+                
+                <span>{CATEGORIES.find(c => c.value === activeCategory)?.label || 'Tất cả'}</span>
+              </span>
+              <span style={{ fontSize: 12, color: '#94a3b8' }}>
+                ({posts.length} bài viết)
+              </span>
+            </div>
+
+            {activeCategory && (
+              <button
+                type="button"
+                onClick={() => { setCategory(''); loadPosts(''); }}
+                style={{
+                  background: '#f8fafc',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: 6,
+                  padding: '4px 10px',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: '#64748b',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4
+                }}
+                onMouseEnter={e => { e.currentTarget.style.color = '#0d9488'; e.currentTarget.style.borderColor = '#99f6e4'; }}
+                onMouseLeave={e => { e.currentTarget.style.color = '#64748b'; e.currentTarget.style.borderColor = '#e2e8f0'; }}
+              >
+                ✕ Xem tất cả bài viết
+              </button>
+            )}
+          </div>
+
+          {/* ══════════════ DANH SÁCH BÀI VIẾT ══════════════ */}
+          {loading ? (
+            <div style={{ display: 'flex', justifyContent: 'center', padding: '40px 0' }}>
+              <div style={{ width: 32, height: 32, border: '3px solid #e5e7eb', borderTopColor: 'var(--s-primary)', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+              <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {posts.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '40px', color: 'var(--s-text-muted)', background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: 14 }}>
+                  <p style={{ fontSize: 14, fontWeight: 700, margin: '0 0 6px', color: '#374151' }}>Chưa có bài viết nào trong danh mục này</p>
+                  <p style={{ fontSize: 13, margin: 0 }}>Hãy là người đầu tiên chia sẻ câu chuyện của bạn.</p>
+                </div>
+              ) : posts.map(post => (
+                <PostCard
+                  key={post.id}
+                  post={post}
+                  onReact={handleReact}
+                  onComment={handleComment}
+                  onDelete={handleDeletePost}
+                  currentUser={user}
+                />
+              ))}
+            </div>
+          )}
+
+        </section>
+
+      </div>
 
       {showCreate && (
         <CreatePostModal onClose={() => setShowCreate(false)} onSubmit={handleCreate} currentUser={user} />

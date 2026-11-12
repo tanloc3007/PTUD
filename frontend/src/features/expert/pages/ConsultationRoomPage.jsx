@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import axiosClient from '../../auth/api/authApi';
 import { useAuthStore } from '../../auth/store/authStore';
 import InPageNotification from '../../../shared/components/InPageNotification';
@@ -8,6 +8,7 @@ import SafeCallMeetingRoom from '../../../shared/components/SafeCallMeetingRoom'
 export default function ConsultationRoomPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuthStore();
 
   const appointmentId = searchParams.get('id');
@@ -39,8 +40,199 @@ export default function ConsultationRoomPage() {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState(null);
 
+  const realExpertEmail = user?.email && !user.email.endsWith('@unimind.edu.vn') ? user.email : '';
+
+  // Email SMTP Config State
+  const [showEmailConfigModal, setShowEmailConfigModal] = useState(false);
+  const [emailConfig, setEmailConfig] = useState({
+    smtpHost: 'smtp.gmail.com',
+    smtpPort: 587,
+    senderEmail: '',
+    senderName: 'UniMind - Tham Vấn Học Đường',
+    password: '',
+    testRecipient: realExpertEmail
+  });
+  const [emailConfigMeta, setEmailConfigMeta] = useState({
+    isConfigured: false,
+    maskedPassword: '',
+    savedSenderEmail: ''
+  });
+  const [emailModalFeedback, setEmailModalFeedback] = useState(null);
+  const [testingEmail, setTestingEmail] = useState(false);
+  const [savingEmailConfig, setSavingEmailConfig] = useState(false);
+
+  useEffect(() => {
+    const state = location.state;
+    if (!state) return;
+
+    if (state.startNotice) {
+      setNotice(state.startNotice);
+    }
+    if (state.autoOpened) {
+      const target = state.openedAppointment;
+      if (target) {
+        setSelectedAppt(target);
+        setMessages([
+          {
+            id: 1,
+            sender: 'system',
+            text: `🔒 Đã khởi tạo phòng tư vấn WebRTC P2P nội bộ cho ${target.studentAnonymousCode || 'Sinh viên'}. Mã ca: ${target.bookingCode || 'ST-LIVE'}.`,
+            time: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
+          },
+          {
+            id: 2,
+            sender: 'student',
+            text: target.reasonNotes ? `Dạ em chào chuyên viên, nội dung em muốn chia sẻ: "${target.reasonNotes}"` : 'Dạ em chào thầy/cô, em đã kết nối vào phòng tư vấn trực tuyến.',
+            time: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
+          }
+        ]);
+      }
+      setIsMeetingStarted(true);
+      setSessionSeconds(0);
+      setShowNotebook(false);
+    }
+    navigate(location.pathname + location.search, { replace: true, state: null });
+  }, [location.state, location.pathname, location.search, navigate]);
+
+  const loadEmailSettings = () => {
+    axiosClient.get('/notifications/email-settings').then(res => {
+      const cfg = res.data?.data;
+      if (cfg) {
+        setEmailConfigMeta({
+          isConfigured: Boolean(cfg.isConfigured),
+          maskedPassword: cfg.maskedPassword || '',
+          savedSenderEmail: cfg.senderEmail || ''
+        });
+        setEmailConfig(prev => ({
+          ...prev,
+          smtpHost: cfg.smtpHost || 'smtp.gmail.com',
+          smtpPort: cfg.smtpPort || 587,
+          senderEmail: cfg.senderEmail || prev.senderEmail || '',
+          senderName: cfg.senderName || 'UniMind - Tham Vấn Học Đường',
+          testRecipient: prev.testRecipient || realExpertEmail || cfg.senderEmail || '',
+          password: ''
+        }));
+      }
+    }).catch(() => {});
+  };
+
+  const handleTestEmail = () => {
+    setEmailModalFeedback(null);
+    const recipient = (emailConfig.testRecipient || '').trim();
+    const sender = (emailConfig.senderEmail || '').trim();
+    const typedPwd = (emailConfig.password || '').trim();
+    const usingSavedSender = sender && sender.toLowerCase() === (emailConfigMeta.savedSenderEmail || '').toLowerCase();
+
+    if (!sender || !sender.includes('@')) {
+      setEmailModalFeedback({
+        type: 'error',
+        title: 'Thiếu Gmail gửi thư',
+        message: 'Vui lòng nhập Tài khoản Gmail gửi thư hợp lệ trước khi gửi thử.'
+      });
+      return;
+    }
+    if (!typedPwd && (!emailConfigMeta.isConfigured || !usingSavedSender)) {
+      setEmailModalFeedback({
+        type: 'error',
+        title: 'Thiếu Google App Password',
+        message: 'Vui lòng nhập Mật khẩu ứng dụng Google (16 ký tự) cho tài khoản Gmail trên để kiểm tra.'
+      });
+      return;
+    }
+    if (!recipient || !recipient.includes('@')) {
+      setEmailModalFeedback({
+        type: 'error',
+        title: 'Thiếu email nhận thử nghiệm',
+        message: 'Vui lòng nhập địa chỉ Gmail người nhận để gửi thư thử nghiệm.'
+      });
+      return;
+    }
+
+    setTestingEmail(true);
+    axiosClient.post('/notifications/test-email', {
+      recipientEmail: recipient,
+      smtpHost: emailConfig.smtpHost,
+      smtpPort: parseInt(emailConfig.smtpPort, 10) || 587,
+      senderEmail: sender,
+      senderName: emailConfig.senderName,
+      password: typedPwd,
+      enableSsl: true
+    }).then((res) => {
+      const msg = res.data?.message || `Đã gửi thành công email thử nghiệm tới ${recipient}!`;
+      setEmailModalFeedback({
+        type: 'success',
+        title: 'Thử nghiệm SMTP thành công',
+        message: msg
+      });
+      setNotice({
+        type: 'success',
+        title: 'Thử nghiệm SMTP thành công',
+        message: msg
+      });
+    }).catch((err) => {
+      const errMsg = err.response?.data?.message || 'Không thể gửi email. Vui lòng kiểm tra lại Gmail và Google App Password (16 ký tự).';
+      setEmailModalFeedback({
+        type: 'error',
+        title: 'Lỗi gửi email thử nghiệm',
+        message: errMsg
+      });
+    }).finally(() => {
+      setTestingEmail(false);
+    });
+  };
+
+  const handleSaveEmailConfig = () => {
+    setEmailModalFeedback(null);
+    const sender = (emailConfig.senderEmail || '').trim();
+    const typedPwd = (emailConfig.password || '').trim();
+
+    if (!sender || !sender.includes('@')) {
+      setEmailModalFeedback({
+        type: 'error',
+        title: 'Email gửi thư không hợp lệ',
+        message: 'Vui lòng nhập tài khoản Gmail gửi thư hợp lệ.'
+      });
+      return;
+    }
+    if (!typedPwd && !emailConfigMeta.isConfigured) {
+      setEmailModalFeedback({
+        type: 'error',
+        title: 'Thiếu Google App Password',
+        message: 'Vui lòng nhập Mật khẩu ứng dụng Google (App Password 16 ký tự) trước khi lưu.'
+      });
+      return;
+    }
+
+    setSavingEmailConfig(true);
+    axiosClient.put('/notifications/email-settings', {
+      smtpHost: emailConfig.smtpHost,
+      smtpPort: parseInt(emailConfig.smtpPort, 10) || 587,
+      senderEmail: sender,
+      senderName: emailConfig.senderName,
+      password: typedPwd,
+      enableSsl: true
+    }).then((res) => {
+      loadEmailSettings();
+      setNotice({
+        type: 'success',
+        title: 'Đã lưu cấu hình Email',
+        message: res.data?.message || 'Thông tin cấu hình Gmail SMTP đã được lưu bền vững thành công!'
+      });
+      setShowEmailConfigModal(false);
+    }).catch((err) => {
+      setEmailModalFeedback({
+        type: 'error',
+        title: 'Lỗi lưu cấu hình',
+        message: err.response?.data?.message || 'Không thể lưu cấu hình Email.'
+      });
+    }).finally(() => {
+      setSavingEmailConfig(false);
+    });
+  };
+
   // Load appointments
   useEffect(() => {
+    loadEmailSettings();
     const expertId = user?.id || '33333333-3333-3333-3333-333333333330';
     setLoadingAppts(true);
     axiosClient.get(`/appointments/expert/${expertId}`)
@@ -111,15 +303,45 @@ export default function ConsultationRoomPage() {
     setSessionSeconds(0);
     setShowNotebook(false);
 
-    // Kích hoạt trạng thái mở cuộc họp trên server để gửi thông báo cho sinh viên đặt lịch
+    // Kích hoạt trạng thái mở cuộc họp trên server & tự động gửi email tới Gmail sinh viên đặt lịch
     if (target.id) {
-      axiosClient.post(`/appointments/${target.id}/start-meeting`).catch(() => {});
+      axiosClient.post(`/appointments/${target.id}/start-meeting`, {
+        frontendBaseUrl: window.location.origin
+      }).then((res) => {
+        const outcome = res.data?.data;
+        if (outcome?.emailSent) {
+          setNotice({
+            type: 'success',
+            title: 'Phòng họp đã mở & Đã tự động gửi Gmail',
+            message: res.data?.message || `Đã mở phòng SafeRoom và tự động gửi email thông báo tới sinh viên (${outcome.recipientEmail}).`
+          });
+        } else if (outcome?.emailAttempted) {
+          setNotice({
+            type: 'warning',
+            title: 'Phòng họp đã mở, nhưng chưa gửi được Gmail',
+            message: res.data?.message || 'Thông báo trong ứng dụng đã gửi, nhưng gửi Gmail thất bại. Vui lòng kiểm tra Cài đặt Gmail SMTP.'
+          });
+        } else {
+          setNotice({
+            type: 'info',
+            title: 'Phòng họp đã mở & Đã báo trong ứng dụng',
+            message: res.data?.message || `Đã mở phòng SafeRoom cho ca #${target.bookingCode || 'ST-LIVE'}.`
+          });
+        }
+      }).catch((err) => {
+        setNotice({
+          type: 'error',
+          title: 'Lỗi kích hoạt phòng họp / gửi thông báo',
+          message: err.response?.data?.message || 'Không thể kích hoạt trạng thái mở phòng trên máy chủ.'
+        });
+      });
     }
+
     setMessages([
       {
         id: 1,
         sender: 'system',
-        text: `🔒 Đã khởi tạo phòng tư vấn WebRTC P2P nội bộ cho ${target.studentAnonymousCode || 'Sinh viên'}. Mã ca: ${target.bookingCode || 'ST-LIVE'}. (100% tự tổ chức, không qua bên thứ 3)`,
+        text: `🔒 Đã khởi tạo phòng tư vấn WebRTC P2P nội bộ cho ${target.studentAnonymousCode || 'Sinh viên'}. Mã ca: ${target.bookingCode || 'ST-LIVE'}.`,
         time: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
       },
       {
@@ -339,7 +561,33 @@ export default function ConsultationRoomPage() {
                   </button>
                 </div>
 
-                <button
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEmailModalFeedback(null);
+                      loadEmailSettings();
+                      setShowEmailConfigModal(true);
+                    }}
+                    className="e-btn e-btn-outline"
+                    style={{
+                      padding: '12px 16px',
+                      fontSize: 13,
+                      fontWeight: 700,
+                      borderColor: '#94a3b8',
+                      color: '#475569',
+                      background: '#fff',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      borderRadius: 10,
+                      cursor: 'pointer'
+                    }}
+                    title="Cấu hình tài khoản Gmail và Mật khẩu ứng dụng (App Password) gửi thư tự động"
+                  >
+                    <span>⚙️</span> Cài đặt Gmail SMTP
+                  </button>
+                  <button
                   type="button"
                   onClick={() => handleStartMeeting(selectedAppt)}
                   className="e-btn e-btn-primary"
@@ -356,6 +604,7 @@ export default function ConsultationRoomPage() {
                 >
                   <span>🔒</span> Mở Phòng Tư Vấn WebRTC Nội Bộ (Tự Tổ Chức)
                 </button>
+                </div>
               </div>
             </div>
           ) : (
@@ -475,7 +724,8 @@ export default function ConsultationRoomPage() {
               saving: saving
             }}
             extraHeaderActions={
-              <button
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <button
                 type="button"
                 onClick={handleCloseMeeting}
                 title="Đóng phòng họp và quay về danh sách"
@@ -496,6 +746,7 @@ export default function ConsultationRoomPage() {
                 <span>🚪</span>
                 <span>Đóng phòng</span>
               </button>
+              </div>
             }
           />
 
@@ -658,6 +909,213 @@ export default function ConsultationRoomPage() {
 
         </div>
       )}
+    
+      {/* Modal Cấu hình Email / Gmail SMTP */}
+      {showEmailConfigModal && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.65)',
+          backdropFilter: 'blur(5px)', display: 'flex', alignItems: 'center',
+          justifyContent: 'center', zIndex: 9999, padding: 16
+        }}>
+          <div style={{
+            background: '#ffffff', borderRadius: 20, width: '100%', maxWidth: 560,
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)', overflow: 'hidden'
+          }}>
+            <div style={{
+              padding: '20px 24px', borderBottom: '1px solid #f1f5f9',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              background: '#f8fafc'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{
+                  width: 38, height: 38, borderRadius: 10, background: '#ecfdf5',
+                  color: '#059669', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 18, fontWeight: 'bold'
+                }}>
+                  📧
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: '#0f172a' }}>
+                    Cấu Hình Tự Động Gửi Gmail SMTP
+                  </h3>
+                  <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>
+                    Hệ thống tự động gửi link phòng SafeRoom tới Gmail sinh viên khi chuyên viên mở phòng
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowEmailConfigModal(false)}
+                style={{
+                  background: 'none', border: 'none', fontSize: 20, color: '#94a3b8',
+                  cursor: 'pointer', padding: 4, lineHeight: 1
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={{
+                padding: '10px 12px',
+                borderRadius: 10,
+                fontSize: 12,
+                background: emailConfigMeta.isConfigured ? '#f0fdf4' : '#fffbeb',
+                border: `1px solid ${emailConfigMeta.isConfigured ? '#bbf7d0' : '#fde68a'}`,
+                color: emailConfigMeta.isConfigured ? '#166534' : '#92400e',
+                fontWeight: 600
+              }}>
+                {emailConfigMeta.isConfigured
+                  ? `✅ Đã cấu hình SMTP (${emailConfigMeta.savedSenderEmail} • App Password: ${emailConfigMeta.maskedPassword}). Để trống ô App Password nếu không đổi mật khẩu.`
+                  : '⚠️ Chưa có tài khoản Gmail SMTP & App Password hợp lệ. Nhập thông tin bên dưới để bật gửi email tự động khi mở phòng.'}
+              </div>
+
+              {emailModalFeedback && (
+                <InPageNotification
+                  type={emailModalFeedback.type}
+                  title={emailModalFeedback.title}
+                  message={emailModalFeedback.message}
+                  onClose={() => setEmailModalFeedback(null)}
+                />
+              )}
+
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 12 }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#334155', marginBottom: 5 }}>
+                    Máy chủ SMTP (Host)
+                  </label>
+                  <input
+                    type="text"
+                    value={emailConfig.smtpHost}
+                    onChange={e => setEmailConfig(prev => ({ ...prev, smtpHost: e.target.value }))}
+                    style={{
+                      width: '100%', padding: '9px 12px', borderRadius: 8,
+                      border: '1px solid #cbd5e1', fontSize: 13, outline: 'none'
+                    }}
+                    placeholder="smtp.gmail.com"
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#334155', marginBottom: 5 }}>
+                    Cổng (Port)
+                  </label>
+                  <input
+                    type="number"
+                    value={emailConfig.smtpPort}
+                    onChange={e => setEmailConfig(prev => ({ ...prev, smtpPort: e.target.value }))}
+                    style={{
+                      width: '100%', padding: '9px 12px', borderRadius: 8,
+                      border: '1px solid #cbd5e1', fontSize: 13, outline: 'none'
+                    }}
+                    placeholder="587"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#334155', marginBottom: 5 }}>
+                  Tài khoản Gmail gửi thư (Sender Email)
+                </label>
+                <input
+                  type="email"
+                  value={emailConfig.senderEmail}
+                  onChange={e => setEmailConfig(prev => ({ ...prev, senderEmail: e.target.value }))}
+                  style={{
+                    width: '100%', padding: '9px 12px', borderRadius: 8,
+                    border: '1px solid #cbd5e1', fontSize: 13, outline: 'none'
+                  }}
+                  placeholder="vd: yourname@gmail.com"
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#334155', marginBottom: 5 }}>
+                  Mật khẩu ứng dụng Google (App Password 16 ký tự)
+                </label>
+                <input
+                  type="password"
+                  value={emailConfig.password}
+                  onChange={e => setEmailConfig(prev => ({ ...prev, password: e.target.value }))}
+                  style={{
+                    width: '100%', padding: '9px 12px', borderRadius: 8,
+                    border: '1px solid #cbd5e1', fontSize: 13, outline: 'none'
+                  }}
+                  placeholder={emailConfigMeta.isConfigured ? 'Để trống nếu giữ nguyên mật khẩu đã lưu' : 'Nhập mã 16 chữ số từ Google Account (vd: abcd efgh ijkl mnop)'}
+                />
+                <div style={{
+                  marginTop: 6, padding: '8px 12px', background: '#f0fdf4',
+                  borderRadius: 8, border: '1px solid #bbf7d0', fontSize: 11.5, color: '#166534'
+                }}>
+                  💡 <strong>Cách tạo App Password:</strong> Vào <em>myaccount.google.com &gt; Bảo mật &gt; Xác minh 2 bước &gt; Mật khẩu ứng dụng</em> &gt; Tạo mã mới &gt; Sao chép 16 chữ dán vào đây.
+                </div>
+              </div>
+
+              {/* Test Email Section */}
+              <div style={{
+                background: '#f8fafc', padding: 14, borderRadius: 10,
+                border: '1px dashed #cbd5e1', marginTop: 4
+              }}>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#334155', marginBottom: 5 }}>
+                  🧪 Kiểm tra gửi thư thử nghiệm:
+                </label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input
+                    type="email"
+                    value={emailConfig.testRecipient}
+                    onChange={e => setEmailConfig(prev => ({ ...prev, testRecipient: e.target.value }))}
+                    style={{
+                      flex: 1, padding: '8px 12px', borderRadius: 8,
+                      border: '1px solid #cbd5e1', fontSize: 12.5, outline: 'none'
+                    }}
+                    placeholder="Nhập Gmail nhận thử nghiệm..."
+                  />
+                  <button
+                    type="button"
+                    disabled={testingEmail}
+                    onClick={handleTestEmail}
+                    style={{
+                      padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+                      background: '#059669', color: '#fff', border: 'none', cursor: 'pointer',
+                      opacity: testingEmail ? 0.7 : 1
+                    }}
+                  >
+                    {testingEmail ? 'Đang gửi...' : 'Gửi thử ngay'}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div style={{
+              padding: '14px 24px', background: '#f8fafc', borderTop: '1px solid #f1f5f9',
+              display: 'flex', justifyContent: 'flex-end', gap: 10
+            }}>
+              <button
+                type="button"
+                onClick={() => setShowEmailConfigModal(false)}
+                style={{
+                  padding: '9px 18px', borderRadius: 8, fontSize: 13, fontWeight: 700,
+                  background: '#f1f5f9', color: '#475569', border: 'none', cursor: 'pointer'
+                }}
+              >
+                Đóng
+              </button>
+              <button
+                type="button"
+                disabled={savingEmailConfig}
+                onClick={handleSaveEmailConfig}
+                style={{
+                  padding: '9px 20px', borderRadius: 8, fontSize: 13, fontWeight: 800,
+                  background: '#0284c7', color: '#fff', border: 'none', cursor: 'pointer',
+                  opacity: savingEmailConfig ? 0.7 : 1
+                }}
+              >
+                {savingEmailConfig ? 'Đang lưu...' : '💾 Lưu Cấu Hình'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

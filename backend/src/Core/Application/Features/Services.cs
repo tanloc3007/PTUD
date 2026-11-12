@@ -25,6 +25,7 @@ public interface IPsychologicalTestService
     Task<Result<TestDetailDto>> GetTestDetailsAsync(Guid testId);
     Task<Result<TestResultDto>> SubmitTestAsync(Guid studentId, SubmitTestRequest request);
     Task<Result<TestResultDto?>> GetLatestResultAsync(Guid studentId);
+    Task<Result<List<TestResultDto>>> GetStudentTestHistoryAsync(Guid studentId);
 }
 
 public interface ICommunityService
@@ -46,10 +47,12 @@ public interface IAppointmentService
     Task<Result<List<AppointmentDto>>> GetStudentAppointmentsAsync(Guid studentId);
     Task<Result<List<AppointmentDto>>> GetExpertAppointmentsAsync(Guid expertId);
     Task<Result<List<BookedSlotDto>>> GetExpertBookedSlotsAsync(Guid expertId);
+    Task<Result<bool>> BlockSlotAsync(Guid expertId, BlockSlotRequest request);
+    Task<Result<bool>> UnblockSlotAsync(Guid expertId, UnblockSlotRequest request);
     Task<Result<AppointmentDto>> UpdateStatusAsync(Guid appointmentId, UpdateAppointmentStatusRequest request);
     Task<Result<AppointmentDto>> CompleteSessionAsync(Guid appointmentId, CompleteSessionRequest request);
     Task<Result<AppointmentDto>> GetAppointmentByIdAsync(Guid appointmentId);
-    Task<Result> StartMeetingAsync(Guid appointmentId, Guid expertUserId);
+    Task<Result<StartMeetingResultDto>> StartMeetingAsync(Guid appointmentId, Guid expertUserId, string? frontendBaseUrl = null);
     Task<Result> EndMeetingAsync(Guid appointmentId);
     Task<Result<ActiveMeetingDto>> GetActiveMeetingForStudentAsync(Guid studentId);
     Task<Result<bool>> VerifyMeetingParticipantAsync(Guid appointmentId, Guid userId);
@@ -95,6 +98,12 @@ public interface IAdminService
     Task<Result<ModerationTestDto>> TestModerationAsync(string content);
     Task<Result<List<ExpertPermissionDto>>> GetExpertsPermissionsAsync();
     Task<Result> UpdateExpertPermissionsAsync(Guid expertId, UpdateExpertPermissionsRequest request, Guid adminId);
+    Task<Result<RoleMatrixDto>> GetRolesMatrixAsync();
+    Task<Result> UpdateRolePermissionsAsync(string roleCode, UpdateRolePermissionsRequest request, Guid adminId);
+    Task<Result<UserDto>> UpdateUserRolesAsync(Guid userId, UpdateUserRolesRequest request, Guid adminId);
+    Task<Result<UserPermissionDetailDto>> GetUserPermissionsAsync(Guid userId);
+    Task<Result> UpdateUserPermissionsAsync(Guid userId, UpdateUserPermissionsRequest request, Guid adminId);
+    Task<Result<List<UserPermissionItemDto>>> GetAllUsersPermissionsSummaryAsync();
 }
 
 public interface INotificationService

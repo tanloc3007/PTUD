@@ -1,25 +1,82 @@
-import { useState, useEffect } from 'react';
-import { getAllUsers, createExpert, toggleUserStatus, updateUserRole, getExpertsPermissions, updateExpertPermissions } from '../api/adminApi';
+import { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
+import {
+  getAllUsers,
+  createExpert,
+  toggleUserStatus,
+  updateUserRole,
+  getExpertsPermissions,
+  updateExpertPermissions,
+  updateUserRoles,
+  getUserPermissions,
+  updateUserPermissions,
+  getRolesMatrix
+} from '../api/adminApi';
 import InPageNotification from '../../../shared/components/InPageNotification';
 import { useAuthStore } from '../../auth/store/authStore';
 
+const ALL_SYSTEM_ROLES = [
+  { code: 'ADMIN', label: 'Quản trị viên', color: '#4f46e5', bg: '#e0e7ff', desc: 'Toàn quyền kiểm soát và cấu hình hệ thống' },
+  { code: 'EXPERT', label: 'Chuyên viên', color: '#0284c7', bg: '#e0f2fe', desc: 'Tham vấn tâm lý, duyệt ca hẹn, mở phòng SafeRoom' },
+  { code: 'STUDENT', label: 'Sinh viên', color: '#059669', bg: '#d1fae5', desc: 'Sinh viên tham gia nhật ký, test tâm lý và diễn đàn' }
+];
+
+const ROLE_META = {
+  ADMIN: { label: 'Quản trị viên', badge: 'admin-badge-primary', color: '#4f46e5', bg: '#e0e7ff' },
+  Admin: { label: 'Quản trị viên', badge: 'admin-badge-primary', color: '#4f46e5', bg: '#e0e7ff' },
+  EXPERT: { label: 'Chuyên viên', badge: 'admin-badge-success', color: '#0284c7', bg: '#e0f2fe' },
+  Expert: { label: 'Chuyên viên', badge: 'admin-badge-success', color: '#0284c7', bg: '#e0f2fe' },
+  STUDENT: { label: 'Sinh viên', badge: 'admin-badge-info', color: '#059669', bg: '#d1fae5' },
+  Student: { label: 'Sinh viên', badge: 'admin-badge-info', color: '#059669', bg: '#d1fae5' }
+};
+
+const PERM_MODULE_ORDER = [
+  'Người dùng & Phân quyền',
+  'Tư vấn & SafeRoom',
+  'Khủng hoảng & Triage',
+  'Cộng đồng & Kiểm duyệt',
+  'Báo cáo & Thống kê'
+];
+
+const FULL_PERMISSIONS_CATALOG = [
+  { code: 'USER_VIEW', name: 'Xem danh sách người dùng', moduleName: 'Người dùng & Phân quyền', description: 'Xem hồ sơ, trạng thái hoạt động sinh viên & chuyên viên' },
+  { code: 'USER_STATUS_TOGGLE', name: 'Khóa / Mở khóa tài khoản', moduleName: 'Người dùng & Phân quyền', description: 'Đình chỉ hoặc kích hoạt lại quyền truy cập tài khoản' },
+  { code: 'USER_ROLE_ASSIGN', name: 'Gán vai trò người dùng', moduleName: 'Người dùng & Phân quyền', description: 'Gán hoặc thu hồi vai trò cho tài khoản người dùng' },
+  { code: 'ROLE_PERMISSION_MANAGE', name: 'Quản lý vai trò & quyền', moduleName: 'Người dùng & Phân quyền', description: 'Cấu hình ma trận phân quyền hệ thống' },
+  { code: 'SYSTEM_AUDIT_LOG_VIEW', name: 'Xem nhật ký kiểm toán', moduleName: 'Người dùng & Phân quyền', description: 'Truy vết hành vi bảo mật và thay đổi dữ liệu' },
+
+  { code: 'SLOT_MANAGE', name: 'Quản lý khung giờ trực', moduleName: 'Tư vấn & SafeRoom', description: 'Mở mới, điều chỉnh lịch hẹn tham vấn trực tuyến & trực tiếp' },
+  { code: 'APPOINTMENT_APPROVE', name: 'Phê duyệt ca hẹn', moduleName: 'Tư vấn & SafeRoom', description: 'Duyệt hoặc từ chối yêu cầu hẹn của sinh viên' },
+  { code: 'SAFEROOM_CALL_HOST', name: 'Mở phòng gọi SafeRoom', moduleName: 'Tư vấn & SafeRoom', description: 'Chủ trì phiên tư vấn video call bảo mật trực tuyến' },
+  { code: 'CLINICAL_NOTE_WRITE', name: 'Ghi chép hồ sơ ca bệnh', moduleName: 'Tư vấn & SafeRoom', description: 'Lưu trữ nhận định tâm lý chuyên môn sau buổi tư vấn' },
+  { code: 'EMERGENCY_ESCALATE', name: 'Chuyển tiếp ca nguy cơ', moduleName: 'Tư vấn & SafeRoom', description: 'Kích hoạt quy trình chuyển tiếp khẩn cấp hoặc hội chẩn' },
+
+  { code: 'TRIAGE_QUEUE_VIEW', name: 'Xem hàng đợi phân luồng', moduleName: 'Khủng hoảng & Triage', description: 'Theo dõi các ca cảnh báo khủng hoảng đỏ & vàng' },
+  { code: 'TRIAGE_STATUS_UPDATE', name: 'Cập nhật trạng thái triage', moduleName: 'Khủng hoảng & Triage', description: 'Điều chỉnh mức độ can thiệp và xử lý can thiệp khẩn' },
+  { code: 'KEYWORD_RULE_MANAGE', name: 'Quản lý bộ lọc từ khóa', moduleName: 'Khủng hoảng & Triage', description: 'Thiết lập danh mục từ khóa kích hoạt cảnh báo đỏ' },
+  { code: 'AI_SENTIMENT_RUN', name: 'Phân tích cảm xúc bằng AI', moduleName: 'Khủng hoảng & Triage', description: 'Khởi chạy quét AI phân tích sắc thái bài viết & nhật ký' },
+  { code: 'CRISIS_BROADCAST', name: 'Phát thông báo khẩn cấp', moduleName: 'Khủng hoảng & Triage', description: 'Gửi cảnh báo tức thời tới các bên liên quan' },
+
+  { code: 'POST_CREATE', name: 'Đăng bài viết chia sẻ', moduleName: 'Cộng đồng & Kiểm duyệt', description: 'Chia sẻ tâm sự ẩn danh lên không gian chung' },
+  { code: 'COMMENT_CREATE', name: 'Gửi bình luận động viên', moduleName: 'Cộng đồng & Kiểm duyệt', description: 'Bình luận và gửi lời nhắn an ủi đến bạn bè' },
+  { code: 'POST_MODERATE', name: 'Kiểm duyệt bài viết', moduleName: 'Cộng đồng & Kiểm duyệt', description: 'Ẩn, gỡ hoặc duyệt các bài viết cộng đồng' },
+  { code: 'IMAGE_MODERATE', name: 'Kiểm duyệt hình ảnh', moduleName: 'Cộng đồng & Kiểm duyệt', description: 'Duyệt hoặc gắn cờ hình ảnh đính kèm bài viết' },
+  { code: 'COMMENT_MODERATE', name: 'Kiểm duyệt bình luận', moduleName: 'Cộng đồng & Kiểm duyệt', description: 'Kiểm duyệt các phản hồi không chuẩn mực' },
+  { code: 'EXPERT_ADVICE_PIN', name: 'Ghim phản hồi chuyên môn', moduleName: 'Cộng đồng & Kiểm duyệt', description: 'Đánh dấu lời khuyên chính thức từ chuyên gia' },
+
+  { code: 'DASS21_TEST_TAKE', name: 'Thực hiện test DASS-21', moduleName: 'Báo cáo & Thống kê', description: 'Sinh viên làm bài sàng lọc tâm lý định kỳ' },
+  { code: 'DASS21_REPORT_VIEW', name: 'Xem báo cáo DASS-21', moduleName: 'Báo cáo & Thống kê', description: 'Xem tổng hợp kết quả trắc nghiệm và mức độ lo âu' },
+  { code: 'ANALYTICS_DASHBOARD_VIEW', name: 'Xem biểu đồ phân tích', moduleName: 'Báo cáo & Thống kê', description: 'Biểu đồ cảm xúc, tỷ lệ đặt lịch và phân bố tâm lý' },
+  { code: 'EMOTION_STATS_EXPORT', name: 'Xuất dữ liệu thống kê', moduleName: 'Báo cáo & Thống kê', description: 'Trích xuất báo cáo phân tích phục vụ công tác nhà trường' },
+  { code: 'SYSTEM_HEALTH_MONITOR', name: 'Giám sát vận hành hệ thống', moduleName: 'Báo cáo & Thống kê', description: 'Kiểm tra trạng thái máy chủ, API và hạ tầng' },
+  { code: 'REPORT_CONFIG_MANAGE', name: 'Cấu hình báo cáo', moduleName: 'Báo cáo & Thống kê', description: 'Tùy biến tiêu chí và định dạng báo cáo định kỳ' }
+];
+
 const PERMISSION_DEFINITIONS = [
-  {
-    key: 'PERM_WORKSPACE',
-    label: 'Bàn làm việc & Sàng lọc'
-  },
-  {
-    key: 'PERM_SCHEDULE',
-    label: 'Lịch hẹn & Duyệt ca trực'
-  },
-  {
-    key: 'PERM_ANALYTICS',
-    label: 'Phân tích & Cảnh báo tâm lý'
-  },
-  {
-    key: 'PERM_MODERATION',
-    label: 'Kiểm duyệt bài viết & Hình ảnh'
-  }
+  { key: 'PERM_WORKSPACE',  label: 'Bàn làm việc & Sàng lọc',  desc: 'Xem hồ sơ sinh viên, phân loại rủi ro và quản lý không gian làm việc', icon: 'workspace', color: '#0d9488', bg: '#f0fdfa' },
+  { key: 'PERM_SCHEDULE',   label: 'Lịch hẹn & Duyệt ca trực',   desc: 'Xem, duyệt và quản lý lịch hẹn tư vấn của sinh viên',    icon: 'calendar', color: '#0284c7', bg: '#f0f9ff' },
+  { key: 'PERM_ANALYTICS',  label: 'Phân tích & Cảnh báo',  desc: 'Truy cập báo cáo tâm lý, biểu đồ cảm xúc và cảnh báo rủi ro', icon: 'chart',    color: '#7c3aed', bg: '#faf5ff' },
+  { key: 'PERM_MODERATION', label: 'Kiểm duyệt bài viết', desc: 'Duyệt, ẩn hoặc gỡ nội dung không phù hợp trong góc cộng đồng',   icon: 'shield',   color: '#dc2626', bg: '#fff5f5' }
 ];
 
 const DEFAULT_USERS = [
@@ -58,6 +115,7 @@ const DEGREE_OPTIONS = [
 ];
 
 export default function AdminUsersPage() {
+  const navigate = useNavigate();
   const currentUser = useAuthStore(state => state.user);
   const [users, setUsers]           = useState(DEFAULT_USERS);
   const [search, setSearch]         = useState('');
@@ -67,12 +125,29 @@ export default function AdminUsersPage() {
   const [modalError, setModalError] = useState('');
   const [pageNotice, setPageNotice] = useState(null);
 
-  // Quản lý phân quyền chuyên viên
+  // Quản lý phân quyền chuyên viên (Legacy)
   const [expertsPermMap, setExpertsPermMap] = useState({});
   const [permModalOpen, setPermModalOpen]   = useState(false);
   const [selectedExpert, setSelectedExpert] = useState(null);
   const [currentPerms, setCurrentPerms]     = useState([]);
   const [permSaving, setPermSaving]         = useState(false);
+
+  // Quản lý ma trận phân quyền 27 chức năng cho mọi tài khoản người dùng
+  const [userPermModalOpen, setUserPermModalOpen] = useState(false);
+  const [targetUserForPerm, setTargetUserForPerm] = useState(null);
+  const [userPermDetail, setUserPermDetail]       = useState(null);
+  const [userPermLoading, setUserPermLoading]     = useState(false);
+  const [userSelectedPerms, setUserSelectedPerms] = useState(new Set());
+  const [userInheritedPerms, setUserInheritedPerms] = useState(new Set());
+  const [userPermSearch, setUserPermSearch]       = useState('');
+  const [userPermSaving, setUserPermSaving]       = useState(false);
+  const [catalogPerms, setCatalogPerms]           = useState(FULL_PERMISSIONS_CATALOG);
+
+  // Quản lý gán nhiều vai trò (Multi-role modal)
+  const [roleModalOpen, setRoleModalOpen] = useState(false);
+  const [selectedUserForRoles, setSelectedUserForRoles] = useState(null);
+  const [selectedUserRoles, setSelectedUserRoles] = useState([]);
+  const [roleSaving, setRoleSaving] = useState(false);
 
   // Form thêm chuyên viên
   const [expertForm, setExpertForm] = useState({
@@ -111,6 +186,7 @@ export default function AdminUsersPage() {
           name: u.fullName || u.anonymousCode || 'Người dùng',
           email: u.email,
           role: u.role,
+          roles: Array.isArray(u.roles) && u.roles.length > 0 ? u.roles : [u.role?.toUpperCase() || 'STUDENT'],
           status: u.isActive !== false ? 'Active' : 'Suspended',
           joinedAt: u.createdAt || new Date().toISOString(),
           sessionsCount: SESSIONS_MAP[u.email] ?? (u.role === 'Expert' ? 48 : (u.role === 'Student' ? 2 : 0))
@@ -199,6 +275,90 @@ export default function AdminUsersPage() {
         title: 'Lỗi cập nhật trạng thái',
         message: err?.response?.data?.message || err?.message || `Không thể ${newStatus === 'Active' ? 'mở khóa' : 'khóa'} tài khoản "${user.name}".`
       });
+    }
+  };
+
+  const handleOpenRoleModal = (user) => {
+    setSelectedUserForRoles(user);
+    const existing = user.roles && Array.isArray(user.roles) && user.roles.length > 0
+      ? user.roles.map(r => r.toUpperCase())
+      : [user.role?.toUpperCase() || 'STUDENT'];
+    setSelectedUserRoles(existing);
+    setRoleModalOpen(true);
+  };
+
+  const handleToggleUserRole = (code) => {
+    setSelectedUserRoles(prev => {
+      if (prev.includes(code)) {
+        if (prev.length <= 1) {
+          setPageNotice({
+            type: 'warning',
+            title: 'Ràng buộc vai trò',
+            message: 'Mỗi tài khoản phải giữ ít nhất một vai trò trong hệ thống.'
+          });
+          return prev;
+        }
+        return prev.filter(c => c !== code);
+      } else {
+        return [...prev, code];
+      }
+    });
+  };
+
+  const handleSaveUserRoles = async () => {
+    if (!selectedUserForRoles) return;
+    if (selectedUserRoles.length === 0) {
+      setPageNotice({
+        type: 'error',
+        title: 'Chưa chọn vai trò',
+        message: 'Vui lòng chọn ít nhất 1 vai trò cho người dùng.'
+      });
+      return;
+    }
+
+    if (isCurrentUser(selectedUserForRoles) && !selectedUserRoles.includes('ADMIN')) {
+      setPageNotice({
+        type: 'error',
+        title: 'Hành động không được phép',
+        message: 'Quản trị viên không được phép tự tước quyền Quản trị viên của chính mình.'
+      });
+      return;
+    }
+
+    setRoleSaving(true);
+    try {
+      const res = await updateUserRoles(selectedUserForRoles.id, selectedUserRoles);
+      if (res && res.success !== false) {
+        setUsers(prev => prev.map(u => {
+          if (u.id === selectedUserForRoles.id) {
+            const primaryRole = selectedUserRoles.includes('ADMIN') ? 'Admin'
+              : (selectedUserRoles.includes('EXPERT') ? 'Expert' : 'Student');
+            return {
+              ...u,
+              role: primaryRole,
+              roles: [...selectedUserRoles]
+            };
+          }
+          return u;
+        }));
+
+        setPageNotice({
+          type: 'success',
+          title: 'Cập nhật vai trò thành công',
+          message: `Đã cập nhật ${selectedUserRoles.length} vai trò cho tài khoản "${selectedUserForRoles.name}".`
+        });
+        setRoleModalOpen(false);
+      } else {
+        throw new Error(res.message || 'Lỗi cập nhật từ máy chủ');
+      }
+    } catch (err) {
+      setPageNotice({
+        type: 'error',
+        title: 'Lỗi cập nhật vai trò',
+        message: err?.response?.data?.message || err?.message || 'Không thể lưu vai trò người dùng.'
+      });
+    } finally {
+      setRoleSaving(false);
     }
   };
 
@@ -295,6 +455,118 @@ export default function AdminUsersPage() {
       });
     } finally {
       setPermSaving(false);
+    }
+  };
+
+  // Mở modal ma trận 27 quyền cho bất kỳ người dùng nào
+  const handleOpenUserPermModal = async (user) => {
+    setTargetUserForPerm(user);
+    setUserPermModalOpen(true);
+    setUserPermLoading(true);
+    setUserPermSearch('');
+
+    try {
+      const res = await getUserPermissions(user.id);
+      if (res && res.success && res.data) {
+        setUserPermDetail(res.data);
+        setUserSelectedPerms(new Set(res.data.effectivePermissions || []));
+        setUserInheritedPerms(new Set(res.data.inheritedPermissions || []));
+        if (res.data.allPermissions && res.data.allPermissions.length > 0) {
+          setCatalogPerms(res.data.allPermissions);
+        }
+      } else {
+        // Fallback tự tính theo vai trò
+        const uRoles = user.roles || [user.role?.toUpperCase() || 'STUDENT'];
+        const isAdm = uRoles.includes('ADMIN') || user.role === 'Admin';
+        const fallbackCodes = isAdm
+          ? FULL_PERMISSIONS_CATALOG.map(p => p.code)
+          : ['POST_CREATE', 'COMMENT_CREATE', 'DASS21_TEST_TAKE', 'ANALYTICS_DASHBOARD_VIEW'];
+
+        setUserPermDetail({
+          userId: user.id,
+          fullName: user.name,
+          email: user.email,
+          primaryRole: user.role,
+          roles: uRoles,
+          roleNames: uRoles.map(r => ROLE_META[r]?.label || r),
+          inheritedPermissions: fallbackCodes,
+          directPermissions: [],
+          effectivePermissions: fallbackCodes,
+          allPermissions: FULL_PERMISSIONS_CATALOG
+        });
+        setUserSelectedPerms(new Set(fallbackCodes));
+        setUserInheritedPerms(new Set(fallbackCodes));
+      }
+    } catch (err) {
+      console.warn('Lỗi tải quyền người dùng:', err);
+    } finally {
+      setUserPermLoading(false);
+    }
+  };
+
+  // Toggle một quyền trong modal người dùng
+  const handleToggleUserPerm = (code) => {
+    const isTargetAdmin = targetUserForPerm?.role === 'Admin' ||
+                          (targetUserForPerm?.roles && targetUserForPerm.roles.includes('ADMIN'));
+    if (isTargetAdmin) return; // Admin luôn có toàn quyền
+
+    setUserSelectedPerms(prev => {
+      const next = new Set(prev);
+      if (next.has(code)) next.delete(code);
+      else next.add(code);
+      return next;
+    });
+  };
+
+  const handleSelectAllUserPerms = () => {
+    const isTargetAdmin = targetUserForPerm?.role === 'Admin' ||
+                          (targetUserForPerm?.roles && targetUserForPerm.roles.includes('ADMIN'));
+    if (isTargetAdmin) return;
+    setUserSelectedPerms(new Set(catalogPerms.map(p => p.code)));
+  };
+
+  const handleDeselectAllUserPerms = () => {
+    const isTargetAdmin = targetUserForPerm?.role === 'Admin' ||
+                          (targetUserForPerm?.roles && targetUserForPerm.roles.includes('ADMIN'));
+    if (isTargetAdmin) return;
+    setUserSelectedPerms(new Set());
+  };
+
+  const handleResetUserPerms = () => {
+    setUserSelectedPerms(new Set(userInheritedPerms));
+  };
+
+  const handleSaveUserPermsSubmit = async () => {
+    if (!targetUserForPerm) return;
+    const isTargetAdmin = targetUserForPerm?.role === 'Admin' ||
+                          (targetUserForPerm?.roles && targetUserForPerm.roles.includes('ADMIN'));
+    if (isTargetAdmin) {
+      setUserPermModalOpen(false);
+      return;
+    }
+
+    setUserPermSaving(true);
+    try {
+      const permList = Array.from(userSelectedPerms);
+      const res = await updateUserPermissions(targetUserForPerm.id, permList);
+      if (res && res.success !== false) {
+        setPageNotice({
+          type: 'success',
+          title: 'Cập nhật phân quyền thành công',
+          message: `Đã lưu ${permList.length} quyền cho tài khoản "${targetUserForPerm.name}". Dữ liệu đã đồng bộ SQL Server.`
+        });
+        setUserPermModalOpen(false);
+      } else {
+        throw new Error(res?.message || 'Lỗi lưu phân quyền người dùng');
+      }
+    } catch (err) {
+      setPageNotice({
+        type: 'error',
+        title: 'Lỗi cập nhật phân quyền',
+        message: err?.response?.data?.message || err?.message || 'Không thể lưu cấu hình quyền cho tài khoản này.'
+      });
+    } finally {
+      setUserPermSaving(false);
     }
   };
 
@@ -509,9 +781,33 @@ export default function AdminUsersPage() {
                       </div>
                     </td>
                     <td>
-                      <span className={`admin-badge ${ROLE_BADGE[user.role] || 'admin-badge-info'}`}>
-                        {ROLE_LABELS[user.role] || user.role}
-                      </span>
+                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+                        {(user.roles && user.roles.length > 0 ? user.roles : [user.role]).map((rCode, idx) => {
+                          const meta = ROLE_META[rCode] || ROLE_META[rCode?.toUpperCase()] || { label: rCode, color: '#475569', bg: '#f1f5f9' };
+                          return (
+                            <span
+                              key={idx}
+                              onClick={() => handleOpenRoleModal(user)}
+                              style={{
+                                fontSize: 11,
+                                fontWeight: 700,
+                                padding: '2px 8px',
+                                borderRadius: 6,
+                                color: meta.color,
+                                background: meta.bg,
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                border: `1px solid ${meta.color}25`
+                              }}
+                              title="Nhấp để điều chỉnh các vai trò (Multi-role) của tài khoản này"
+                            >
+                              {meta.label}
+                            </span>
+                          );
+                        })}
+                      </div>
                     </td>
                     <td>
                       <span style={{ fontSize: 12, color: 'var(--a-text-muted)' }}>
@@ -532,23 +828,32 @@ export default function AdminUsersPage() {
                       {user.sessionsCount}
                     </td>
                     <td style={{ textAlign: 'center' }}>
-                      <div style={{ display: 'flex', gap: 6, justifyContent: 'center', flexWrap: 'wrap' }}>
-                        <select
-                          className="admin-input"
+                      <div style={{ display: 'flex', gap: 6, justifyContent: 'center', flexWrap: 'wrap', alignItems: 'center' }}>
+                        {/* Nút Phân nhiều vai trò */}
+                        <button
+                          className="admin-btn admin-btn-outline"
                           style={{
-                            padding: '4px 8px', fontSize: 11.5, width: 'auto', minWidth: 120,
-                            cursor: isSelf ? 'not-allowed' : 'pointer',
-                            opacity: isSelf ? 0.6 : 1
+                            padding: '4px 9px', fontSize: 11.5, cursor: 'pointer',
+                            borderColor: '#6366f1', color: '#4f46e5', fontWeight: 700,
+                            display: 'inline-flex', alignItems: 'center', gap: 4,
+                            background: 'rgba(99, 102, 241, 0.05)'
                           }}
-                          value={user.role}
-                          onChange={e => handleChangeRole(user, e.target.value)}
-                          disabled={isSelf}
-                          title={isSelf ? 'Bạn không thể tự thay đổi vai trò của chính mình' : 'Thay đổi vai trò'}
+                          onClick={() => handleOpenRoleModal(user)}
+                          title="Gán nhiều vai trò (Multi-role) cho người dùng này"
                         >
-                          <option value="Student">Sinh viên</option>
-                          <option value="Expert">Chuyên viên</option>
-                          <option value="Admin">Quản trị viên</option>
-                        </select>
+                          Phân vai trò
+                          {user.roles && user.roles.length > 1 && (
+                            <span style={{
+                              fontSize: 10,
+                              background: '#e0e7ff',
+                              color: '#4338ca',
+                              padding: '1px 5px', borderRadius: 10, fontWeight: 800
+                            }}>
+                              {user.roles.length}
+                            </span>
+                          )}
+                        </button>
+
                         <button
                           className={`admin-btn ${user.status === 'Active' ? 'admin-btn-danger' : 'admin-btn-outline'}`}
                           style={{
@@ -563,31 +868,19 @@ export default function AdminUsersPage() {
                           {user.status === 'Active' ? 'Khóa' : 'Mở khóa'}
                         </button>
 
-                      {user.role === 'Expert' && (
                         <button
                           className="admin-btn admin-btn-outline"
                           style={{
                             padding: '4px 9px', fontSize: 11.5, cursor: 'pointer',
                             borderColor: '#0284c7', color: '#0284c7', fontWeight: 700,
-                            display: 'inline-flex', alignItems: 'center', gap: 4
+                            display: 'inline-flex', alignItems: 'center', gap: 4,
+                            background: 'rgba(2, 132, 199, 0.05)'
                           }}
-                          onClick={() => handleOpenPermModal(user)}
-                          title="Phân quyền chi tiết các chức năng cho chuyên viên này"
+                          onClick={() => handleOpenUserPermModal(user)}
+                          title="Cấu hình ma trận 27 quyền chức năng chi tiết cho tài khoản này"
                         >
-                          Phân quyền
-                          {expertsPermMap[user.id] && Array.isArray(expertsPermMap[user.id].permissions) && (
-                            <span style={{
-                              fontSize: 10,
-                              background: expertsPermMap[user.id].permissions.length === 0 ? '#fee2e2' : '#e0f2fe',
-                              color: expertsPermMap[user.id].permissions.length === 0 ? '#b91c1c' : '#0369a1',
-                              border: expertsPermMap[user.id].permissions.length === 0 ? '1px solid #fca5a5' : 'none',
-                              padding: '1px 5px', borderRadius: 10, fontWeight: 800
-                            }}>
-                              {expertsPermMap[user.id].permissions.length}/4
-                            </span>
-                          )}
+                          Quyền chức năng
                         </button>
-                      )}
                     </div>
                   </td>
                 </tr>
@@ -841,31 +1134,42 @@ export default function AdminUsersPage() {
               </button>
             </div>
 
-            {/* Checkbox list */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
+            {/* Permission Card Grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20 }}>
               {PERMISSION_DEFINITIONS.map(perm => {
                 const isChecked = currentPerms.includes(perm.key);
+                const ICONS = {
+                  workspace: (<svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2'><rect x='2' y='3' width='20' height='14' rx='2'/><path d='M8 21h8M12 17v4'/></svg>),
+                  calendar:  (<svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2'><rect x='3' y='4' width='18' height='18' rx='2'/><path d='M16 2v4M8 2v4M3 10h18'/></svg>),
+                  chart:     (<svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2'><polyline points='22 12 18 12 15 21 9 3 6 12 2 12'/></svg>),
+                  shield:    (<svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2'><path d='M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'/></svg>)
+                };
                 return (
-                  <label
+                  <div
                     key={perm.key}
+                    onClick={() => handleTogglePerm(perm.key)}
                     style={{
-                      display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px',
-                      borderRadius: 10, cursor: 'pointer',
-                      background: isChecked ? '#f0f9ff' : '#fff',
-                      border: isChecked ? '1.5px solid #0284c7' : '1px solid #e5e7eb',
-                      transition: 'all 0.15s ease'
+                      padding: '14px', borderRadius: 12, cursor: 'pointer',
+                      background: isChecked ? perm.bg : '#fafafa',
+                      border: isChecked ? '2px solid ' + perm.color : '1.5px solid #e5e7eb',
+                      transition: 'all 0.18s ease',
+                      position: 'relative', overflow: 'hidden'
                     }}
                   >
-                    <input
-                      type="checkbox"
-                      checked={isChecked}
-                      onChange={() => handleTogglePerm(perm.key)}
-                      style={{ width: 17, height: 17, accentColor: '#0284c7', cursor: 'pointer' }}
-                    />
-                    <span style={{ fontSize: 13.5, fontWeight: 600, color: '#1e293b' }}>
-                      {perm.label}
-                    </span>
-                  </label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                      <span style={{ color: isChecked ? perm.color : '#9ca3af' }}>{ICONS[perm.icon]}</span>
+                      <span style={{ fontSize: 12.5, fontWeight: 700, color: isChecked ? perm.color : '#6b7280', letterSpacing: '0.02em' }}>{perm.label}</span>
+                    </div>
+                    <p style={{ margin: 0, fontSize: 11, color: isChecked ? '#374151' : '#9ca3af', lineHeight: 1.4 }}>{perm.desc}</p>
+                    <div style={{
+                      position: 'absolute', top: 10, right: 10,
+                      width: 18, height: 18, borderRadius: '50%',
+                      background: isChecked ? perm.color : '#e5e7eb',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center'
+                    }}>
+                      {isChecked && <svg width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='white' strokeWidth='3'><polyline points='20 6 9 17 4 12'/></svg>}
+                    </div>
+                  </div>
                 );
               })}
             </div>
@@ -892,6 +1196,509 @@ export default function AdminUsersPage() {
                   style={{ background: '#0284c7', fontWeight: 700 }}
                 >
                   {permSaving ? 'Đang lưu...' : 'Lưu'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════ MODAL PHÂN NHIỀU VAI TRÒ (MULTI-ROLE ASSIGNMENT) ══════════════ */}
+      {roleModalOpen && selectedUserForRoles && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 1000,
+          background: 'rgba(15, 23, 42, 0.65)', backdropFilter: 'blur(4px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          padding: 16
+        }}>
+          <div style={{
+            background: 'var(--a-card-bg, #ffffff)',
+            borderRadius: 16, width: '100%', maxWidth: 580,
+            maxHeight: '90vh', overflowY: 'auto',
+            padding: '24px 28px',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+            border: '1px solid var(--a-border, #e2e8f0)'
+          }}>
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
+              <div>
+                <h2 style={{ margin: '0 0 4px', fontSize: 18, fontWeight: 900, color: 'var(--a-text)' }}>
+                  Phân vai trò tài khoản
+                </h2>
+                <p style={{ margin: 0, fontSize: 13, color: 'var(--a-text-muted)' }}>
+                  Người dùng: <strong style={{ color: 'var(--a-text)' }}>{selectedUserForRoles.name}</strong> ({selectedUserForRoles.email})
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRoleModalOpen(false)}
+                style={{
+                  border: 'none', background: 'transparent', cursor: 'pointer',
+                  color: 'var(--a-text-muted)', fontSize: 18, padding: 4
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Chú thích Multi-role */}
+            <div style={{
+              background: 'rgba(99, 102, 241, 0.08)',
+              border: '1px solid rgba(99, 102, 241, 0.2)',
+              borderRadius: 10,
+              padding: '10px 14px',
+              fontSize: 12.5,
+              color: '#4338ca',
+              marginBottom: 16
+            }}>
+              💡 <strong>Hệ thống hỗ trợ Đa vai trò (Multi-Role):</strong> Một tài khoản có thể đồng thời đảm nhận nhiều vai trò trong 3 vai trò cốt lõi (ví dụ: Sinh viên + Chuyên viên, hoặc Chuyên viên + Quản trị viên).
+            </div>
+
+            {/* Quick Actions */}
+            <div style={{ marginBottom: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--a-text-muted)' }}>
+                Chọn các vai trò áp dụng:
+              </span>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => setSelectedUserRoles(ALL_SYSTEM_ROLES.map(r => r.code))}
+                  style={{
+                    fontSize: 11.5, padding: '4px 10px', borderRadius: 6, cursor: 'pointer',
+                    background: 'transparent', color: '#4f46e5', border: '1px solid #c7d2fe', fontWeight: 600
+                  }}
+                >
+                  Chọn tất cả
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const fallback = isCurrentUser(selectedUserForRoles) ? ['ADMIN'] : ['STUDENT'];
+                    setSelectedUserRoles(fallback);
+                  }}
+                  style={{
+                    fontSize: 11.5, padding: '4px 10px', borderRadius: 6, cursor: 'pointer',
+                    background: 'transparent', color: '#ef4444', border: '1px solid #fecaca', fontWeight: 600
+                  }}
+                >
+                  Mặc định tối thiểu
+                </button>
+              </div>
+            </div>
+
+            {/* Danh sách 6 vai trò */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
+              {ALL_SYSTEM_ROLES.map(role => {
+                const isChecked = selectedUserRoles.includes(role.code);
+                const isSelfAdmin = isCurrentUser(selectedUserForRoles) && role.code === 'ADMIN';
+
+                return (
+                  <div
+                    key={role.code}
+                    onClick={() => !isSelfAdmin && handleToggleUserRole(role.code)}
+                    style={{
+                      padding: '12px 14px',
+                      borderRadius: 10,
+                      cursor: isSelfAdmin ? 'not-allowed' : 'pointer',
+                      border: isChecked ? `1.5px solid ${role.color}` : '1.5px solid var(--a-border, #e2e8f0)',
+                      background: isChecked ? role.bg : 'var(--a-card-bg, #ffffff)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 12,
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    {/* Checkbox */}
+                    <div style={{
+                      width: 20, height: 20, borderRadius: 6,
+                      background: isChecked ? role.color : 'transparent',
+                      border: isChecked ? 'none' : '2px solid #cbd5e1',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      flexShrink: 0
+                    }}>
+                      {isChecked && (
+                        <svg width="12" height="10" viewBox="0 0 10 8" fill="none">
+                          <path d="M1 4L3.5 6.5L9 1" stroke="#ffffff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      )}
+                    </div>
+
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontSize: 13.5, fontWeight: 800, color: isChecked ? role.color : 'var(--a-text)' }}>
+                          {role.label}
+                        </span>
+                        <span style={{
+                          fontSize: 10,
+                          background: 'rgba(0,0,0,0.06)',
+                          color: 'var(--a-text-muted)',
+                          padding: '1px 6px',
+                          borderRadius: 4,
+                          fontWeight: 700
+                        }}>
+                          {role.code}
+                        </span>
+                        {isSelfAdmin && (
+                          <span style={{ fontSize: 10, color: '#dc2626', fontWeight: 700 }}>
+                            (Bắt buộc cho tài khoản của bạn)
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 11.5, color: 'var(--a-text-muted)', marginTop: 2 }}>
+                        {role.desc}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Footer */}
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              paddingTop: 14,
+              borderTop: '1px solid var(--a-border, #e2e8f0)'
+            }}>
+              <span style={{ fontSize: 12.5, color: 'var(--a-text-muted)', fontWeight: 600 }}>
+                Đã gán: <strong style={{ color: '#4f46e5' }}>{selectedUserRoles.length} vai trò</strong>
+              </span>
+
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button
+                  type="button"
+                  className="admin-btn admin-btn-outline"
+                  onClick={() => setRoleModalOpen(false)}
+                  disabled={roleSaving}
+                >
+                  Hủy
+                </button>
+                <button
+                  type="button"
+                  className="admin-btn admin-btn-primary"
+                  onClick={handleSaveUserRoles}
+                  disabled={roleSaving}
+                  style={{
+                    background: '#4f46e5',
+                    color: '#fff',
+                    border: 'none',
+                    fontWeight: 700,
+                    padding: '8px 18px'
+                  }}
+                >
+                  {roleSaving ? 'Đang lưu...' : 'Lưu vai trò'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════ MODAL MA TRẬN 27 QUYỀN CHỨC NĂNG CHO NGƯỜI DÙNG (HYBRID RBAC) ══════════════ */}
+      {userPermModalOpen && targetUserForPerm && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 1100,
+          background: 'rgba(15, 23, 42, 0.65)', backdropFilter: 'blur(4px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          padding: 16
+        }}>
+          <div style={{
+            background: 'var(--a-card-bg, #ffffff)',
+            borderRadius: 16, width: '100%', maxWidth: 760,
+            maxHeight: '90vh', overflowY: 'auto',
+            padding: '24px 28px',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+            border: '1px solid var(--a-border, #e2e8f0)'
+          }}>
+            {/* Header Modal */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: 'var(--a-text)' }}>
+                    Phân quyền chức năng cho tài khoản
+                  </h2>
+                  <span style={{
+                    fontSize: 10.5,
+                    background: 'rgba(99, 102, 241, 0.1)',
+                    color: '#4f46e5',
+                    padding: '2px 8px',
+                    borderRadius: 6,
+                    fontWeight: 800
+                  }}>
+                    27 QUYỀN HỆ THỐNG
+                  </span>
+                </div>
+                <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--a-text-muted)' }}>
+                  Người dùng: <strong style={{ color: 'var(--a-text)' }}>{targetUserForPerm.name}</strong> ({targetUserForPerm.email})
+                </p>
+                {/* Badges các vai trò */}
+                <div style={{ display: 'flex', gap: 5, marginTop: 6, flexWrap: 'wrap' }}>
+                  {(targetUserForPerm.roles && targetUserForPerm.roles.length > 0 ? targetUserForPerm.roles : [targetUserForPerm.role]).map((rCode, idx) => {
+                    const meta = ROLE_META[rCode] || { label: rCode, color: '#475569', bg: '#f1f5f9' };
+                    return (
+                      <span
+                        key={idx}
+                        style={{
+                          fontSize: 10.5,
+                          fontWeight: 700,
+                          padding: '1px 7px',
+                          borderRadius: 5,
+                          color: meta.color,
+                          background: meta.bg
+                        }}
+                      >
+                        {meta.label}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUserPermModalOpen(false);
+                    navigate(`/admin/roles?tab=user&userId=${targetUserForPerm.id}`);
+                  }}
+                  className="admin-btn admin-btn-outline"
+                  style={{
+                    padding: '5px 10px', fontSize: 11.5, cursor: 'pointer',
+                    borderColor: '#0284c7', color: '#0284c7', fontWeight: 700,
+                    display: 'inline-flex', alignItems: 'center', gap: 4
+                  }}
+                  title="Mở toàn màn hình trang Ma trận phân quyền"
+                >
+                  Toàn màn hình ↗
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUserPermModalOpen(false)}
+                  style={{
+                    border: 'none', background: 'transparent', cursor: 'pointer',
+                    color: 'var(--a-text-muted)', fontSize: 18, padding: 4
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            {/* Thông báo an ninh */}
+            {targetUserForPerm.role === 'Admin' || (targetUserForPerm.roles && targetUserForPerm.roles.includes('ADMIN')) ? (
+              <div style={{
+                background: 'rgba(59, 130, 246, 0.08)',
+                border: '1px solid rgba(59, 130, 246, 0.25)',
+                borderRadius: 10, padding: '10px 14px', fontSize: 12.5,
+                color: '#1d4ed8', marginBottom: 16
+              }}>
+                🛡️ Tài khoản <strong>Quản trị viên</strong> luôn sở hữu toàn bộ 27 quyền trên toàn hệ thống để bảo đảm an ninh vận hành.
+              </div>
+            ) : (
+              <div style={{
+                background: 'rgba(2, 132, 199, 0.08)',
+                border: '1px solid rgba(2, 132, 199, 0.25)',
+                borderRadius: 10, padding: '10px 14px', fontSize: 12.5,
+                color: '#0369a1', marginBottom: 16
+              }}>
+                💡 Bạn có thể tick thêm quyền để cấp quyền riêng cho người này hoặc bỏ tick để thu hồi. Các quyền có nhãn <strong>[Từ vai trò]</strong> là quyền mặc định từ vai trò của người dùng.
+              </div>
+            )}
+
+            {/* Controls: Tìm kiếm & Nút hành động */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
+              <input
+                type="text"
+                className="admin-input"
+                placeholder="Tìm quyền truy cập..."
+                value={userPermSearch}
+                onChange={e => setUserPermSearch(e.target.value)}
+                style={{ padding: '7px 12px', fontSize: 12, flex: 1, minWidth: 200 }}
+              />
+
+              {!(targetUserForPerm.role === 'Admin' || (targetUserForPerm.roles && targetUserForPerm.roles.includes('ADMIN'))) && (
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    onClick={handleSelectAllUserPerms}
+                    className="admin-btn admin-btn-outline"
+                    style={{ padding: '5px 10px', fontSize: 11.5, cursor: 'pointer' }}
+                  >
+                    Chọn tất cả
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDeselectAllUserPerms}
+                    className="admin-btn admin-btn-outline"
+                    style={{ padding: '5px 10px', fontSize: 11.5, cursor: 'pointer', color: '#ef4444', borderColor: '#fca5a5' }}
+                  >
+                    Bỏ chọn
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleResetUserPerms}
+                    className="admin-btn admin-btn-outline"
+                    style={{ padding: '5px 10px', fontSize: 11.5, cursor: 'pointer', color: '#0d9488', borderColor: '#99f6e4' }}
+                    title="Hoàn nguyên về các quyền mặc định từ vai trò của người này"
+                  >
+                    Hoàn nguyên vai trò
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Thống kê quyền */}
+            <div style={{
+              display: 'flex', gap: 12, alignItems: 'center', fontSize: 12,
+              color: 'var(--a-text-muted)', marginBottom: 16, padding: '8px 12px',
+              background: '#f8fafc', borderRadius: 8
+            }}>
+              <span>
+                Đang cấp: <strong style={{ color: '#0284c7' }}>{targetUserForPerm.role === 'Admin' || (targetUserForPerm.roles && targetUserForPerm.roles.includes('ADMIN')) ? catalogPerms.length : userSelectedPerms.size}</strong>/{catalogPerms.length} quyền
+              </span>
+              <span>•</span>
+              <span>{userInheritedPerms.size} quyền từ vai trò</span>
+              <span>•</span>
+              <span style={{ color: '#7c3aed', fontWeight: 700 }}>
+                {Array.from(userSelectedPerms).filter(p => !userInheritedPerms.has(p)).length} quyền cấp thêm riêng
+              </span>
+            </div>
+
+            {/* Danh sách 5 nhóm Module */}
+            {userPermLoading ? (
+              <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--a-text-muted)' }}>
+                Đang nạp dữ liệu phân quyền...
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxHeight: '52vh', overflowY: 'auto', paddingRight: 4 }}>
+                {PERM_MODULE_ORDER.map(modName => {
+                  const permsInMod = catalogPerms.filter(p => {
+                    const matchMod = p.moduleName === modName;
+                    if (!matchMod) return false;
+                    if (!userPermSearch.trim()) return true;
+                    const term = userPermSearch.toLowerCase();
+                    return p.name.toLowerCase().includes(term) ||
+                           p.code.toLowerCase().includes(term) ||
+                           p.description.toLowerCase().includes(term);
+                  });
+
+                  if (permsInMod.length === 0) return null;
+
+                  const isAdm = targetUserForPerm.role === 'Admin' ||
+                                (targetUserForPerm.roles && targetUserForPerm.roles.includes('ADMIN'));
+
+                  return (
+                    <div key={modName} style={{
+                      border: '1px solid var(--a-border, #e2e8f0)',
+                      borderRadius: 10, padding: '12px 14px',
+                      background: 'rgba(248, 250, 252, 0.4)'
+                    }}>
+                      <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--a-text)', marginBottom: 10, paddingBottom: 6, borderBottom: '1px dashed var(--a-border, #e2e8f0)' }}>
+                        {modName}
+                      </div>
+
+                      {/* Grid 2 cột */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(290px, 1fr))', gap: 10 }}>
+                        {permsInMod.map(p => {
+                          const isChecked = isAdm || userSelectedPerms.has(p.code);
+                          const isInherited = userInheritedPerms.has(p.code);
+                          const isDirect = isChecked && !isInherited;
+
+                          return (
+                            <div
+                              key={p.code}
+                              onClick={() => handleToggleUserPerm(p.code)}
+                              style={{
+                                padding: '9px 11px',
+                                borderRadius: 8,
+                                border: isChecked ? (isDirect ? '1px solid #c084fc' : '1px solid #bfdbfe') : '1px solid var(--a-border, #e2e8f0)',
+                                background: isChecked ? (isDirect ? '#faf5ff' : '#f0f9ff') : 'var(--a-card-bg, #ffffff)',
+                                cursor: isAdm ? 'default' : 'pointer',
+                                display: 'flex', alignItems: 'flex-start', gap: 9,
+                                transition: 'all 0.15s ease'
+                              }}
+                            >
+                              {/* Checkbox tròn */}
+                              <div style={{
+                                width: 17, height: 17, borderRadius: '50%',
+                                background: isChecked ? (isDirect ? '#7c3aed' : '#0284c7') : 'transparent',
+                                border: isChecked ? 'none' : '2px solid #cbd5e1',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                marginTop: 2, flexShrink: 0
+                              }}>
+                                {isChecked && (
+                                  <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
+                                    <path d="M1 4L3.5 6.5L9 1" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                  </svg>
+                                )}
+                              </div>
+
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                  <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--a-text)' }}>
+                                    {p.name}
+                                  </span>
+                                  <span style={{ fontSize: 9.5, color: 'var(--a-text-muted)', fontFamily: 'monospace' }}>
+                                    {p.code}
+                                  </span>
+                                  {isChecked && (
+                                    isDirect ? (
+                                      <span style={{ fontSize: 9, background: '#ede9fe', color: '#7c3aed', padding: '1px 5px', borderRadius: 4, fontWeight: 800 }}>
+                                        Cấp riêng
+                                      </span>
+                                    ) : (
+                                      <span style={{ fontSize: 9, background: '#e0f2fe', color: '#0369a1', padding: '1px 5px', borderRadius: 4, fontWeight: 700 }}>
+                                        Từ vai trò
+                                      </span>
+                                    )
+                                  )}
+                                </div>
+                                <div style={{ fontSize: 11, color: 'var(--a-text-muted)', marginTop: 2, lineHeight: 1.3 }}>
+                                  {p.description}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Footer Modal */}
+            <div style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              paddingTop: 16, marginTop: 16, borderTop: '1px solid var(--a-border, #e2e8f0)'
+            }}>
+              <span style={{ fontSize: 12, color: 'var(--a-text-muted)' }}>
+                Tài khoản: <strong>{targetUserForPerm.email}</strong>
+              </span>
+
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button
+                  type="button"
+                  className="admin-btn admin-btn-outline"
+                  onClick={() => setUserPermModalOpen(false)}
+                  disabled={userPermSaving}
+                >
+                  Đóng
+                </button>
+                <button
+                  type="button"
+                  className="admin-btn admin-btn-primary"
+                  onClick={handleSaveUserPermsSubmit}
+                  disabled={userPermSaving || targetUserForPerm.role === 'Admin'}
+                  style={{
+                    background: '#0284c7', color: '#fff', border: 'none',
+                    fontWeight: 700, padding: '8px 20px',
+                    opacity: targetUserForPerm.role === 'Admin' ? 0.6 : 1,
+                    cursor: targetUserForPerm.role === 'Admin' ? 'not-allowed' : (userPermSaving ? 'wait' : 'pointer')
+                  }}
+                >
+                  {userPermSaving ? 'Đang lưu...' : 'Lưu quyền cho người dùng'}
                 </button>
               </div>
             </div>

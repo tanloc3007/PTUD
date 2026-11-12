@@ -19,6 +19,10 @@ public interface IApplicationDbContext
     List<NlpRiskAlert> NlpRiskAlerts { get; }
     List<AuditLog> AuditLogs { get; }
     List<UserNotification> Notifications { get; }
+    List<SystemRole> SystemRoles { get; }
+    List<UserRoleAssignment> UserRoles { get; }
+    List<RolePermission> RolePermissions { get; }
+    List<UserDirectPermission> UserDirectPermissions { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

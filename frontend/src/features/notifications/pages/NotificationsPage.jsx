@@ -41,7 +41,7 @@ export default function NotificationsPage({ role: propRole }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [feedback, setFeedback] = useState(null);
 
-  const fetchList = async () => {
+  const fetchList = async (isRetry = false) => {
     setLoading(true);
     try {
       const res = await getNotifications({ userId, role: currentRole, limit: 100 });
@@ -49,7 +49,11 @@ export default function NotificationsPage({ role: propRole }) {
         setNotifications(res.data);
       }
     } catch {
-      setFeedback({ type: 'error', text: 'Không thể tải danh sách thông báo. Vui lòng thử lại.' });
+      if (!isRetry) {
+        setTimeout(() => fetchList(true), 1500);
+      } else {
+        showToast('Tạm thời chưa đồng bộ được thông báo. Bạn có thể bấm "Làm mới" để thử lại.', 'error');
+      }
     } finally {
       setLoading(false);
     }
@@ -343,87 +347,116 @@ export default function NotificationsPage({ role: propRole }) {
           </p>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {filteredNotifications.map(item => {
             const cfg = getCategoryConfig(item.category);
+            const isUnread = !item.isRead;
             return (
               <div
                 key={item.id}
                 onClick={() => handleToggleRead(item)}
                 style={{
-                  background: item.isRead ? '#ffffff' : '#f0fdfa',
-                  border: item.isRead ? '1px solid #e2e8f0' : '1px solid #99f6e4',
-                  borderLeft: item.isRead ? '3.5px solid #cbd5e1' : `3.5px solid ${cfg.color}`,
+                  background: isUnread ? '#f0fdfa' : '#ffffff',
+                  border: isUnread ? '1.5px solid #5eead4' : '1px solid #e2e8f0',
+                  borderLeft: isUnread ? '5px solid #0d9488' : '4px solid #cbd5e1',
                   borderRadius: 10,
-                  padding: '14px 18px',
+                  padding: '16px 20px',
                   display: 'flex',
                   alignItems: 'flex-start',
                   justifyContent: 'space-between',
                   gap: 16,
                   transition: 'all 0.15s ease',
-                  cursor: 'pointer'
+                  cursor: 'pointer',
+                  boxShadow: isUnread ? '0 4px 14px rgba(13, 148, 136, 0.08)' : '0 1px 3px rgba(0,0,0,0.03)'
                 }}
                 onMouseEnter={e => {
                   e.currentTarget.style.borderColor = '#0d9488';
+                  e.currentTarget.style.background = isUnread ? '#e6fffa' : '#f8fafc';
                 }}
                 onMouseLeave={e => {
-                  e.currentTarget.style.borderColor = item.isRead ? '#e2e8f0' : '#99f6e4';
-                  e.currentTarget.style.borderLeftColor = item.isRead ? '#cbd5e1' : cfg.color;
+                  e.currentTarget.style.borderColor = isUnread ? '#5eead4' : '#e2e8f0';
+                  e.currentTarget.style.borderLeftColor = isUnread ? '#0d9488' : '#cbd5e1';
+                  e.currentTarget.style.background = isUnread ? '#f0fdfa' : '#ffffff';
                 }}
               >
                 {/* Content */}
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
                     <span style={{
-                      fontSize: 10.5,
+                      fontSize: 11,
                       fontWeight: 700,
                       color: cfg.color,
                       background: cfg.bg,
-                      padding: '1px 6px',
+                      padding: '2px 8px',
                       borderRadius: 4,
                       border: `1px solid ${cfg.border}`
                     }}>
                       {cfg.label}
                     </span>
 
-                    <span style={{ fontSize: 11.5, color: '#94a3b8' }}>
+                    <span style={{ fontSize: 12, color: isUnread ? '#0f766e' : '#94a3b8', fontWeight: isUnread ? 600 : 400 }}>
                       {formatFullTime(item.createdAt)}
                     </span>
 
-                    {!item.isRead && (
+                    {isUnread ? (
                       <span style={{
                         fontSize: 10.5,
-                        fontWeight: 700,
+                        fontWeight: 800,
                         color: '#0f766e',
                         background: '#ccfbf1',
-                        padding: '1px 6px',
-                        borderRadius: 4
+                        padding: '2px 8px',
+                        borderRadius: 6,
+                        border: '1px solid #99f6e4',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 5
                       }}>
-                        Mới
+                        <span style={{
+                          width: 7,
+                          height: 7,
+                          borderRadius: '50%',
+                          background: '#0d9488',
+                          boxShadow: '0 0 0 2px #99f6e4'
+                        }} />
+                        CHƯA ĐỌC
+                      </span>
+                    ) : (
+                      <span style={{
+                        fontSize: 10.5,
+                        fontWeight: 600,
+                        color: '#94a3b8',
+                        background: '#f8fafc',
+                        padding: '2px 8px',
+                        borderRadius: 6,
+                        border: '1px solid #e2e8f0'
+                      }}>
+                        ✓ Đã đọc
                       </span>
                     )}
                   </div>
 
                   <h3 style={{
-                    margin: '0 0 3px',
-                    fontSize: 14.5,
-                    fontWeight: item.isRead ? 700 : 800,
-                    color: '#0f172a'
+                    margin: '0 0 5px',
+                    fontSize: 15,
+                    fontWeight: isUnread ? 800 : 600,
+                    color: isUnread ? '#0f172a' : '#475569',
+                    letterSpacing: '-0.2px'
                   }}>
                     {item.title}
                   </h3>
 
                   <p style={{
-                    margin: '0 0 10px',
-                    fontSize: 13,
-                    color: item.isRead ? '#64748b' : '#334155',
+                    margin: '0 0 12px',
+                    fontSize: 13.5,
+                    color: isUnread ? '#1e293b' : '#64748b',
+                    fontWeight: isUnread ? 500 : 400,
                     lineHeight: 1.5
                   }}>
                     {item.message}
                   </p>
 
                   {/* Actions */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     {item.actionUrl && (
                       <button
                         onClick={(e) => {
@@ -432,7 +465,7 @@ export default function NotificationsPage({ role: propRole }) {
                           navigate(item.actionUrl);
                         }}
                         style={{
-                          padding: '5px 12px',
+                          padding: '6px 14px',
                           borderRadius: 6,
                           background: '#0f766e',
                           color: '#ffffff',
@@ -440,34 +473,42 @@ export default function NotificationsPage({ role: propRole }) {
                           fontSize: 12,
                           fontWeight: 700,
                           cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 4
                         }}
                       >
-                        Đi tới trang
+                        Đi tới trang →
                       </button>
                     )}
 
-                    {!item.isRead ? (
+                    {isUnread ? (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
                           handleToggleRead(item);
                         }}
                         style={{
-                          padding: '4px 10px',
+                          padding: '5px 12px',
                           borderRadius: 6,
                           background: '#ffffff',
-                          border: '1px solid #e2e8f0',
+                          border: '1.5px solid #99f6e4',
                           color: '#0d9488',
-                          fontSize: 11.5,
-                          fontWeight: 600,
-                          cursor: 'pointer'
+                          fontSize: 12,
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 4
                         }}
+                        onMouseEnter={e => e.currentTarget.style.background = '#ccfbf1'}
+                        onMouseLeave={e => e.currentTarget.style.background = '#ffffff'}
                       >
-                        Đánh dấu đã đọc
+                        ✓ Đánh dấu đã đọc
                       </button>
                     ) : (
-                      <span style={{ fontSize: 11.5, color: '#94a3b8' }}>
-                        Đã đọc
+                      <span style={{ fontSize: 12, color: '#94a3b8', fontStyle: 'italic' }}>
+                        Đã xem
                       </span>
                     )}
 

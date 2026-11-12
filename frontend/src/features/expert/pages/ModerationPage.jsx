@@ -58,6 +58,25 @@ export default function ExpertModerationPage() {
     loadFlaggedComments();
   }, []);
 
+  const formatDetectedKeywords = (raw) => {
+    if (!raw) return null;
+    let clean = raw
+      .replace(/\[AI: Bullying\]\s*Nội dung chứa từ ngữ xúc phạm trực tiếp\s*\('([^']+)'\)[^;]*/g, '[AI: Bắt nạt] Xúc phạm (\'$1\')')
+      .replace(/\[AI: Toxicity\]\s*Nội dung chứa từ ngữ thô tục[^;]*/g, '[AI: Thô tục] Ngôn từ công kích')
+      .replace(/\[AI: SelfHarm\]\s*Nội dung chứa tuyên bố trực tiếp[^;]*/g, '[AI: Khủng hoảng] Nguy cơ tự hại');
+
+    const parts = clean.split(';').map(p => p.trim()).filter(Boolean);
+    if (parts.length <= 1) return clean;
+
+    const filtered = [];
+    for (const part of parts) {
+      if (!filtered.some(f => f.includes(part) || part.includes(f))) {
+        filtered.push(part);
+      }
+    }
+    return filtered.slice(0, 2).join(' • ');
+  };
+
   const filtered = filter === 'all'
     ? posts
     : filter === 'flagged'
@@ -379,9 +398,9 @@ export default function ExpertModerationPage() {
               </div>
             )}
 
-                {post.detectedKeywords && (
+                {formatDetectedKeywords(post.detectedKeywords) && (
                   <p style={{ fontSize: 12, color: '#dc2626', margin: '0 0 12px', fontWeight: 600 }}>
-                    Từ khóa phát hiện: {post.detectedKeywords}
+                    Từ khóa phát hiện: {formatDetectedKeywords(post.detectedKeywords)}
                   </p>
                 )}
 
@@ -464,9 +483,9 @@ export default function ExpertModerationPage() {
                       )}
                     </div>
                     <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                      {c.detectedKeywords && (
+                      {formatDetectedKeywords(c.detectedKeywords) && (
                         <span style={{ fontSize: 11, background: '#fee2e2', color: '#b91c1c', padding: '2px 8px', borderRadius: 6, fontWeight: 700 }}>
-                          Từ khóa: {c.detectedKeywords}
+                          Từ khóa: {formatDetectedKeywords(c.detectedKeywords)}
                         </span>
                       )}
                       <span style={{

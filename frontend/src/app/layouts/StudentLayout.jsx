@@ -10,7 +10,7 @@ const DESKTOP_NAV = [
   { to: '/student/community', label: 'Góc chia sẻ' },
   { to: '/student/booking',   label: 'Đặt lịch tư vấn' },
   { to: '/student/journal',   label: 'Nhật ký' },
-  { to: '/student/test',      label: 'Trắc nghiệm DASS-21' },
+  { to: '/student/test',      label: 'Trắc nghiệm WHO-5' },
   { to: '/student/saferoom',  label: 'Phòng An Yên' },
 ];
 
@@ -282,7 +282,7 @@ export default function StudentLayout() {
         }}
       >
         <div style={{ width: '100%', maxWidth: 1360, margin: '0 auto', padding: isMobile ? '16px 12px' : '28px 32px', boxSizing: 'border-box' }}>
-          <Outlet />
+          <Outlet context={{ activeMeeting }} />
         </div>
       </main>
 

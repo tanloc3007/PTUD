@@ -19,13 +19,13 @@
 | **Đăng ký tài khoản mới** | Có | Không | Có | Tạo tài khoản vai trò tương ứng |
 | **Đăng nhập & Nhận JWT** | Có | Có | Có | Xác thực qua email & mật khẩu băm |
 | **Viết & Xem nhật ký cảm xúc** | Có (Của mình) | Không | Không | `WHERE StudentId = CurrentUserId` |
-| **Làm trắc nghiệm DASS-21 / PHQ-9 / GAD-7** | Có | Có (Thử nghiệm) | Có (Thử nghiệm) | `WHERE StudentId = CurrentUserId` |
-| **Xem kết quả trắc nghiệm cá nhân** | Có (Của mình) | Có (Trong ca hẹn) | Không | Sinh viên xem của mình; Chuyên viên chỉ xem khi sinh viên đặt hẹn |
+| **Làm trắc nghiệm DASS-21 / PHQ-9 / GAD-7** | Có | Không | Không | `WHERE StudentId = CurrentUserId` |
+| **Xem kết quả trắc nghiệm cá nhân** | Không | Có | Không | Chuyên viên được xem |
 | **Đăng bài viết ẩn danh 2 cột** | Có | Có | Có | Tự động áp dụng bí danh ẩn danh |
 | **Đăng bình luận kèm ảnh Cloudinary** | Có | Có (Gắn huy hiệu 🎓) | Có | Đính kèm ảnh chuẩn Facebook |
 | **Thả tim / Đồng cảm bài viết** | Có | Có | Có | Cộng dồn số lượt tương tác |
 | **Đặt lịch tư vấn tâm lý** | Có | Không | Không | Sinh viên đặt với chuyên viên |
-| **Hủy yêu cầu đặt lịch** | Có (Trước khi duyệt) | Không | Có (Khi khẩn cấp) | Giải phóng khung giờ rảnh |
+| **Hủy yêu cầu đặt lịch** | Có (Trước khi duyệt) | Không | Có | Giải phóng khung giờ rảnh |
 | **Cấu hình khung giờ rảnh làm việc** | Không | Có (Của mình) | Có | `WHERE ExpertId = CurrentExpertId` |
 | **Phê duyệt / Từ chối yêu cầu ca hẹn** | Không | Có (Của mình) | Có | Chuyên viên được phân công ca hẹn |
 | **Mở phòng họp trực tuyến SafeCall** | Không | Có (Ca của mình) | Không | Chỉ chuyên viên của ca hẹn mới có quyền mở |

@@ -106,3 +106,54 @@ export async function getMoodItems(mood = '') {
     return null;
   }
 }
+
+/** Lấy ma trận vai trò và phân quyền (6 vai trò, 27 quyền, 5 modules) */
+export async function getRolesMatrix() {
+  try {
+    const res = await axiosClient.get('/admin/roles');
+    return res.data;
+  } catch (err) {
+    console.warn('API /admin/roles error:', err);
+    return null;
+  }
+}
+
+/** Cập nhật quyền cho vai trò */
+export async function updateRolePermissions(roleCode, permissionCodes) {
+  const res = await axiosClient.post(`/admin/roles/${roleCode}/permissions`, { permissionCodes });
+  return res.data;
+}
+
+/** Gán nhiều vai trò cho người dùng (Multi-role assignment) */
+export async function updateUserRoles(userId, roles) {
+  const res = await axiosClient.post(`/admin/users/${userId}/roles`, { roles });
+  return res.data;
+}
+
+/** Lấy chi tiết phân quyền của người dùng cụ thể (quyền từ vai trò + quyền riêng) */
+export async function getUserPermissions(userId) {
+  try {
+    const res = await axiosClient.get(`/admin/users/${userId}/permissions`);
+    return res.data;
+  } catch (err) {
+    console.warn(`API /admin/users/${userId}/permissions error:`, err);
+    return null;
+  }
+}
+
+/** Cập nhật phân quyền riêng cho người dùng cụ thể */
+export async function updateUserPermissions(userId, permissionCodes) {
+  const res = await axiosClient.post(`/admin/users/${userId}/permissions`, { permissionCodes });
+  return res.data;
+}
+
+/** Lấy danh sách tóm tắt quyền của tất cả người dùng */
+export async function getAllUsersPermissionsSummary() {
+  try {
+    const res = await axiosClient.get('/admin/users/permissions-summary');
+    return res.data;
+  } catch (err) {
+    console.warn('API /admin/users/permissions-summary error:', err);
+    return null;
+  }
+}

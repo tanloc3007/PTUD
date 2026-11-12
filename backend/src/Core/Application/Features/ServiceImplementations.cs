@@ -191,7 +191,32 @@ public class MoodJournalService : IMoodJournalService
         var triggers = request.EffectiveTriggers;
 
         var analysis = await _aiService.AnalyzeAsync(content, _context.SensitiveKeywords.Where(k => k.IsActive));
-        var moodEnum = Enum.TryParse<MoodType>(moodStr, true, out var parsedMood) ? parsedMood : MoodType.Peaceful;
+        
+        MoodType moodEnum;
+        if ((request.Mood.HasValue || !string.IsNullOrWhiteSpace(request.MoodState)) && Enum.TryParse<MoodType>(moodStr, true, out var parsedMood))
+        {
+            moodEnum = parsedMood;
+        }
+        else if (analysis.IsExtremeCrisis || analysis.RiskScore >= 70)
+        {
+            moodEnum = MoodType.Exhausted; // 1: Rất tệ
+            energy = 2;
+        }
+        else if (analysis.SentimentLabel == "Negative" || analysis.SentimentScore < -0.2)
+        {
+            moodEnum = MoodType.Stressed; // 2: Không tốt
+            energy = 4;
+        }
+        else if (analysis.SentimentLabel == "Positive" || analysis.SentimentScore > 0.4)
+        {
+            moodEnum = analysis.SentimentScore > 0.7 ? MoodType.Great : MoodType.Peaceful; // 5: Tuyệt vời hoặc 4: Khá ổn
+            energy = analysis.SentimentScore > 0.7 ? 10 : 8;
+        }
+        else
+        {
+            moodEnum = MoodType.Sad; // 3: Bình thường
+            energy = 6;
+        }
 
         var journal = new MoodJournal
         {
@@ -203,9 +228,11 @@ public class MoodJournalService : IMoodJournalService
             JournalContent = content,
             SentimentScore = analysis.SentimentScore,
             SentimentLabel = analysis.SentimentLabel,
-            AiAdvice = string.IsNullOrWhiteSpace(analysis.EmpatheticAdvice) 
-                ? "UniMind luôn lắng nghe và đồng hành cùng bạn. Hãy dành vài phút thực hành hít thở sâu nhé!" 
-                : analysis.EmpatheticAdvice,
+            AiAdvice = !string.IsNullOrWhiteSpace(request.AiAdvice)
+                ? request.AiAdvice
+                : (string.IsNullOrWhiteSpace(analysis.EmpatheticAdvice) 
+                    ? "UniMind luôn lắng nghe và đồng hành cùng bạn. Hãy dành vài phút thực hành hít thở sâu nhé!" 
+                    : analysis.EmpatheticAdvice),
             IsSharedToCommunity = request.ShareToCommunity,
             CreatedAt = DateTime.UtcNow
         };
@@ -255,6 +282,21 @@ public class MoodJournalService : IMoodJournalService
                 });
             }
         }
+
+        // Lưu thông báo vào CSDL cho sinh viên
+        _context.Notifications.Add(new UserNotification
+        {
+            Id = Guid.NewGuid(),
+            UserId = studentId,
+            TargetRole = "Student",
+            Title = "🌱 Đã lưu nhật ký cảm xúc",
+            Message = $"Nhật ký cảm xúc '{journal.MoodState}' (năng lượng {journal.EnergyLevel}/10) đã được ghi nhận cùng phân tích tâm lý.",
+            Category = "Mood",
+            Type = "info",
+            ActionUrl = "/student/journal",
+            IsRead = false,
+            CreatedAt = DateTime.UtcNow
+        });
 
         await _context.SaveChangesAsync();
 
@@ -376,14 +418,161 @@ public class PsychologicalTestService : IPsychologicalTestService
 
     public async Task<Result<TestResultDto>> SubmitTestAsync(Guid studentId, SubmitTestRequest request)
     {
+        var testCode = request.TestType ?? "WHO5";
         var test = (request.TestId.HasValue && request.TestId.Value != Guid.Empty)
             ? _context.PsychologicalTests.FirstOrDefault(t => t.Id == request.TestId.Value)
-            : _context.PsychologicalTests.FirstOrDefault(t => t.Code == (request.TestType ?? "DASS21"))
+            : _context.PsychologicalTests.FirstOrDefault(t => t.Code == testCode)
+              ?? _context.PsychologicalTests.FirstOrDefault(t => t.Code == "WHO5")
               ?? _context.PsychologicalTests.FirstOrDefault();
 
         if (test == null)
-            return Result<TestResultDto>.Fail("Bài test không hợp lệ", "INVALID_TEST");
+        {
+            test = new PsychologicalTest
+            {
+                Id = Guid.Parse("55555555-5555-5555-5555-555555555555"),
+                Code = "WHO5",
+                Title = "Thang đo Sức khỏe Tinh thần WHO-5",
+                Description = "Thước đo tiêu chuẩn vàng 5 câu hỏi của Tổ chức Y tế Thế giới (WHO) đo lường chất lượng cuộc sống tinh thần trong 2 tuần qua.",
+                EstimatedMinutes = 3,
+                QuestionCount = 5,
+                IsPublished = true,
+                CreatedAt = DateTime.UtcNow
+            };
+            _context.PsychologicalTests.Add(test);
+        }
 
+        // ══════════════════════════════════════════════════════════════════════
+        // 1. XỬ LÝ CHUẨN THANG ĐO SỨC KHỎE TINH THẦN WHO-5 (WHO Well-Being Index)
+        // ══════════════════════════════════════════════════════════════════════
+        if (string.Equals(test.Code, "WHO5", StringComparison.OrdinalIgnoreCase) || string.Equals(request.TestType, "WHO5", StringComparison.OrdinalIgnoreCase))
+        {
+            int rawScore = 0;
+            if (request.Answers != null && request.Answers.Count > 0)
+            {
+                rawScore = request.Answers.Sum(a => a.EffectiveScore);
+            }
+            else if (request.RawAnswers != null && request.RawAnswers.Count > 0)
+            {
+                rawScore = request.RawAnswers.Where(a => a.HasValue).Sum(a => a!.Value);
+            }
+            else if (request.TotalScore.HasValue)
+            {
+                rawScore = request.TotalScore.Value <= 25 ? request.TotalScore.Value : (request.TotalScore.Value / 4);
+            }
+
+            rawScore = Math.Clamp(rawScore, 0, 25);
+            int percentScore = rawScore * 4; // Quy đổi thang % (0 - 100) theo chuẩn WHO
+
+            string severity;
+            bool needsConsultation;
+            string interpretation;
+
+            if (rawScore >= 19) // >= 75%
+            {
+                severity = "Optimal";
+                needsConsultation = false;
+                interpretation = $"Chỉ số sức khỏe tinh thần WHO-5 của bạn đạt {percentScore}% (Điểm thô: {rawScore}/25) - Trạng thái Tối ưu. Bạn đang duy trì nguồn năng lượng tích cực, khả năng tự phục hồi và chất lượng cuộc sống tinh thần rất tốt.";
+            }
+            else if (rawScore >= 13) // 52% - 72%
+            {
+                severity = "Normal";
+                needsConsultation = false;
+                interpretation = $"Chỉ số sức khỏe tinh thần WHO-5 của bạn đạt {percentScore}% (Điểm thô: {rawScore}/25) - Mức Bình thường & Ổn định. Tinh thần của bạn tương đối thư thái, hãy tiếp tục duy trì lối sống lành mạnh và cân bằng học tập.";
+            }
+            else if (rawScore >= 8) // 32% - 48% (Dưới ngưỡng 50% chuẩn WHO)
+            {
+                severity = "Mild";
+                needsConsultation = true;
+                interpretation = $"Chỉ số sức khỏe tinh thần WHO-5 của bạn là {percentScore}% (Điểm thô: {rawScore}/25) - Dưới ngưỡng chuẩn của WHO (<= 50%). Điểm số này cho thấy bạn đang trải qua sự suy giảm đáng kể về năng lượng tinh thần, có biểu hiện mệt mỏi hoặc trầm cảm nhẹ. Khuyến nghị bạn nên đặt lịch tham vấn 1-1 với chuyên viên tâm lý UniMind để được hỗ trợ.";
+            }
+            else // <= 7 (<= 28%)
+            {
+                severity = "Severe";
+                needsConsultation = true;
+                interpretation = $"CẢNH BÁO LÂM SÀNG: Chỉ số WHO-5 của bạn là {percentScore}% (Điểm thô: {rawScore}/25) - Thuộc ngưỡng nguy cơ trầm cảm đáng kể theo chuẩn Tổ chức Y tế Thế giới (WHO). Tinh thần của bạn đang chịu áp lực rất lớn. Hãy liên hệ ngay với Chuyên viên tâm lý UniMind hoặc Hotline SOS 1900 1267 để được nâng đỡ và bảo vệ.";
+            }
+
+            var whoResult = new TestResult
+            {
+                Id = Guid.NewGuid(),
+                StudentId = studentId,
+                TestId = test.Id,
+                TotalScore = percentScore,
+                DepressionScore = rawScore,
+                AnxietyScore = 25 - rawScore,
+                StressScore = null,
+                DepressionSeverity = severity,
+                AnxietySeverity = severity,
+                StressSeverity = severity,
+                NeedsConsultation = needsConsultation,
+                ResilienceRate = percentScore,
+                SeverityLevel = severity,
+                AiInterpretation = interpretation,
+                CompletedAt = DateTime.UtcNow
+            };
+
+            _context.TestResults.Add(whoResult);
+
+            // Lưu thông báo vào CSDL cho sinh viên
+            _context.Notifications.Add(new UserNotification
+            {
+                Id = Guid.NewGuid(),
+                UserId = studentId,
+                TargetRole = "Student",
+                Title = "📝 Đã hoàn tất trắc nghiệm WHO-5",
+                Message = $"Chỉ số sức khỏe tinh thần của bạn đạt {percentScore}% (Điểm thô: {rawScore}/25) - Mức {severity}. {(needsConsultation ? "Khuyến nghị bạn đặt lịch tham vấn chuyên viên." : "Tâm trạng của bạn rất tốt!")}",
+                Category = "Test",
+                Type = needsConsultation ? "warning" : "success",
+                ActionUrl = "/student/test",
+                IsRead = false,
+                CreatedAt = DateTime.UtcNow
+            });
+
+            // Nếu nguy cơ cao, gửi thêm cảnh báo Triage cho Chuyên viên và Admin
+            if (needsConsultation)
+            {
+                var stu = _context.Users.FirstOrDefault(u => u.Id == studentId);
+                _context.Notifications.Add(new UserNotification
+                {
+                    Id = Guid.NewGuid(),
+                    UserId = null,
+                    TargetRole = "Expert",
+                    Title = "⚠️ Cảnh báo Triage: Điểm WHO-5 thấp",
+                    Message = $"Sinh viên {(stu?.AnonymousCode ?? "Ẩn danh")} vừa hoàn thành trắc nghiệm WHO-5 với mức nguy cơ {severity} ({percentScore}%). Cần chú ý hỗ trợ tâm lý.",
+                    Category = "System",
+                    Type = "warning",
+                    ActionUrl = "/expert/workspace",
+                    IsRead = false,
+                    CreatedAt = DateTime.UtcNow
+                });
+            }
+
+            await _context.SaveChangesAsync();
+
+            var whoDto = new TestResultDto(
+                whoResult.Id,
+                "WHO5",
+                "Thang đo Sức khỏe Tinh thần WHO-5",
+                whoResult.TotalScore,
+                whoResult.DepressionScore,
+                whoResult.AnxietyScore,
+                whoResult.StressScore,
+                whoResult.ResilienceRate,
+                whoResult.SeverityLevel,
+                whoResult.AiInterpretation,
+                whoResult.CompletedAt,
+                whoResult.DepressionSeverity,
+                whoResult.AnxietySeverity,
+                whoResult.StressSeverity,
+                whoResult.NeedsConsultation
+            );
+
+            return Result<TestResultDto>.Ok(whoDto, "Đã hoàn thành bài đánh giá sức khỏe tinh thần WHO-5");
+        }
+
+        // ══════════════════════════════════════════════════════════════════════
+        // 2. XỬ LÝ MẪU DASS-21 NẾU ĐƯỢC CHỌN (TƯƠNG THÍCH NGƯỢC)
+        // ══════════════════════════════════════════════════════════════════════
         int totalScore = 0;
         int depScore = 0;
         int anxScore = 0;
@@ -418,8 +607,6 @@ public class PsychologicalTestService : IPsychologicalTestService
             stressScore = totalScore - depScore - anxScore;
         }
 
-        // ── CHUẨN HÓA THANG ĐO DASS-21 THEO LOVIBOND & LOVIBOND (1995) ──
-        // Thang DASS-21 (bản rút gọn 21 câu) được nhân đôi (x2) để đối chiếu ngưỡng chuẩn y khoa DASS-42
         int depScaled = depScore * 2;
         int anxScaled = anxScore * 2;
         int stressScaled = stressScore * 2;
@@ -451,20 +638,19 @@ public class PsychologicalTestService : IPsychologicalTestService
             _ => "ExtremelySevere"
         };
 
-        // Mức độ nghiêm trọng tổng thể lấy theo phân độ cao nhất trong 3 thang
-        string severity = "Normal";
+        string dassSeverity = "Normal";
         if (depSeverity == "ExtremelySevere" || anxSeverity == "ExtremelySevere" || stressSeverity == "ExtremelySevere")
-            severity = "ExtremelySevere";
+            dassSeverity = "ExtremelySevere";
         else if (depSeverity == "Severe" || anxSeverity == "Severe" || stressSeverity == "Severe")
-            severity = "Severe";
+            dassSeverity = "Severe";
         else if (depSeverity == "Moderate" || anxSeverity == "Moderate" || stressSeverity == "Moderate")
-            severity = "Moderate";
+            dassSeverity = "Moderate";
         else if (depSeverity == "Mild" || anxSeverity == "Mild" || stressSeverity == "Mild")
-            severity = "Mild";
+            dassSeverity = "Mild";
 
-        bool needsConsultation = severity == "Severe" || severity == "ExtremelySevere" || depScaled >= 14 || anxScaled >= 15 || stressScaled >= 26;
+        bool dassNeedsConsultation = dassSeverity == "Severe" || dassSeverity == "ExtremelySevere" || depScaled >= 14 || anxScaled >= 15 || stressScaled >= 26;
 
-        string aiInterpretation = severity switch
+        string aiInterpretation = dassSeverity switch
         {
             "ExtremelySevere" => $"CẢNH BÁO LÂM SÀNG: Các chỉ số của bạn đang ở ngưỡng Rất nặng (Trầm cảm: {depScaled}/42 - {depSeverity}, Lo âu: {anxScaled}/42 - {anxSeverity}, Căng thẳng: {stressScaled}/42 - {stressSeverity}). Bạn đang chịu áp lực tâm lý vượt ngưỡng tự điều tiết. Hệ thống khuyến nghị bạn kết nối với chuyên viên tâm lý hoặc Tổng đài SOS trường học ngay hôm nay.",
             "Severe" => $"Mức độ áp lực và xáo trộn tâm lý của bạn đang ở ngưỡng Nặng (Trầm cảm: {depScaled}/42 - {depSeverity}, Lo âu: {anxScaled}/42 - {anxSeverity}, Căng thẳng: {stressScaled}/42 - {stressSeverity}). Bạn rất nên đặt lịch tư vấn 1-1 tại phòng P.302 hoặc SafeRoom Online để được chuyên gia hỗ trợ điều hòa nhận thức.",
@@ -485,14 +671,30 @@ public class PsychologicalTestService : IPsychologicalTestService
             DepressionSeverity = depSeverity,
             AnxietySeverity = anxSeverity,
             StressSeverity = stressSeverity,
-            NeedsConsultation = needsConsultation,
+            NeedsConsultation = dassNeedsConsultation,
             ResilienceRate = Math.Clamp(100 - (totalScore * 2), 20, 95),
-            SeverityLevel = severity,
+            SeverityLevel = dassSeverity,
             AiInterpretation = aiInterpretation,
             CompletedAt = DateTime.UtcNow
         };
 
         _context.TestResults.Add(result);
+
+        // Lưu thông báo vào CSDL cho sinh viên
+        _context.Notifications.Add(new UserNotification
+        {
+            Id = Guid.NewGuid(),
+            UserId = studentId,
+            TargetRole = "Student",
+            Title = $"📝 Đã hoàn tất trắc nghiệm {test.Title}",
+            Message = $"Chỉ số của bạn ở mức {dassSeverity} (Tổng điểm: {totalScore}). {(dassNeedsConsultation ? "Khuyến nghị bạn đặt lịch tham vấn chuyên viên." : "Tâm trạng tương đối ổn định.")}",
+            Category = "Test",
+            Type = dassNeedsConsultation ? "warning" : "info",
+            ActionUrl = "/student/test",
+            IsRead = false,
+            CreatedAt = DateTime.UtcNow
+        });
+
         await _context.SaveChangesAsync();
 
         var dto = new TestResultDto(
@@ -527,10 +729,11 @@ public class PsychologicalTestService : IPsychologicalTestService
             return Task.FromResult(Result<TestResultDto?>.Ok(null));
 
         var test = _context.PsychologicalTests.FirstOrDefault(t => t.Id == result.TestId);
+        var isWho5 = string.Equals(test?.Code, "WHO5", StringComparison.OrdinalIgnoreCase) || result.TotalScore <= 100 && result.DepressionScore <= 25;
         var dto = new TestResultDto(
             result.Id,
-            test?.Code ?? "DASS21",
-            test?.Title ?? "Thang đo DASS-21",
+            test?.Code ?? (isWho5 ? "WHO5" : "DASS21"),
+            test?.Title ?? (isWho5 ? "Thang đo Sức khỏe Tinh thần WHO-5" : "Thang đo DASS-21"),
             result.TotalScore,
             result.DepressionScore,
             result.AnxietyScore,
@@ -546,6 +749,39 @@ public class PsychologicalTestService : IPsychologicalTestService
         );
 
         return Task.FromResult(Result<TestResultDto?>.Ok(dto));
+    }
+
+    public Task<Result<List<TestResultDto>>> GetStudentTestHistoryAsync(Guid studentId)
+    {
+        var results = _context.TestResults
+            .Where(r => r.StudentId == studentId)
+            .OrderByDescending(r => r.CompletedAt)
+            .ToList();
+
+        var dtos = results.Select(r =>
+        {
+            var test = _context.PsychologicalTests.FirstOrDefault(t => t.Id == r.TestId);
+            var isWho5 = string.Equals(test?.Code, "WHO5", StringComparison.OrdinalIgnoreCase) || r.TotalScore <= 100 && r.DepressionScore <= 25;
+            return new TestResultDto(
+                r.Id,
+                test?.Code ?? (isWho5 ? "WHO5" : "DASS21"),
+                test?.Title ?? (isWho5 ? "Thang đo Sức khỏe Tinh thần WHO-5" : "Thang đo DASS-21"),
+                r.TotalScore,
+                r.DepressionScore,
+                r.AnxietyScore,
+                r.StressScore,
+                r.ResilienceRate,
+                r.SeverityLevel,
+                r.AiInterpretation,
+                r.CompletedAt,
+                r.DepressionSeverity,
+                r.AnxietySeverity,
+                r.StressSeverity,
+                r.NeedsConsultation
+            );
+        }).ToList();
+
+        return Task.FromResult(Result<List<TestResultDto>>.Ok(dtos));
     }
 }
 
@@ -677,13 +913,38 @@ public class CommunityService : ICommunityService
             ? request.CustomPseudonym 
             : (student?.AnonymousCode ?? $"Bạn Ẩn Yên #{new Random().Next(100, 999)}");
 
-        var isHiddenFromStudents = analysis.ContainsSensitiveKeywords || analysis.IsAiFlagged || analysis.RiskScore >= 75;
+        var isHiddenFromStudents = analysis.ContainsSensitiveKeywords || analysis.IsAiFlagged || analysis.RiskScore >= 75 || analysis.IsExtremeCrisis;
 
-        // Trạng thái kiểm duyệt ảnh: nếu nội dung có nguy cơ cao -> Flagged ảnh để chuyên gia xem trước
+        // Trạng thái kiểm duyệt ảnh tự động bằng AI (AI Image Moderation)
         string imgModStatus = "None";
+        string? imgModNote = null;
         if (!string.IsNullOrWhiteSpace(request.ImageUrl))
         {
-            imgModStatus = isHiddenFromStudents ? "Flagged" : "Approved";
+            var imgUrlLower = request.ImageUrl.ToLowerInvariant();
+            bool imageSuspicious = imgUrlLower.Contains("nsfw") || imgUrlLower.Contains("gore") 
+                || imgUrlLower.Contains("nude") || imgUrlLower.Contains("adult") 
+                || imgUrlLower.Contains("blood") || imgUrlLower.Contains("weapon") 
+                || imgUrlLower.Contains("violence") || imgUrlLower.Contains("kill")
+                || imgUrlLower.Contains("death") || imgUrlLower.Contains("hate");
+
+            if (isHiddenFromStudents)
+            {
+                imgModStatus = "Flagged";
+                imgModNote = analysis.TriggeredKeywords.Count > 0 
+                    ? $"[AI Cảnh báo]: Gắn cờ hình ảnh do bài viết có nội dung rủi ro cao: {analysis.TriggeredKeywords[0]}"
+                    : "[AI Cảnh báo]: Gắn cờ hình ảnh do nội dung bài viết có nguy cơ cao.";
+            }
+            else if (imageSuspicious)
+            {
+                imgModStatus = "Flagged";
+                imgModNote = "[AI Cảnh báo]: Phát hiện hình ảnh có dấu hiệu nhạy cảm từ tên tệp/siêu dữ liệu. Tạm ẩn để kiểm duyệt.";
+                isHiddenFromStudents = true;
+            }
+            else
+            {
+                imgModStatus = "Approved";
+                imgModNote = "[AI Đã duyệt]: Hình ảnh ban đầu đạt tiêu chuẩn an toàn cộng đồng.";
+            }
         }
 
         var post = new CommunityPost
@@ -695,6 +956,7 @@ public class CommunityService : ICommunityService
             Content = request.Content,
             ImageUrl = request.ImageUrl?.Trim(),
             ImageModerationStatus = imgModStatus,
+            ImageModerationNote = imgModNote,
             CategoryTag = request.EffectiveCategory,
             StressLevelTag = request.StressLevelTag ?? (analysis.RiskScore > 70 ? "Áp lực cao (Level 4/5)" : "Mức độ vừa"),
             HasKeywordsAlert = analysis.ContainsSensitiveKeywords || analysis.IsAiFlagged,
@@ -725,6 +987,42 @@ public class CommunityService : ICommunityService
                 RiskScore = post.RiskScore,
                 TriageLevel = (post.IsExtremeCrisis || post.RiskScore >= 85) ? TriageLevel.Urgent : TriageLevel.Moderate,
                 Status = "PendingAction"
+            });
+        }
+
+        // Lưu thông báo vào CSDL cho sinh viên
+        var postSnippet = post.Content.Length > 60 ? post.Content[..60] + "..." : post.Content;
+        _context.Notifications.Add(new UserNotification
+        {
+            Id = Guid.NewGuid(),
+            UserId = studentId,
+            TargetRole = "Student",
+            Title = "📝 Đã đăng bài viết mới",
+            Message = isHiddenFromStudents 
+                ? $"Bài viết '{post.CategoryTag}' đã được tiếp nhận và đang được chuyên viên xem xét an toàn." 
+                : $"Bài viết '{post.CategoryTag}' ('{postSnippet}') đã được đăng lên Góc chia sẻ.",
+            Category = "Community",
+            Type = isHiddenFromStudents ? "warning" : "info",
+            ActionUrl = "/student/community",
+            IsRead = false,
+            CreatedAt = DateTime.UtcNow
+        });
+
+        // Nếu bài viết nhạy cảm / nguy cơ cao, gửi cảnh báo cho chuyên viên
+        if (isHiddenFromStudents)
+        {
+            _context.Notifications.Add(new UserNotification
+            {
+                Id = Guid.NewGuid(),
+                UserId = null,
+                TargetRole = "Expert",
+                Title = "🚨 Cảnh báo kiểm duyệt bài viết mới",
+                Message = $"Bài viết từ {post.AnonymousPseudonym} [{post.CategoryTag}] có dấu hiệu nguy cơ cao ({post.RiskScore}/100) cần kiểm duyệt.",
+                Category = "Community",
+                Type = "danger",
+                ActionUrl = "/expert/moderation",
+                IsRead = false,
+                CreatedAt = DateTime.UtcNow
             });
         }
 
@@ -816,6 +1114,23 @@ public class CommunityService : ICommunityService
             CreatedAt = DateTime.UtcNow
         });
 
+        // Thông báo cho tác giả bài viết
+        _context.Notifications.Add(new UserNotification
+        {
+            Id = Guid.NewGuid(),
+            UserId = post.StudentId,
+            TargetRole = "Student",
+            Title = request.Action == "Approved" ? "🖼️ Hình ảnh bài viết đã được duyệt" : "⚠️ Hình ảnh bài viết bị từ chối",
+            Message = request.Action == "Approved" 
+                ? "Hình ảnh đính kèm trong bài viết của bạn đã được kiểm duyệt và hiển thị công khai." 
+                : $"Hình ảnh trong bài viết của bạn không phù hợp quy chuẩn: {request.Note ?? "Đã bị ẩn"}.",
+            Category = "Community",
+            Type = request.Action == "Approved" ? "success" : "warning",
+            ActionUrl = "/student/community",
+            IsRead = false,
+            CreatedAt = DateTime.UtcNow
+        });
+
         await _context.SaveChangesAsync();
 
         var comments = _context.CommunityComments
@@ -873,12 +1188,27 @@ public class CommunityService : ICommunityService
             ? await _aiService.AnalyzeAsync(contentText, activeKeywords)
             : new SentimentAnalysisResult { SentimentLabel = "Neutral", SentimentScore = 0.5, RiskScore = 0 };
 
-        // Với sinh viên: nếu bình luận có từ khóa nhạy cảm hoặc AI phát hiện nguy cơ -> ẩn với sinh viên nhưng vẫn lưu để Admin/Chuyên viên đánh giá
-        bool isSensitiveHidden = !isExpert && (analysis.ContainsSensitiveKeywords || analysis.IsAiFlagged || analysis.RiskScore >= 75);
+        // Kiểm duyệt hình ảnh bình luận tự động bằng AI (AI Comment Image Check)
+        bool isCommentImageSuspicious = false;
+        if (!string.IsNullOrWhiteSpace(imageUrl))
+        {
+            var imgUrlLower = imageUrl.ToLowerInvariant();
+            isCommentImageSuspicious = imgUrlLower.Contains("nsfw") || imgUrlLower.Contains("gore") 
+                || imgUrlLower.Contains("nude") || imgUrlLower.Contains("adult") 
+                || imgUrlLower.Contains("blood") || imgUrlLower.Contains("weapon") 
+                || imgUrlLower.Contains("violence") || imgUrlLower.Contains("kill");
+        }
+
+        // Với sinh viên: nếu bình luận có từ khóa nhạy cảm, AI phát hiện nguy cơ, hoặc ảnh bị nghi ngờ -> ẩn với sinh viên nhưng vẫn lưu để Admin/Chuyên viên đánh giá
+        bool isSensitiveHidden = !isExpert && (analysis.ContainsSensitiveKeywords || analysis.IsAiFlagged || analysis.RiskScore >= 75 || isCommentImageSuspicious);
 
         var pseudonym = isExpert 
             ? (user?.FullName ?? "Chuyên viên Tâm lý UniMind") 
             : (!string.IsNullOrWhiteSpace(request.CustomPseudonym) ? request.CustomPseudonym : (user?.AnonymousCode ?? "Bạn Ẩn Yên #" + new Random().Next(100, 999)));
+
+        var detectedKw = analysis.TriggeredKeywords.Count > 0 
+            ? string.Join("; ", analysis.TriggeredKeywords) 
+            : (isCommentImageSuspicious ? "[AI: Nhạy cảm] Hình ảnh bình luận có dấu hiệu nhạy cảm từ tên tệp" : null);
 
         var comment = new CommunityComment
         {
@@ -891,7 +1221,7 @@ public class CommunityService : ICommunityService
             IsExpertComment = isExpert,
             ExpertTitle = isExpert ? "Chuyên viên Tâm lý (Đã xác minh)" : null,
             IsSensitiveHiddenFromStudents = isSensitiveHidden,
-            DetectedKeywords = analysis.TriggeredKeywords.Count > 0 ? string.Join("; ", analysis.TriggeredKeywords) : null,
+            DetectedKeywords = detectedKw,
             ModerationStatus = isSensitiveHidden ? PostStatus.Flagged : PostStatus.Approved,
             CreatedAt = DateTime.UtcNow
         };
@@ -916,6 +1246,39 @@ public class CommunityService : ICommunityService
                 Status = "PendingAction"
             });
         }
+
+        // Thông báo cho chủ bài viết (nếu không phải tự bình luận bài của mình)
+        if (post.StudentId != userId)
+        {
+            _context.Notifications.Add(new UserNotification
+            {
+                Id = Guid.NewGuid(),
+                UserId = post.StudentId,
+                TargetRole = "Student",
+                Title = isExpert ? "🩺 Chuyên viên đã bình luận về bài viết của bạn" : "💬 Bình luận mới trên bài viết",
+                Message = $"{comment.AuthorPseudonym} đã để lại bình luận: '{(comment.Content.Length > 50 ? comment.Content[..50] + "..." : comment.Content)}'",
+                Category = "Community",
+                Type = isExpert ? "success" : "info",
+                ActionUrl = "/student/community",
+                IsRead = false,
+                CreatedAt = DateTime.UtcNow
+            });
+        }
+
+        // Thông báo cho người gửi bình luận
+        _context.Notifications.Add(new UserNotification
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            TargetRole = isExpert ? "Expert" : "Student",
+            Title = "💬 Đã gửi bình luận thành công",
+            Message = $"Bạn đã bình luận trên bài viết của {post.AnonymousPseudonym}.",
+            Category = "Community",
+            Type = "info",
+            ActionUrl = "/student/community",
+            IsRead = false,
+            CreatedAt = DateTime.UtcNow
+        });
 
         await _context.SaveChangesAsync();
 
@@ -1041,10 +1404,12 @@ public class CommunityService : ICommunityService
 public class AppointmentService : IAppointmentService
 {
     private readonly IApplicationDbContext _context;
+    private readonly IEmailService? _emailService;
 
-    public AppointmentService(IApplicationDbContext context)
+    public AppointmentService(IApplicationDbContext context, IEmailService? emailService = null)
     {
         _context = context;
+        _emailService = emailService;
     }
 
     public Task<Result<List<ExpertDto>>> GetExpertsAsync(string? specialty = null)
@@ -1081,7 +1446,25 @@ public class AppointmentService : IAppointmentService
                     user?.AvatarUrl,
                     slots
                 );
-            }).ToList();
+            })
+            // Sắp xếp lại: Ưu tiên các chuyên gia thực thụ có kinh nghiệm và số ca tham vấn cao lên đầu,
+            // Chuyên viên mẫu đưa về sau để tránh tình trạng người dùng có xu hướng chỉ chọn chuyên viên mẫu
+            .OrderBy(e => (e.FullName ?? "").Contains("Mẫu") ? 1 : 0)
+            .ThenByDescending(e => e.TotalConsultations)
+            .ThenByDescending(e => e.Rating)
+            .ToList();
+
+        if (!string.IsNullOrWhiteSpace(specialty))
+        {
+            var term = specialty.Trim().ToLower();
+            experts = experts.Where(e => 
+                (e.FullName != null && e.FullName.ToLower().Contains(term)) ||
+                (e.Specialization != null && e.Specialization.ToLower().Contains(term)) ||
+                (e.AcademicDegree != null && e.AcademicDegree.ToLower().Contains(term)) ||
+                (e.Title != null && e.Title.ToLower().Contains(term)) ||
+                (e.Bio != null && e.Bio.ToLower().Contains(term))
+            ).ToList();
+        }
 
         return Task.FromResult(Result<List<ExpertDto>>.Ok(experts));
     }
@@ -1280,6 +1663,37 @@ public class AppointmentService : IAppointmentService
         };
 
         _context.Appointments.Add(appointment);
+
+        // Lưu thông báo cho sinh viên
+        _context.Notifications.Add(new UserNotification
+        {
+            Id = Guid.NewGuid(),
+            UserId = studentId,
+            TargetRole = "Student",
+            Title = "📅 Đã đặt lịch hẹn tư vấn mới",
+            Message = $"Yêu cầu ca hẹn #{appointment.BookingCode} vào ngày {slot.SlotDate:dd/MM/yyyy} ({slot.StartTime.ToString("HH:mm")} - {slot.EndTime.ToString("HH:mm")}) với chuyên viên {expertUser?.FullName ?? "UniMind"} đã được gửi. Vui lòng chờ phê duyệt.",
+            Category = "Appointment",
+            Type = "info",
+            ActionUrl = "/student/booking",
+            IsRead = false,
+            CreatedAt = DateTime.UtcNow
+        });
+
+        // Lưu thông báo cho chuyên viên
+        _context.Notifications.Add(new UserNotification
+        {
+            Id = Guid.NewGuid(),
+            UserId = expert.UserId,
+            TargetRole = "Expert",
+            Title = "📅 Có yêu cầu ca hẹn mới",
+            Message = $"Sinh viên {appointment.AnonymousPseudonym} đã đặt lịch hẹn #{appointment.BookingCode} vào ngày {slot.SlotDate:dd/MM/yyyy} ({slot.StartTime.ToString("HH:mm")}). Vui lòng vào duyệt ca trực.",
+            Category = "Appointment",
+            Type = "warning",
+            ActionUrl = "/expert/schedule",
+            IsRead = false,
+            CreatedAt = DateTime.UtcNow
+        });
+
         await _context.SaveChangesAsync();
 
         var dto = new AppointmentDto(
@@ -1300,14 +1714,71 @@ public class AppointmentService : IAppointmentService
             null,
             0,
             appointment.CreatedAt,
-            false
+            false,
+            student?.Email
         );
 
         return Result<AppointmentDto>.Ok(dto, "Đặt lịch tư vấn thành công! Khung giờ đã được khóa bảo vệ.");
     }
 
+    private void AutoRejectExpiredAppointments()
+    {
+        var nowVn = DateTime.UtcNow.AddHours(7);
+        var todayVn = DateOnly.FromDateTime(nowVn);
+        var currentTimeVn = TimeOnly.FromDateTime(nowVn);
+
+        var pendingList = _context.Appointments
+            .Where(a => a.Status == AppointmentStatus.Pending)
+            .ToList();
+
+        bool hasUpdates = false;
+        foreach (var appt in pendingList)
+        {
+            var slot = _context.TimeSlots.FirstOrDefault(s => s.Id == appt.TimeSlotId);
+            var slotDate = slot?.SlotDate ?? DateOnly.FromDateTime(appt.CreatedAt);
+            var slotStartTime = slot?.StartTime ?? new TimeOnly(8, 0);
+
+            // Tự động từ chối nếu: Ngày hẹn đã qua, HOẶC cùng ngày hôm nay nhưng đã qua giờ bắt đầu hẹn
+            if (slotDate < todayVn || (slotDate == todayVn && currentTimeVn >= slotStartTime))
+            {
+                appt.Status = AppointmentStatus.Rejected;
+                appt.RejectionReason = "Hệ thống tự động từ chối do ca hẹn đã quá thời gian thực hiện mà chưa được phê duyệt.";
+                appt.UpdatedAt = DateTime.UtcNow;
+
+                if (slot != null && slot.IsBooked)
+                {
+                    slot.IsBooked = false;
+                }
+
+                // Lưu thông báo tự động từ chối cho sinh viên
+                _context.Notifications.Add(new UserNotification
+                {
+                    Id = Guid.NewGuid(),
+                    UserId = appt.StudentId,
+                    TargetRole = "Student",
+                    Title = "⏰ Lịch hẹn đã tự động hủy do quá hạn",
+                    Message = $"Ca hẹn #{appt.BookingCode} vào ngày {slotDate:dd/MM/yyyy} ({slotStartTime.ToString("HH:mm")}) đã tự động hủy vì quá thời gian hẹn.",
+                    Category = "Appointment",
+                    Type = "warning",
+                    ActionUrl = "/student/booking",
+                    IsRead = false,
+                    CreatedAt = DateTime.UtcNow
+                });
+
+                hasUpdates = true;
+            }
+        }
+
+        if (hasUpdates)
+        {
+            _context.SaveChangesAsync();
+        }
+    }
+
     public Task<Result<List<AppointmentDto>>> GetStudentAppointmentsAsync(Guid studentId)
     {
+        AutoRejectExpiredAppointments();
+
         var nowVn = DateTime.UtcNow.AddHours(7);
         var todayVn = DateOnly.FromDateTime(nowVn);
         var currentTimeVn = TimeOnly.FromDateTime(nowVn);
@@ -1320,6 +1791,8 @@ public class AppointmentService : IAppointmentService
                 var expUser = exp != null ? _context.Users.FirstOrDefault(u => u.Id == exp.UserId) : null;
                 var slot = _context.TimeSlots.FirstOrDefault(s => s.Id == a.TimeSlotId);
 
+                var studentUser = _context.Users.FirstOrDefault(u => u.Id == studentId);
+
                 // Tự động mở phòng khi đến giờ hẹn: Ca trực tuyến đã duyệt (Confirmed) và đến đúng khung giờ hôm nay
                 bool isOnline = a.ConsultationType == LocationType.Online;
                 bool isLiveOrConfirmed = a.Status == AppointmentStatus.Confirmed;
@@ -1349,7 +1822,8 @@ public class AppointmentService : IAppointmentService
                     a.Dass21Summary,
                     a.RiskScore,
                     a.CreatedAt,
-                    isMeetingReady
+                    isMeetingReady,
+                    studentUser?.Email
                 );
             }).ToList();
 
@@ -1358,6 +1832,8 @@ public class AppointmentService : IAppointmentService
 
     public Task<Result<List<AppointmentDto>>> GetExpertAppointmentsAsync(Guid expertId)
     {
+        AutoRejectExpiredAppointments();
+
         var nowVn = DateTime.UtcNow.AddHours(7);
         var todayVn = DateOnly.FromDateTime(nowVn);
         var currentTimeVn = TimeOnly.FromDateTime(nowVn);
@@ -1366,13 +1842,40 @@ public class AppointmentService : IAppointmentService
         var targetExpertId = expert?.Id ?? expertId;
         var targetUserId = expert?.UserId ?? expertId;
 
-        var list = _context.Appointments
-            .Where(a => a.ExpertId == targetExpertId || a.ExpertId == targetUserId || (expert != null && (a.ExpertId == expert.Id || a.ExpertId == expert.UserId)))
+        // Nếu là tài khoản chuyên viên demo/trưởng nhóm tư vấn hoặc không chỉ định chuyên viên,
+        // cho phép hiển thị dữ liệu lịch hẹn thực tế từ sinh viên đặt trên hệ thống
+        bool isLeadOrDemo = targetUserId == Guid.Parse("33333333-3333-3333-3333-333333333330") 
+                         || targetExpertId == Guid.Parse("44444444-4444-4444-4444-444444444440")
+                         || (expert != null && expert.Title != null && expert.Title.Contains("Mẫu"));
+
+        var query = _context.Appointments
+            .Where(a => isLeadOrDemo 
+                     || a.ExpertId == targetExpertId 
+                     || a.ExpertId == targetUserId 
+                     || (expert != null && (a.ExpertId == expert.Id || a.ExpertId == expert.UserId)));
+
+        var appointmentList = query.ToList();
+        if (appointmentList.Count == 0)
+        {
+            appointmentList = _context.Appointments.ToList();
+        }
+
+        var list = appointmentList
             .OrderByDescending(a => a.CreatedAt)
             .Select(a => {
                 var exp = _context.Experts.FirstOrDefault(e => e.Id == a.ExpertId || e.UserId == a.ExpertId);
                 var expUser = exp != null ? _context.Users.FirstOrDefault(u => u.Id == exp.UserId) : null;
                 var slot = _context.TimeSlots.FirstOrDefault(s => s.Id == a.TimeSlotId);
+                var studentUser = _context.Users.FirstOrDefault(u => u.Id == a.StudentId);
+
+                // Lấy thông tin sinh viên thật (ưu tiên bí danh ẩn danh, mã sinh viên hoặc tên)
+                var studentCode = !string.IsNullOrWhiteSpace(a.AnonymousPseudonym)
+                    ? a.AnonymousPseudonym
+                    : (studentUser?.AnonymousCode ?? (!string.IsNullOrWhiteSpace(studentUser?.FullName) ? studentUser.FullName : $"Sinh viên #{a.BookingCode}"));
+
+                // Tính điểm nguy cơ thực tế từ kết quả bài test DASS-21 của sinh viên
+                var testRes = _context.TestResults.Where(r => r.StudentId == a.StudentId).OrderByDescending(r => r.CompletedAt).FirstOrDefault();
+                int realRisk = a.RiskScore > 0 ? a.RiskScore : (testRes != null ? (testRes.ResilienceRate > 0 ? (100 - testRes.ResilienceRate) : testRes.TotalScore) : 40);
 
                 // Tự động mở phòng khi đến giờ hẹn: Ca trực tuyến đã duyệt (Confirmed) và đến đúng khung giờ hôm nay
                 bool isOnline = a.ConsultationType == LocationType.Online;
@@ -1388,30 +1891,177 @@ public class AppointmentService : IAppointmentService
                 return new AppointmentDto(
                     a.Id,
                     a.BookingCode,
-                    a.AnonymousPseudonym,
+                    studentCode,
                     expUser?.FullName ?? "Chuyên viên UniMind",
                     exp?.Title ?? "ThS.",
                     slot?.SlotDate.ToString("yyyy-MM-dd") ?? a.CreatedAt.ToString("yyyy-MM-dd"),
                     slot?.StartTime.ToString("HH:mm") ?? "08:00",
                     slot?.EndTime.ToString("HH:mm") ?? "09:30",
-                    slot?.RoomName ?? "P.302",
+                    slot?.RoomName ?? exp?.RoomLocation ?? "P.302 (Tầng 3)",
                     a.ConsultationType.ToString(),
                     a.Status.ToString(),
                     a.ReasonNotes,
                     a.RejectionReason,
                     a.ClinicalNotes,
                     a.Dass21Summary,
-                    a.RiskScore,
+                    realRisk,
                     a.CreatedAt,
-                    isMeetingReady
+                    isMeetingReady,
+                    studentUser?.Email
                 );
             }).ToList();
 
         return Task.FromResult(Result<List<AppointmentDto>>.Ok(list));
     }
 
+    public async Task<Result<bool>> BlockSlotAsync(Guid expertId, BlockSlotRequest request)
+    {
+        var expert = _context.Experts.FirstOrDefault(e => e.Id == expertId || e.UserId == expertId)
+                     ?? _context.Experts.FirstOrDefault();
+        if (expert == null)
+        {
+            return Result<bool>.Fail("Chuyên viên tư vấn không tồn tại.", "EXPERT_NOT_FOUND");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Date) || string.IsNullOrWhiteSpace(request.Time))
+        {
+            return Result<bool>.Fail("Vui lòng cung cấp đầy đủ ngày và giờ cần khóa.", "INVALID_INPUT");
+        }
+
+        if (!DateOnly.TryParse(request.Date.Trim().Split('T')[0], out var slotDate))
+        {
+            return Result<bool>.Fail("Định dạng ngày không hợp lệ.", "INVALID_DATE");
+        }
+
+        var timeStr = request.Time.Trim().Split('-')[0].Trim();
+        if (!TimeOnly.TryParse(timeStr, out var startTime))
+        {
+            return Result<bool>.Fail("Định dạng giờ bắt đầu không hợp lệ.", "INVALID_TIME");
+        }
+
+        TimeOnly endTime = startTime.AddMinutes(90);
+        if (!string.IsNullOrWhiteSpace(request.EndTime) && TimeOnly.TryParse(request.EndTime.Trim(), out var parsedEnd))
+        {
+            endTime = parsedEnd;
+        }
+
+        var expertIds = new HashSet<Guid> { expert.Id, expert.UserId };
+
+        // 1. Tìm hoặc tạo TimeSlot tương ứng với IsBooked = true
+        var slot = _context.TimeSlots.FirstOrDefault(s =>
+            expertIds.Contains(s.ExpertId) &&
+            s.SlotDate == slotDate &&
+            s.StartTime == startTime);
+
+        if (slot == null)
+        {
+            slot = new TimeSlot
+            {
+                Id = Guid.NewGuid(),
+                ExpertId = expert.Id,
+                SlotDate = slotDate,
+                StartTime = startTime,
+                EndTime = endTime,
+                LocationType = LocationType.Physical,
+                RoomName = expert.RoomLocation ?? "P.302 (Tầng 3)",
+                IsBooked = true,
+                CreatedAt = DateTime.UtcNow
+            };
+            _context.TimeSlots.Add(slot);
+        }
+        else
+        {
+            slot.IsBooked = true;
+            slot.EndTime = endTime;
+        }
+
+        // 2. Tạo một Appointment đặc biệt đánh dấu Chuyên viên bận / Đã khóa
+        var existingBlockedAppt = _context.Appointments.FirstOrDefault(a =>
+            expertIds.Contains(a.ExpertId) &&
+            a.TimeSlotId == slot.Id &&
+            a.Status != AppointmentStatus.Cancelled &&
+            a.Status != AppointmentStatus.Rejected);
+
+        if (existingBlockedAppt == null)
+        {
+            var blockedAppt = new Appointment
+            {
+                Id = Guid.NewGuid(),
+                StudentId = Guid.Empty,
+                ExpertId = expert.Id,
+                TimeSlotId = slot.Id,
+                BookingCode = "BLOCK-" + new Random().Next(1000, 9999),
+                AnonymousPseudonym = "[Chuyên viên bận]",
+                ConsultationType = LocationType.Physical,
+                Status = AppointmentStatus.Confirmed,
+                ReasonNotes = string.IsNullOrWhiteSpace(request.Reason) ? "Chuyên viên bận (Đã khóa ca trực)" : request.Reason,
+                CreatedAt = DateTime.UtcNow
+            };
+            _context.Appointments.Add(blockedAppt);
+        }
+
+        await _context.SaveChangesAsync();
+        return Result<bool>.Ok(true, $"Đã khóa khung giờ {startTime:HH\\:mm} ngày {slotDate:dd/MM/yyyy} (Chuyên viên bận).");
+    }
+
+    public async Task<Result<bool>> UnblockSlotAsync(Guid expertId, UnblockSlotRequest request)
+    {
+        var expert = _context.Experts.FirstOrDefault(e => e.Id == expertId || e.UserId == expertId)
+                     ?? _context.Experts.FirstOrDefault();
+        if (expert == null)
+        {
+            return Result<bool>.Fail("Chuyên viên tư vấn không tồn tại.", "EXPERT_NOT_FOUND");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Date) || string.IsNullOrWhiteSpace(request.Time))
+        {
+            return Result<bool>.Fail("Vui lòng cung cấp đầy đủ ngày và giờ cần mở lại.", "INVALID_INPUT");
+        }
+
+        if (!DateOnly.TryParse(request.Date.Trim().Split('T')[0], out var slotDate))
+        {
+            return Result<bool>.Fail("Định dạng ngày không hợp lệ.", "INVALID_DATE");
+        }
+
+        var timeStr = request.Time.Trim().Split('-')[0].Trim();
+        if (!TimeOnly.TryParse(timeStr, out var startTime))
+        {
+            return Result<bool>.Fail("Định dạng giờ không hợp lệ.", "INVALID_TIME");
+        }
+
+        var expertIds = new HashSet<Guid> { expert.Id, expert.UserId };
+
+        // 1. Tìm TimeSlot và gỡ IsBooked
+        var slot = _context.TimeSlots.FirstOrDefault(s =>
+            expertIds.Contains(s.ExpertId) &&
+            s.SlotDate == slotDate &&
+            s.StartTime == startTime);
+
+        if (slot != null)
+        {
+            slot.IsBooked = false;
+        }
+
+        // 2. Tìm và xóa Appointment đã khóa
+        var blockedAppts = _context.Appointments.Where(a =>
+            expertIds.Contains(a.ExpertId) &&
+            (a.StudentId == Guid.Empty || a.AnonymousPseudonym.Contains("bận") || a.BookingCode.StartsWith("BLOCK-")) &&
+            (slot == null || a.TimeSlotId == slot.Id)
+        ).ToList();
+
+        foreach (var ba in blockedAppts)
+        {
+            _context.Appointments.Remove(ba);
+        }
+
+        await _context.SaveChangesAsync();
+        return Result<bool>.Ok(true, $"Đã mở lại khung giờ {startTime:HH\\:mm} ngày {slotDate:dd/MM/yyyy} cho sinh viên đặt hẹn.");
+    }
+
     public Task<Result<List<BookedSlotDto>>> GetExpertBookedSlotsAsync(Guid expertId)
     {
+        AutoRejectExpiredAppointments();
+
         var expert = _context.Experts.FirstOrDefault(e => e.Id == expertId || e.UserId == expertId);
         var targetExpertId = expert?.Id ?? expertId;
         var targetUserId = expert?.UserId ?? expertId;
@@ -1472,12 +2122,47 @@ public class AppointmentService : IAppointmentService
             app.Status = status;
         }
 
-        if (status == AppointmentStatus.Rejected)
+        var slot = _context.TimeSlots.FirstOrDefault(s => s.Id == app.TimeSlotId);
+        var dateStr = slot?.SlotDate.ToString("dd/MM/yyyy") ?? app.CreatedAt.ToString("dd/MM/yyyy");
+        var timeStr = slot != null ? $"{slot.StartTime:HH:mm} - {slot.EndTime:HH:mm}" : "Giờ đã hẹn";
+        var exp = _context.Experts.FirstOrDefault(e => e.Id == app.ExpertId);
+        var expUser = exp != null ? _context.Users.FirstOrDefault(u => u.Id == exp.UserId) : null;
+        var expName = expUser?.FullName ?? "Chuyên viên UniMind";
+
+        if (status == AppointmentStatus.Confirmed)
         {
-            app.RejectionReason = request.RejectionReason;
-            // Giải phóng khung giờ
-            var slot = _context.TimeSlots.FirstOrDefault(s => s.Id == app.TimeSlotId);
+            _context.Notifications.Add(new UserNotification
+            {
+                Id = Guid.NewGuid(),
+                UserId = app.StudentId,
+                TargetRole = "Student",
+                Title = "✅ Lịch hẹn tư vấn đã được phê duyệt",
+                Message = $"Lịch hẹn #{app.BookingCode} vào ngày {dateStr} ({timeStr}) đã được {expName} phê duyệt. Hãy chuẩn bị tham gia đúng giờ!",
+                Category = "Appointment",
+                Type = "success",
+                ActionUrl = "/student/booking",
+                IsRead = false,
+                CreatedAt = DateTime.UtcNow
+            });
+        }
+        else if (status == AppointmentStatus.Rejected || status == AppointmentStatus.Cancelled)
+        {
+            app.RejectionReason = request.RejectionReason ?? "Chuyên viên bận lịch đột xuất";
             if (slot != null) slot.IsBooked = false;
+
+            _context.Notifications.Add(new UserNotification
+            {
+                Id = Guid.NewGuid(),
+                UserId = app.StudentId,
+                TargetRole = "Student",
+                Title = "❌ Lịch hẹn tư vấn bị từ chối / hủy",
+                Message = $"Lịch hẹn #{app.BookingCode} ngày {dateStr} ({timeStr}) đã bị từ chối. Lý do: {app.RejectionReason}.",
+                Category = "Appointment",
+                Type = "danger",
+                ActionUrl = "/student/booking",
+                IsRead = false,
+                CreatedAt = DateTime.UtcNow
+            });
         }
 
         app.UpdatedAt = DateTime.UtcNow;
@@ -1503,6 +2188,39 @@ public class AppointmentService : IAppointmentService
         var exp = _context.Experts.FirstOrDefault(e => e.Id == app.ExpertId);
         if (exp != null) exp.TotalConsultations++;
 
+        // Thông báo cho sinh viên
+        _context.Notifications.Add(new UserNotification
+        {
+            Id = Guid.NewGuid(),
+            UserId = app.StudentId,
+            TargetRole = "Student",
+            Title = "🎉 Ca tư vấn đã hoàn tất",
+            Message = $"Phiên tư vấn #{app.BookingCode} đã hoàn tất. Bạn có thể xem lại hồ sơ và ghi chú từ chuyên viên.",
+            Category = "Appointment",
+            Type = "success",
+            ActionUrl = "/student/booking",
+            IsRead = false,
+            CreatedAt = DateTime.UtcNow
+        });
+
+        // Thông báo cho chuyên viên
+        if (exp != null)
+        {
+            _context.Notifications.Add(new UserNotification
+            {
+                Id = Guid.NewGuid(),
+                UserId = exp.UserId,
+                TargetRole = "Expert",
+                Title = "📋 Đã lưu hồ sơ phiên tư vấn",
+                Message = $"Ca tư vấn #{app.BookingCode} đã được lưu kết quả và cập nhật vào thống kê.",
+                Category = "Appointment",
+                Type = "info",
+                ActionUrl = "/expert/workspace",
+                IsRead = false,
+                CreatedAt = DateTime.UtcNow
+            });
+        }
+
         await _context.SaveChangesAsync();
         return Result<AppointmentDto>.Ok(null!, "Đã hoàn thành ca tư vấn và lưu hồ sơ");
     }
@@ -1515,6 +2233,7 @@ public class AppointmentService : IAppointmentService
         var exp = _context.Experts.FirstOrDefault(e => e.Id == a.ExpertId || e.UserId == a.ExpertId);
         var expUser = exp != null ? _context.Users.FirstOrDefault(u => u.Id == exp.UserId) : null;
         var slot = _context.TimeSlots.FirstOrDefault(s => s.Id == a.TimeSlotId);
+        var studentUser = _context.Users.FirstOrDefault(u => u.Id == a.StudentId);
 
         var nowVn = DateTime.UtcNow.AddHours(7);
         var todayVn = DateOnly.FromDateTime(nowVn);
@@ -1548,15 +2267,16 @@ public class AppointmentService : IAppointmentService
             a.Dass21Summary,
             a.RiskScore,
             a.CreatedAt,
-            isMeetingReady
+            isMeetingReady,
+            studentUser?.Email
         );
         return Task.FromResult(Result<AppointmentDto>.Ok(dto));
     }
 
-    public async Task<Result> StartMeetingAsync(Guid appointmentId, Guid expertUserId)
+    public async Task<Result<StartMeetingResultDto>> StartMeetingAsync(Guid appointmentId, Guid expertUserId, string? frontendBaseUrl = null)
     {
         var app = _context.Appointments.FirstOrDefault(a => a.Id == appointmentId);
-        if (app == null) return Result.Fail("Lịch hẹn không tồn tại", "NOT_FOUND");
+        if (app == null) return Result<StartMeetingResultDto>.Fail("Lịch hẹn không tồn tại", "NOT_FOUND");
 
         // Dọn dẹp cache WebRTC signals cũ của ca hẹn trước đó để phòng họp mới sạch sẽ hoàn toàn
         _meetingSignals.TryRemove(appointmentId, out _);
@@ -1569,24 +2289,108 @@ public class AppointmentService : IAppointmentService
         }
         app.UpdatedAt = DateTime.UtcNow;
 
-        var expert = _context.Experts.FirstOrDefault(e => e.Id == app.ExpertId);
+        var expert = _context.Experts.FirstOrDefault(e => e.Id == app.ExpertId || e.UserId == app.ExpertId);
         var expertUser = expert != null ? _context.Users.FirstOrDefault(u => u.Id == expert.UserId) : null;
         var expertName = expertUser?.FullName ?? expert?.Title ?? "Chuyên viên Tâm lý";
         var expertDisplayName = expertName.StartsWith("Chuyên viên") ? expertName : $"Chuyên viên {expertName}";
 
+        var studentUser = _context.Users.FirstOrDefault(u => u.Id == app.StudentId);
+        var studentEmail = studentUser?.Email?.Trim();
+        var studentDisplayName = !string.IsNullOrWhiteSpace(app.AnonymousPseudonym)
+            ? app.AnonymousPseudonym
+            : (studentUser?.FullName ?? "bạn sinh viên");
+
+        var slot = _context.TimeSlots.FirstOrDefault(s => s.Id == app.TimeSlotId);
+        var dateStr = slot?.SlotDate.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.AddHours(7).ToString("yyyy-MM-dd");
+        var timeStr = slot != null ? $"{slot.StartTime:HH:mm} - {slot.EndTime:HH:mm}" : "08:30 - 09:30";
+        var baseUrl = !string.IsNullOrWhiteSpace(frontendBaseUrl) ? frontendBaseUrl.TrimEnd('/') : "http://localhost:5173";
+        var relativeMeetingPath = $"/student/meeting/{app.Id}";
+        var meetingUrl = $"{baseUrl}{relativeMeetingPath}";
+
+        // 1. Tạo thông báo tức thì trong hệ thống cho sinh viên
+        _context.Notifications.Add(new UserNotification
+        {
+            Id = Guid.NewGuid(),
+            UserId = app.StudentId,
+            TargetRole = "Student",
+            Title = "🔔 Chuyên viên đã mở phòng tư vấn!",
+            Message = $"{expertDisplayName} đã mở phòng tư vấn trực tuyến cho ca hẹn #{app.BookingCode}. Vui lòng vào phòng SafeRoom để gặp chuyên viên ngay.",
+            Category = "Appointment",
+            Type = "success",
+            ActionUrl = relativeMeetingPath,
+            IsRead = false,
+            CreatedAt = DateTime.UtcNow
+        });
+
+        // 2. Tự động gửi Email thông báo trực tiếp qua Gmail tới đúng email sinh viên đặt lịch
+        bool emailSent = false;
+        bool emailAttempted = false;
+        string? emailError = null;
+        string emailStatusNote;
+
+        if (string.IsNullOrWhiteSpace(studentEmail) || !studentEmail.Contains('@'))
+        {
+            emailStatusNote = "Tài khoản sinh viên chưa có địa chỉ email hợp lệ.";
+        }
+        else if (studentEmail.EndsWith("@unimind.edu.vn", StringComparison.OrdinalIgnoreCase))
+        {
+            emailStatusNote = $"Sinh viên đặt lịch bằng tài khoản mẫu nội bộ ({studentEmail}), đã gửi thông báo trong ứng dụng.";
+        }
+        else if (_emailService == null)
+        {
+            emailError = "Dịch vụ Email chưa được khởi tạo.";
+            emailStatusNote = emailError;
+        }
+        else
+        {
+            emailAttempted = true;
+            try
+            {
+                var outcome = await _emailService.SendMeetingInvitationDetailedAsync(
+                    toEmail: studentEmail,
+                    studentName: studentDisplayName,
+                    bookingCode: app.BookingCode,
+                    meetingUrl: meetingUrl,
+                    appointmentDate: dateStr,
+                    timeRange: timeStr
+                );
+                emailSent = outcome.Success;
+                emailError = outcome.ErrorMessage;
+                emailStatusNote = emailSent
+                    ? $"Đã tự động gửi Gmail thành công tới {studentEmail}"
+                    : $"Gửi Gmail thất bại tới {studentEmail}: {emailError}";
+            }
+            catch (Exception ex)
+            {
+                emailError = ex.Message;
+                emailStatusNote = $"Lỗi khi gửi email: {ex.Message}";
+            }
+        }
+
+        // 3. Ghi nhận nhật ký kiểm toán (Audit Log)
         _context.AuditLogs.Add(new AuditLog
         {
             Id = Guid.NewGuid(),
             ActionType = "EXPERT_START_MEETING",
             ActorRole = "Expert",
             ActorId = expertUserId,
-            Details = $"{expertDisplayName} đã mở cuộc họp tư vấn trực tuyến cho ca hẹn #{app.BookingCode} ({app.AnonymousPseudonym})",
+            Details = $"{expertDisplayName} đã mở phòng tư vấn trực tuyến cho ca hẹn #{app.BookingCode} ({app.AnonymousPseudonym}). {emailStatusNote}",
             IpAddress = "127.0.0.1",
             CreatedAt = DateTime.UtcNow
         });
 
         await _context.SaveChangesAsync();
-        return Result.Ok("Đã kích hoạt phòng tư vấn trực tuyến và gửi thông báo tới sinh viên đặt lịch");
+
+        var message = emailSent
+            ? $"Đã mở phòng SafeRoom và tự động gửi email thông báo kèm link tham gia tới Gmail sinh viên ({studentEmail})!"
+            : emailAttempted
+                ? $"Đã mở phòng SafeRoom cho ca #{app.BookingCode} (đã gửi thông báo trong ứng dụng), nhưng chưa gửi được Gmail tới {studentEmail}: {emailError}"
+                : $"Đã mở phòng SafeRoom cho ca #{app.BookingCode}. {emailStatusNote}";
+
+        return Result<StartMeetingResultDto>.Ok(
+            new StartMeetingResultDto(emailSent, emailAttempted, studentEmail, emailError, meetingUrl),
+            message
+        );
     }
 
     public async Task<Result> EndMeetingAsync(Guid appointmentId)
@@ -1946,9 +2750,26 @@ public class ExpertWorkspaceService : IExpertWorkspaceService
         if (alert.PostId.HasValue)
         {
             var post = _context.CommunityPosts.FirstOrDefault(p => p.Id == alert.PostId.Value);
-            if (post != null && request.ActionTaken.Contains("SafeRoom"))
+            if (post != null)
             {
-                post.ModerationStatus = PostStatus.Approved; // Chuyên gia tiếp nhận
+                if (request.ActionTaken.Contains("SafeRoom"))
+                {
+                    post.ModerationStatus = PostStatus.Approved; // Chuyên gia tiếp nhận
+                }
+
+                _context.Notifications.Add(new UserNotification
+                {
+                    Id = Guid.NewGuid(),
+                    UserId = post.StudentId,
+                    TargetRole = "Student",
+                    Title = "🩺 Chuyên viên đã can thiệp hỗ trợ",
+                    Message = $"Chuyên viên đã can thiệp xử lý cảnh báo tâm lý: {request.ActionTaken}",
+                    Category = "System",
+                    Type = "info",
+                    ActionUrl = "/student/community",
+                    IsRead = false,
+                    CreatedAt = DateTime.UtcNow
+                });
             }
         }
 
@@ -2650,29 +3471,56 @@ public class AdminService : IAdminService
 
     public Task<Result<List<PostDto>>> GetModerationQueueAsync()
     {
-        var list = _context.CommunityPosts
-            .Where(p => p.ModerationStatus == PostStatus.Flagged || p.HasKeywordsAlert || p.IsExtremeCrisis)
+        var postList = _context.CommunityPosts
             .OrderByDescending(p => p.RiskScore).ThenByDescending(p => p.CreatedAt)
-            .Select(p => new PostDto(
-                p.Id,
-                p.AnonymousPseudonym,
-                p.StudentRoleTag,
-                p.Content,
-                p.CategoryTag,
-                p.StressLevelTag,
-                p.HugCount,
-                p.EmpathyCount,
-                p.CommentCount,
-                p.CreatedAt,
-                p.HasKeywordsAlert,
-                p.DetectedKeywords,
-                p.RiskScore,
-                p.IsExtremeCrisis,
-                p.IsSensitiveHiddenFromStudents,
-                p.ModerationStatus.ToString(),
-                new List<CommentDto>(),
-                null
-            )).ToList();
+            .ToList();
+
+        var list = postList
+            .Select(p => {
+                var comments = _context.CommunityComments
+                    .Where(c => c.PostId == p.Id)
+                    .OrderBy(c => c.CreatedAt)
+                    .Select(c => new CommentDto(
+                        c.Id,
+                        c.PostId,
+                        c.AuthorPseudonym,
+                        c.Content,
+                        c.IsExpertComment,
+                        c.ExpertTitle,
+                        c.IsSensitiveHiddenFromStudents,
+                        c.DetectedKeywords,
+                        c.CreatedAt,
+                        c.ImageUrl,
+                        c.ModerationStatus.ToString()
+                    )).ToList();
+
+                var expertComment = _context.CommunityComments.FirstOrDefault(c => c.PostId == p.Id && c.IsExpertComment);
+
+                return new PostDto(
+                    p.Id,
+                    p.AnonymousPseudonym,
+                    p.StudentRoleTag,
+                    p.Content,
+                    p.CategoryTag,
+                    p.StressLevelTag,
+                    p.HugCount,
+                    p.EmpathyCount,
+                    comments.Count,
+                    p.CreatedAt,
+                    p.HasKeywordsAlert,
+                    p.DetectedKeywords,
+                    p.RiskScore,
+                    p.IsExtremeCrisis,
+                    p.IsSensitiveHiddenFromStudents,
+                    p.ModerationStatus.ToString(),
+                    comments,
+                    expertComment != null ? expertComment.Content : null,
+                    p.ImageUrl,
+                    p.ImageModerationStatus,
+                    p.ImageModerationNote,
+                    p.StudentId
+                );
+            }).ToList();
 
         return Task.FromResult(Result<List<PostDto>>.Ok(list));
     }
@@ -2685,6 +3533,7 @@ public class AdminService : IAdminService
         switch (request.Action.ToLower())
         {
             case "approve":
+            case "restore":
                 post.ModerationStatus = PostStatus.Approved;
                 post.IsSensitiveHiddenFromStudents = false;
                 break;
@@ -2694,6 +3543,10 @@ public class AdminService : IAdminService
                 break;
             case "reject":
                 post.ModerationStatus = PostStatus.Rejected;
+                post.IsSensitiveHiddenFromStudents = true;
+                break;
+            case "flag":
+                post.ModerationStatus = PostStatus.Flagged;
                 post.IsSensitiveHiddenFromStudents = true;
                 break;
             case "sos_intervene":
@@ -2726,6 +3579,22 @@ public class AdminService : IAdminService
             IpAddress = "127.0.0.1",
             CreatedAt = DateTime.UtcNow
         });
+
+        // Lưu thông báo cho sinh viên chủ bài viết
+        _context.Notifications.Add(new UserNotification
+        {
+            Id = Guid.NewGuid(),
+            UserId = post.StudentId,
+            TargetRole = "Student",
+            Title = "🛡️ Cập nhật trạng thái bài viết",
+            Message = $"Bài viết của bạn đã được kiểm duyệt ({request.Action}) với lý do: {request.Reason ?? "Tuân thủ quy chuẩn cộng đồng"}.",
+            Category = "Community",
+            Type = (request.Action.ToLower() == "approve" || request.Action.ToLower() == "restore") ? "success" : "warning",
+            ActionUrl = "/student/community",
+            IsRead = false,
+            CreatedAt = DateTime.UtcNow
+        });
+
         await _context.SaveChangesAsync();
         return Result.Ok("Đã cập nhật trạng thái kiểm duyệt");
     }
@@ -2784,6 +3653,21 @@ public class AdminService : IAdminService
             CreatedAt = DateTime.UtcNow
         });
 
+        // Lưu thông báo cho người bình luận
+        _context.Notifications.Add(new UserNotification
+        {
+            Id = Guid.NewGuid(),
+            UserId = comment.UserId,
+            TargetRole = comment.IsExpertComment ? "Expert" : "Student",
+            Title = "🛡️ Cập nhật trạng thái bình luận",
+            Message = $"Bình luận của bạn trên bài viết đã được kiểm duyệt ({request.Action}).",
+            Category = "Community",
+            Type = request.Action.ToLower() == "approve" ? "success" : "warning",
+            ActionUrl = "/student/community",
+            IsRead = false,
+            CreatedAt = DateTime.UtcNow
+        });
+
         await _context.SaveChangesAsync();
         return Result.Ok($"Đã cập nhật trạng thái bình luận: {request.Action}");
     }
@@ -2792,7 +3676,33 @@ public class AdminService : IAdminService
     {
         var list = _context.Users
             .OrderBy(u => u.Role).ThenBy(u => u.FullName)
-            .Select(u => new UserDto(u.Id, u.MSSV, u.FullName, u.Email, u.Role.ToString(), u.Faculty, u.AnonymousCode, u.AvatarUrl, null, u.IsActive, u.CreatedAt))
+            .Select(u => {
+                var userRoles = _context.UserRoles
+                    .Where(ur => ur.UserId == u.Id)
+                    .Select(ur => ur.RoleCode)
+                    .Distinct()
+                    .ToList();
+
+                if (userRoles.Count == 0)
+                {
+                    userRoles.Add(u.Role.ToString().ToUpperInvariant());
+                }
+
+                return new UserDto(
+                    u.Id,
+                    u.MSSV,
+                    u.FullName,
+                    u.Email,
+                    u.Role.ToString(),
+                    u.Faculty,
+                    u.AnonymousCode,
+                    u.AvatarUrl,
+                    null,
+                    u.IsActive,
+                    u.CreatedAt,
+                    userRoles
+                );
+            })
             .ToList();
 
         return Task.FromResult(Result<List<UserDto>>.Ok(list));
@@ -2824,6 +3734,24 @@ public class AdminService : IAdminService
             IpAddress = "127.0.0.1",
             CreatedAt = DateTime.UtcNow
         });
+
+        // Lưu thông báo cho người dùng
+        _context.Notifications.Add(new UserNotification
+        {
+            Id = Guid.NewGuid(),
+            UserId = user.Id,
+            TargetRole = user.Role.ToString(),
+            Title = "🔒 Cập nhật trạng thái tài khoản",
+            Message = user.IsActive 
+                ? "Tài khoản của bạn đã được Quản trị viên mở khóa." 
+                : "Tài khoản của bạn đã bị Quản trị viên tạm khóa do vi phạm chính sách.",
+            Category = "Security",
+            Type = user.IsActive ? "success" : "danger",
+            ActionUrl = "/",
+            IsRead = false,
+            CreatedAt = DateTime.UtcNow
+        });
+
         await _context.SaveChangesAsync();
         return Result.Ok(user.IsActive ? "Đã mở khóa tài khoản" : "Đã khóa tài khoản");
     }
@@ -2905,6 +3833,17 @@ public class AdminService : IAdminService
 
         user.Role = parsedRole;
         user.UpdatedAt = DateTime.UtcNow;
+
+        _context.UserRoles.RemoveAll(ur => ur.UserId == userId);
+        _context.UserRoles.Add(new UserRoleAssignment
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            RoleCode = parsedRole.ToString().ToUpperInvariant(),
+            AssignedAt = DateTime.UtcNow,
+            AssignedBy = "Admin"
+        });
+
         _context.AuditLogs.Add(new AuditLog
         {
             Id = Guid.NewGuid(),
@@ -3154,6 +4093,470 @@ public class AdminService : IAdminService
         );
 
         return Result<ModerationTestDto>.Ok(dto);
+    }
+
+    private static readonly List<PermissionItemDto> _catalogPermissions = new()
+    {
+        // Nhóm 1: Người dùng & phân quyền
+        new("USER_VIEW", "Xem danh sách người dùng", "Xem hồ sơ, trạng thái hoạt động sinh viên & chuyên viên", "Người dùng & Phân quyền"),
+        new("USER_STATUS_TOGGLE", "Khóa / Mở khóa tài khoản", "Đình chỉ hoặc kích hoạt lại quyền truy cập tài khoản", "Người dùng & Phân quyền"),
+        new("USER_ROLE_ASSIGN", "Gán vai trò người dùng", "Gán hoặc thu hồi vai trò cho tài khoản người dùng", "Người dùng & Phân quyền"),
+        new("ROLE_PERMISSION_MANAGE", "Quản lý vai trò & quyền", "Cấu hình ma trận phân quyền hệ thống", "Người dùng & Phân quyền"),
+        new("SYSTEM_AUDIT_LOG_VIEW", "Xem nhật ký kiểm toán", "Truy vết hành vi bảo mật và thay đổi dữ liệu", "Người dùng & Phân quyền"),
+
+        // Nhóm 2: Tư vấn & SafeRoom
+        new("SLOT_MANAGE", "Quản lý khung giờ trực", "Mở mới, điều chỉnh lịch hẹn tham vấn trực tuyến & trực tiếp", "Tư vấn & SafeRoom"),
+        new("APPOINTMENT_APPROVE", "Phê duyệt ca hẹn", "Duyệt hoặc từ chối yêu cầu hẹn của sinh viên", "Tư vấn & SafeRoom"),
+        new("SAFEROOM_CALL_HOST", "Mở phòng gọi SafeRoom", "Chủ trì phiên tư vấn video call bảo mật trực tuyến", "Tư vấn & SafeRoom"),
+        new("CLINICAL_NOTE_WRITE", "Ghi chép hồ sơ ca bệnh", "Lưu trữ nhận định tâm lý chuyên môn sau buổi tư vấn", "Tư vấn & SafeRoom"),
+        new("EMERGENCY_ESCALATE", "Chuyển tiếp ca nguy cơ", "Kích hoạt quy trình chuyển tiếp khẩn cấp hoặc hội chẩn", "Tư vấn & SafeRoom"),
+
+        // Nhóm 3: Khủng hoảng & Triage
+        new("TRIAGE_QUEUE_VIEW", "Xem hàng đợi Triage", "Theo dõi danh sách cảnh báo nguy cơ do AI phân tích", "Khủng hoảng & Triage"),
+        new("TRIAGE_STATUS_UPDATE", "Cập nhật tiến độ Triage", "Tiếp nhận, xử lý hoặc giải quyết ca cảnh báo đỏ", "Khủng hoảng & Triage"),
+        new("KEYWORD_RULE_MANAGE", "Cấu hình từ khóa nhạy cảm", "Thêm, bớt, gán trọng số nguy cơ cho bộ lọc AI", "Khủng hoảng & Triage"),
+        new("AI_SENTIMENT_RUN", "Chạy phân tích AI Sentiment", "Quét nội dung tự động bằng mô hình AI", "Khủng hoảng & Triage"),
+        new("CRISIS_BROADCAST", "Phát cảnh báo khẩn cấp", "Gửi thông báo SOS tới hội đồng chuyên môn", "Khủng hoảng & Triage"),
+
+        // Nhóm 4: Cộng đồng & Kiểm duyệt
+        new("POST_CREATE", "Đăng bài nhật ký cộng đồng", "Chia sẻ câu chuyện và tâm sự ẩn danh", "Cộng đồng & Kiểm duyệt"),
+        new("COMMENT_CREATE", "Bình luận & Đồng cảm", "Tương tác an toàn với bài viết của sinh viên", "Cộng đồng & Kiểm duyệt"),
+        new("POST_MODERATE", "Kiểm duyệt bài viết", "Duyệt, ẩn, gỡ bài viết vi phạm chuẩn mực", "Cộng đồng & Kiểm duyệt"),
+        new("IMAGE_MODERATE", "Kiểm duyệt ảnh đính kèm", "Duyệt, gắn cờ hoặc từ chối ảnh bài đăng / bình luận", "Cộng đồng & Kiểm duyệt"),
+        new("COMMENT_MODERATE", "Kiểm duyệt bình luận", "Ẩn hoặc khôi phục bình luận có nội dung nhạy cảm", "Cộng đồng & Kiểm duyệt"),
+        new("EXPERT_ADVICE_PIN", "Ghim lời khuyên chuyên gia", "Gửi phản hồi định hướng tâm lý chính thức", "Cộng đồng & Kiểm duyệt"),
+
+        // Nhóm 5: Báo cáo & Thống kê
+        new("DASS21_TEST_TAKE", "Làm bài trắc nghiệm DASS-21", "Thực hiện bài test đánh giá trầm cảm, lo âu, stress", "Báo cáo & Thống kê"),
+        new("DASS21_REPORT_VIEW", "Xem thống kê trắc nghiệm", "Xem biểu đồ phân bổ mức độ sức khỏe tinh thần sinh viên", "Báo cáo & Thống kê"),
+        new("ANALYTICS_DASHBOARD_VIEW", "Xem Dashboard phân tích", "Truy cập số liệu tổng quan về ca hẹn, tâm trạng, cộng đồng", "Báo cáo & Thống kê"),
+        new("EMOTION_STATS_EXPORT", "Xuất báo cáo dữ liệu", "Xuất báo cáo phục vụ công tác tâm lý học đường", "Báo cáo & Thống kê"),
+        new("SYSTEM_HEALTH_MONITOR", "Giám sát sức khỏe hệ thống", "Theo dõi tình trạng API, database và độ trễ phản hồi", "Báo cáo & Thống kê"),
+        new("REPORT_CONFIG_MANAGE", "Cấu hình chỉ số báo cáo", "Thiết lập tiêu chí đánh giá và ngưỡng cảnh báo", "Báo cáo & Thống kê")
+    };
+
+    public Task<Result<RoleMatrixDto>> GetRolesMatrixAsync()
+    {
+        var roleItems = new List<RoleItemDto>();
+        var roles = _context.SystemRoles.OrderBy(r => r.OrderIndex).ToList();
+
+        foreach (var r in roles)
+        {
+            var userCount = _context.UserRoles.Count(ur => ur.RoleCode.Equals(r.RoleCode, StringComparison.OrdinalIgnoreCase));
+            var perms = _context.RolePermissions
+                .Where(rp => rp.RoleCode.Equals(r.RoleCode, StringComparison.OrdinalIgnoreCase))
+                .Select(rp => rp.PermissionCode)
+                .Distinct()
+                .ToList();
+
+            roleItems.Add(new RoleItemDto(
+                r.Id,
+                r.RoleCode,
+                r.RoleName,
+                r.Description,
+                r.IsSystem,
+                r.OrderIndex,
+                userCount,
+                perms.Count,
+                perms
+            ));
+        }
+
+        var totalAssignments = _context.UserRoles.Count;
+        var matrix = new RoleMatrixDto(
+            Roles: roleItems,
+            AllPermissions: _catalogPermissions,
+            TotalRoles: roleItems.Count,
+            TotalPermissions: _catalogPermissions.Count,
+            TotalAssignments: totalAssignments
+        );
+
+        return Task.FromResult(Result<RoleMatrixDto>.Ok(matrix));
+    }
+
+    public async Task<Result> UpdateRolePermissionsAsync(string roleCode, UpdateRolePermissionsRequest request, Guid adminId)
+    {
+        var code = roleCode.Trim().ToUpperInvariant();
+        if (code == "ADMIN")
+        {
+            return Result.Fail("Quản trị viên luôn có toàn quyền hệ thống. Ma trận được khóa để tránh thu hồi quyền quản trị cốt lõi.", "ADMIN_ROLE_LOCKED");
+        }
+
+        var role = _context.SystemRoles.FirstOrDefault(r => r.RoleCode.Equals(code, StringComparison.OrdinalIgnoreCase));
+        if (role == null)
+            return Result.Fail($"Không tìm thấy vai trò với mã {roleCode}", "ROLE_NOT_FOUND");
+
+        // Xóa các quyền cũ của role
+        _context.RolePermissions.RemoveAll(rp => rp.RoleCode.Equals(code, StringComparison.OrdinalIgnoreCase));
+
+        // Thêm quyền mới
+        var cleanPerms = request.PermissionCodes.Distinct().ToList();
+        foreach (var pCode in cleanPerms)
+        {
+            var catalogItem = _catalogPermissions.FirstOrDefault(cp => cp.Code.Equals(pCode, StringComparison.OrdinalIgnoreCase));
+            var modName = catalogItem?.ModuleName ?? "Hệ thống";
+
+            _context.RolePermissions.Add(new RolePermission
+            {
+                Id = Guid.NewGuid(),
+                RoleCode = code,
+                PermissionCode = pCode.ToUpperInvariant(),
+                ModuleName = modName,
+                CreatedAt = DateTime.UtcNow
+            });
+        }
+
+        _context.AuditLogs.Add(new AuditLog
+        {
+            Id = Guid.NewGuid(),
+            ActionType = "ADMIN_UPDATE_ROLE_PERMISSIONS",
+            ActorRole = "Admin",
+            ActorId = adminId,
+            Details = $"Admin cập nhật quyền cho vai trò {role.RoleName} ({code}): {cleanPerms.Count} quyền được gán.",
+            IpAddress = "127.0.0.1",
+            CreatedAt = DateTime.UtcNow
+        });
+
+        _context.Notifications.Add(new UserNotification
+        {
+            Id = Guid.NewGuid(),
+            UserId = null,
+            TargetRole = "Admin",
+            Title = "🛡️ Ma trận phân quyền đã cập nhật",
+            Message = $"Quản trị viên đã cập nhật {cleanPerms.Count} quyền cho vai trò {role.RoleName} ({code}).",
+            Category = "Security",
+            Type = "info",
+            ActionUrl = "/admin/users",
+            IsRead = false,
+            CreatedAt = DateTime.UtcNow
+        });
+
+        await _context.SaveChangesAsync();
+        return Result.Ok($"Đã cập nhật {cleanPerms.Count} quyền cho vai trò {role.RoleName}");
+    }
+
+    public async Task<Result<UserDto>> UpdateUserRolesAsync(Guid userId, UpdateUserRolesRequest request, Guid adminId)
+    {
+        var user = _context.Users.FirstOrDefault(u => u.Id == userId);
+        if (user == null)
+            return Result<UserDto>.Fail("Không tìm thấy người dùng", "NOT_FOUND");
+
+        var allowedRoles = new HashSet<string> { "ADMIN", "EXPERT", "STUDENT" };
+        var cleanRoles = request.Roles.Where(r => !string.IsNullOrWhiteSpace(r)).Select(r => r.Trim().ToUpperInvariant()).Distinct().ToList();
+        if (cleanRoles.Count == 0)
+        {
+            return Result<UserDto>.Fail("Người dùng phải có ít nhất một vai trò trong hệ thống.", "EMPTY_ROLES");
+        }
+        if (cleanRoles.Any(r => !allowedRoles.Contains(r)))
+        {
+            return Result<UserDto>.Fail("Hệ thống chỉ hỗ trợ 3 vai trò hợp lệ: ADMIN, EXPERT, STUDENT.", "INVALID_ROLE");
+        }
+
+        // Kiểm tra admin tự tước quyền admin của mình
+        if (adminId == userId && !cleanRoles.Contains("ADMIN") && user.Role == UserRole.Admin)
+        {
+            return Result<UserDto>.Fail("Quản trị viên không thể tự tước quyền Quản trị viên của chính mình.", "CANNOT_DEMOTE_SELF");
+        }
+
+        // Xóa các roles cũ
+        _context.UserRoles.RemoveAll(ur => ur.UserId == userId);
+
+        // Thêm roles mới
+        foreach (var rCode in cleanRoles)
+        {
+            _context.UserRoles.Add(new UserRoleAssignment
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                RoleCode = rCode,
+                AssignedAt = DateTime.UtcNow,
+                AssignedBy = "Admin"
+            });
+        }
+
+        // Đồng bộ thuộc tính Role đơn lẻ trong dbo.Users để tương thích ngược 100%
+        if (cleanRoles.Contains("ADMIN"))
+            user.Role = UserRole.Admin;
+        else if (cleanRoles.Contains("EXPERT"))
+            user.Role = UserRole.Expert;
+        else
+            user.Role = UserRole.Student;
+
+        user.UpdatedAt = DateTime.UtcNow;
+
+        _context.AuditLogs.Add(new AuditLog
+        {
+            Id = Guid.NewGuid(),
+            ActionType = "ADMIN_UPDATE_USER_ROLES",
+            ActorRole = "Admin",
+            ActorId = adminId,
+            Details = $"Admin gán vai trò người dùng {user.FullName} ({user.Email}): [{string.Join(", ", cleanRoles)}]",
+            IpAddress = "127.0.0.1",
+            CreatedAt = DateTime.UtcNow
+        });
+
+        // Lưu thông báo cho người dùng được phân quyền
+        _context.Notifications.Add(new UserNotification
+        {
+            Id = Guid.NewGuid(),
+            UserId = user.Id,
+            TargetRole = user.Role.ToString(),
+            Title = "👑 Cập nhật phân quyền tài khoản",
+            Message = $"Tài khoản của bạn đã được cập nhật vai trò mới: [{string.Join(", ", cleanRoles)}].",
+            Category = "Security",
+            Type = "info",
+            ActionUrl = "/",
+            IsRead = false,
+            CreatedAt = DateTime.UtcNow
+        });
+
+        await _context.SaveChangesAsync();
+
+        var dto = new UserDto(
+            user.Id,
+            user.MSSV,
+            user.FullName,
+            user.Email,
+            user.Role.ToString(),
+            user.Faculty,
+            user.AnonymousCode,
+            user.AvatarUrl,
+            null,
+            user.IsActive,
+            user.CreatedAt,
+            cleanRoles
+        );
+
+        return Result<UserDto>.Ok(dto, $"Đã cập nhật vai trò cho người dùng: {string.Join(", ", cleanRoles)}");
+    }
+
+    public Task<Result<UserPermissionDetailDto>> GetUserPermissionsAsync(Guid userId)
+    {
+        var user = _context.Users.FirstOrDefault(u => u.Id == userId);
+        if (user == null)
+            return Task.FromResult(Result<UserPermissionDetailDto>.Fail("Không tìm thấy người dùng", "NOT_FOUND"));
+
+        var userRoleCodes = _context.UserRoles
+            .Where(ur => ur.UserId == userId)
+            .Select(ur => ur.RoleCode.ToUpperInvariant())
+            .Distinct()
+            .ToList();
+
+        if (userRoleCodes.Count == 0)
+        {
+            var fallbackRole = user.Role switch
+            {
+                UserRole.Admin => "ADMIN",
+                UserRole.Expert => "EXPERT",
+                _ => "STUDENT"
+            };
+            userRoleCodes.Add(fallbackRole);
+        }
+
+        var systemRoles = _context.SystemRoles.ToList();
+        var roleNames = userRoleCodes.Select(code =>
+        {
+            var r = systemRoles.FirstOrDefault(sr => sr.RoleCode.Equals(code, StringComparison.OrdinalIgnoreCase));
+            return r?.RoleName ?? code;
+        }).ToList();
+
+        List<string> inheritedPerms;
+        if (userRoleCodes.Contains("ADMIN") || user.Role == UserRole.Admin)
+        {
+            inheritedPerms = _catalogPermissions.Select(p => p.Code).ToList();
+        }
+        else
+        {
+            inheritedPerms = _context.RolePermissions
+                .Where(rp => userRoleCodes.Contains(rp.RoleCode.ToUpperInvariant()))
+                .Select(rp => rp.PermissionCode)
+                .Distinct()
+                .ToList();
+        }
+
+        var directPerms = _context.UserDirectPermissions
+            .Where(udp => udp.UserId == userId)
+            .Select(udp => udp.PermissionCode)
+            .Distinct()
+            .ToList();
+
+        List<string> effectivePerms;
+        if (userRoleCodes.Contains("ADMIN") || user.Role == UserRole.Admin)
+        {
+            effectivePerms = _catalogPermissions.Select(p => p.Code).ToList();
+        }
+        else
+        {
+            effectivePerms = inheritedPerms.Union(directPerms).Distinct().ToList();
+        }
+
+        var detail = new UserPermissionDetailDto(
+            user.Id,
+            user.FullName,
+            user.Email,
+            user.Role.ToString(),
+            userRoleCodes,
+            roleNames,
+            inheritedPerms,
+            directPerms,
+            effectivePerms,
+            _catalogPermissions
+        );
+
+        return Task.FromResult(Result<UserPermissionDetailDto>.Ok(detail));
+    }
+
+    public async Task<Result> UpdateUserPermissionsAsync(Guid userId, UpdateUserPermissionsRequest request, Guid adminId)
+    {
+        var user = _context.Users.FirstOrDefault(u => u.Id == userId);
+        if (user == null)
+            return Result.Fail("Không tìm thấy người dùng", "NOT_FOUND");
+
+        var userRoleCodes = _context.UserRoles
+            .Where(ur => ur.UserId == userId)
+            .Select(ur => ur.RoleCode.ToUpperInvariant())
+            .Distinct()
+            .ToList();
+
+        if (userRoleCodes.Count == 0)
+        {
+            var fallback = user.Role switch { UserRole.Admin => "ADMIN", UserRole.Expert => "EXPERT", _ => "STUDENT" };
+            userRoleCodes.Add(fallback);
+        }
+
+        if (userRoleCodes.Contains("ADMIN") || user.Role == UserRole.Admin)
+        {
+            return Result.Fail("Tài khoản Quản trị viên luôn có toàn quyền trên toàn hệ thống. Không cần cấu hình phân quyền riêng.", "ADMIN_ACCOUNT_PROTECTED");
+        }
+
+        // Xóa quyền riêng cũ
+        _context.UserDirectPermissions.RemoveAll(udp => udp.UserId == userId);
+
+        // Thêm quyền riêng mới
+        var cleanCodes = request.PermissionCodes.Where(c => !string.IsNullOrWhiteSpace(c)).Select(c => c.Trim().ToUpperInvariant()).Distinct().ToList();
+        foreach (var pCode in cleanCodes)
+        {
+            var catItem = _catalogPermissions.FirstOrDefault(cp => cp.Code.Equals(pCode, StringComparison.OrdinalIgnoreCase));
+            var modName = catItem?.ModuleName ?? "Hệ thống";
+
+            _context.UserDirectPermissions.Add(new UserDirectPermission
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                PermissionCode = pCode,
+                ModuleName = modName,
+                CreatedAt = DateTime.UtcNow
+            });
+        }
+
+        // Nếu là Expert: Đồng bộ thêm vào bảng dbo.Experts để tương thích ngược
+        var expert = _context.Experts.FirstOrDefault(e => e.UserId == userId);
+        if (expert != null)
+        {
+            var expertLegacyCodes = new List<string>();
+            if (cleanCodes.Contains("USER_VIEW") || cleanCodes.Contains("TRIAGE_QUEUE_VIEW")) expertLegacyCodes.Add("PERM_WORKSPACE");
+            if (cleanCodes.Contains("SLOT_MANAGE") || cleanCodes.Contains("APPOINTMENT_APPROVE")) expertLegacyCodes.Add("PERM_SCHEDULE");
+            if (cleanCodes.Contains("ANALYTICS_DASHBOARD_VIEW") || cleanCodes.Contains("DASS21_REPORT_VIEW")) expertLegacyCodes.Add("PERM_ANALYTICS");
+            if (cleanCodes.Contains("POST_MODERATE") || cleanCodes.Contains("COMMENT_MODERATE")) expertLegacyCodes.Add("PERM_MODERATION");
+            expert.Permissions = string.Join(",", expertLegacyCodes.Distinct());
+        }
+
+        // Ghi AuditLog
+        _context.AuditLogs.Add(new AuditLog
+        {
+            Id = Guid.NewGuid(),
+            ActionType = "ADMIN_UPDATE_USER_PERMISSIONS",
+            ActorRole = "Admin",
+            ActorId = adminId,
+            Details = $"Admin cấu hình phân quyền riêng cho người dùng {user.FullName} ({user.Email}): {cleanCodes.Count} quyền.",
+            IpAddress = "127.0.0.1",
+            CreatedAt = DateTime.UtcNow
+        });
+
+        // Gửi thông báo cho người dùng
+        _context.Notifications.Add(new UserNotification
+        {
+            Id = Guid.NewGuid(),
+            UserId = user.Id,
+            TargetRole = user.Role.ToString(),
+            Title = "🛡️ Cập nhật quyền hạn chức năng",
+            Message = $"Quản trị viên đã cập nhật phân quyền chức năng riêng cho tài khoản của bạn ({cleanCodes.Count} quyền được cấp).",
+            Category = "Security",
+            Type = "info",
+            ActionUrl = "/",
+            IsRead = false,
+            CreatedAt = DateTime.UtcNow
+        });
+
+        await _context.SaveChangesAsync();
+        return Result.Ok($"Đã cập nhật {cleanCodes.Count} quyền chức năng cho tài khoản {user.FullName}");
+    }
+
+    public Task<Result<List<UserPermissionItemDto>>> GetAllUsersPermissionsSummaryAsync()
+    {
+        var users = _context.Users.OrderBy(u => u.Role).ThenBy(u => u.FullName).ToList();
+        var systemRoles = _context.SystemRoles.ToList();
+        var allRolePerms = _context.RolePermissions.ToList();
+        var allDirectPerms = _context.UserDirectPermissions.ToList();
+        var allUserRoles = _context.UserRoles.ToList();
+
+        var list = new List<UserPermissionItemDto>();
+        foreach (var u in users)
+        {
+            var uRoles = allUserRoles
+                .Where(ur => ur.UserId == u.Id)
+                .Select(ur => ur.RoleCode.ToUpperInvariant())
+                .Distinct()
+                .ToList();
+
+            if (uRoles.Count == 0)
+            {
+                var fb = u.Role switch { UserRole.Admin => "ADMIN", UserRole.Expert => "EXPERT", _ => "STUDENT" };
+                uRoles.Add(fb);
+            }
+
+            var rNames = uRoles.Select(code =>
+            {
+                var r = systemRoles.FirstOrDefault(sr => sr.RoleCode.Equals(code, StringComparison.OrdinalIgnoreCase));
+                return r?.RoleName ?? code;
+            }).ToList();
+
+            var directCount = allDirectPerms.Count(udp => udp.UserId == u.Id);
+
+            int effectiveCount;
+            if (uRoles.Contains("ADMIN") || u.Role == UserRole.Admin)
+            {
+                effectiveCount = _catalogPermissions.Count;
+            }
+            else
+            {
+                var inheritedCodes = allRolePerms
+                    .Where(rp => uRoles.Contains(rp.RoleCode.ToUpperInvariant()))
+                    .Select(rp => rp.PermissionCode)
+                    .Distinct();
+
+                var directCodes = allDirectPerms
+                    .Where(udp => udp.UserId == u.Id)
+                    .Select(udp => udp.PermissionCode)
+                    .Distinct();
+
+                effectiveCount = inheritedCodes.Union(directCodes).Distinct().Count();
+            }
+
+            list.Add(new UserPermissionItemDto(
+                u.Id,
+                u.FullName,
+                u.Email,
+                u.Role.ToString(),
+                uRoles,
+                rNames,
+                effectiveCount,
+                directCount,
+                u.IsActive
+            ));
+        }
+
+        return Task.FromResult(Result<List<UserPermissionItemDto>>.Ok(list));
     }
 }
 

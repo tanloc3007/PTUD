@@ -36,6 +36,7 @@ const ExpertConsultationPage = lazy(() => import('../../features/expert/pages/Co
 // Admin Pages
 const AdminDashboardPage   = lazy(() => import('../../features/admin/pages/DashboardPage'));
 const AdminUsersPage       = lazy(() => import('../../features/admin/pages/UsersPage'));
+const AdminRolesPage       = lazy(() => import('../../features/admin/pages/RolesAndPermissionsPage'));
 const AdminModerationPage  = lazy(() => import('../../features/admin/pages/ModerationPage'));
 const AdminKeywordsPage    = lazy(() => import('../../features/admin/pages/SensitiveKeywordsPage'));
 const AdminTestsPage       = lazy(() => import('../../features/admin/pages/TestManagementPage'));
@@ -107,6 +108,9 @@ export default function AppRoutes() {
         <Route index element={<Navigate to="/admin/dashboard" replace />} />
         <Route path="dashboard"     element={wrap(<AdminDashboardPage />)} />
         <Route path="users"         element={wrap(<AdminUsersPage />)} />
+        <Route path="roles"         element={wrap(<AdminRolesPage />)} />
+        <Route path="roles-permissions" element={wrap(<AdminRolesPage />)} />
+        <Route path="permissions"   element={wrap(<AdminRolesPage />)} />
         <Route path="moderation"    element={wrap(<AdminModerationPage />)} />
         <Route path="keywords"      element={wrap(<AdminKeywordsPage />)} />
         <Route path="tests"         element={wrap(<AdminTestsPage />)} />

@@ -24,6 +24,10 @@ public class ApplicationDbContext : IApplicationDbContext
     public List<NlpRiskAlert> NlpRiskAlerts { get; set; } = new();
     public List<AuditLog> AuditLogs { get; set; } = new();
     public List<UserNotification> Notifications { get; set; } = new();
+    public List<SystemRole> SystemRoles { get; set; } = new();
+    public List<UserRoleAssignment> UserRoles { get; set; } = new();
+    public List<RolePermission> RolePermissions { get; set; } = new();
+    public List<UserDirectPermission> UserDirectPermissions { get; set; } = new();
 
     public ApplicationDbContext(string? connectionString = null)
     {
@@ -81,6 +85,17 @@ public class ApplicationDbContext : IApplicationDbContext
                     ReadAt DATETIME2 NULL
                 );
             END
+
+            IF OBJECT_ID('dbo.UserDirectPermissions', 'U') IS NULL
+            BEGIN
+                CREATE TABLE dbo.UserDirectPermissions (
+                    Id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+                    UserId UNIQUEIDENTIFIER NOT NULL,
+                    PermissionCode NVARCHAR(100) NOT NULL,
+                    ModuleName NVARCHAR(100) NOT NULL,
+                    CreatedAt DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+                );
+            END
             IF OBJECT_ID('dbo.UserNotifications', 'U') IS NOT NULL
             BEGIN
                 UPDATE dbo.UserNotifications 
@@ -99,6 +114,43 @@ public class ApplicationDbContext : IApplicationDbContext
                 UPDATE dbo.AuditLogs 
                 SET Details = REPLACE(Details, N'Chuyên viên Chuyên viên', N'Chuyên viên') 
                 WHERE Details LIKE N'%Chuyên viên Chuyên viên%';
+            END
+
+            IF OBJECT_ID('dbo.RolePermissions', 'U') IS NOT NULL
+            BEGIN
+                DELETE FROM dbo.RolePermissions
+                WHERE UPPER(RoleCode) IN ('SAFEROOM_STAFF', 'SUPERVISOR', 'COLLABORATOR');
+            END
+
+            IF OBJECT_ID('dbo.UserRoles', 'U') IS NOT NULL
+            BEGIN
+                DELETE FROM dbo.UserRoles
+                WHERE UPPER(RoleCode) IN ('SAFEROOM_STAFF', 'SUPERVISOR', 'COLLABORATOR');
+
+                IF OBJECT_ID('dbo.Users', 'U') IS NOT NULL
+                BEGIN
+                    INSERT INTO dbo.UserRoles (Id, UserId, RoleCode, AssignedAt, AssignedBy)
+                    SELECT NEWID(), u.Id,
+                        CASE
+                            WHEN UPPER(LTRIM(RTRIM(CAST(u.Role AS NVARCHAR(50))))) = 'ADMIN' OR CAST(u.Role AS NVARCHAR(50)) = '2' THEN 'ADMIN'
+                            WHEN UPPER(LTRIM(RTRIM(CAST(u.Role AS NVARCHAR(50))))) = 'EXPERT' OR CAST(u.Role AS NVARCHAR(50)) = '1' THEN 'EXPERT'
+                            ELSE 'STUDENT'
+                        END,
+                        GETUTCDATE(),
+                        N'SystemCleanup'
+                    FROM dbo.Users u
+                    WHERE NOT EXISTS (SELECT 1 FROM dbo.UserRoles ur WHERE ur.UserId = u.Id);
+                END
+            END
+
+            IF OBJECT_ID('dbo.SystemRoles', 'U') IS NOT NULL
+            BEGIN
+                DELETE FROM dbo.SystemRoles
+                WHERE UPPER(RoleCode) IN ('SAFEROOM_STAFF', 'SUPERVISOR', 'COLLABORATOR');
+
+                UPDATE dbo.SystemRoles SET OrderIndex = 1 WHERE UPPER(RoleCode) = 'ADMIN';
+                UPDATE dbo.SystemRoles SET OrderIndex = 2 WHERE UPPER(RoleCode) = 'EXPERT';
+                UPDATE dbo.SystemRoles SET OrderIndex = 3 WHERE UPPER(RoleCode) = 'STUDENT';
             END
         ", conn))
         {
@@ -483,6 +535,89 @@ public class ApplicationDbContext : IApplicationDbContext
         if (Notifications.Count == 0)
         {
             SeedInitialNotifications();
+        }
+
+        // 16. SystemRoles
+        try
+        {
+            using var cmd = new SqlCommand("IF OBJECT_ID('dbo.SystemRoles', 'U') IS NOT NULL SELECT Id, RoleCode, RoleName, Description, IsSystem, OrderIndex, CreatedAt FROM dbo.SystemRoles ORDER BY OrderIndex", conn);
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                SystemRoles.Add(new SystemRole
+                {
+                    Id = reader.GetGuid(0),
+                    RoleCode = reader.GetString(1),
+                    RoleName = reader.GetString(2),
+                    Description = reader.IsDBNull(3) ? null : reader.GetString(3),
+                    IsSystem = reader.GetBoolean(4),
+                    OrderIndex = reader.GetInt32(5),
+                    CreatedAt = reader.GetDateTime(6)
+                });
+            }
+        }
+        catch { }
+
+        // 17. UserRoles
+        try
+        {
+            using var cmd = new SqlCommand("IF OBJECT_ID('dbo.UserRoles', 'U') IS NOT NULL SELECT Id, UserId, RoleCode, AssignedAt, AssignedBy FROM dbo.UserRoles", conn);
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                UserRoles.Add(new UserRoleAssignment
+                {
+                    Id = reader.GetGuid(0),
+                    UserId = reader.GetGuid(1),
+                    RoleCode = reader.GetString(2),
+                    AssignedAt = reader.GetDateTime(3),
+                    AssignedBy = reader.IsDBNull(4) ? null : reader.GetString(4)
+                });
+            }
+        }
+        catch { }
+
+        // 18. RolePermissions
+        try
+        {
+            using var cmd = new SqlCommand("IF OBJECT_ID('dbo.RolePermissions', 'U') IS NOT NULL SELECT Id, RoleCode, PermissionCode, ModuleName, CreatedAt FROM dbo.RolePermissions", conn);
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                RolePermissions.Add(new RolePermission
+                {
+                    Id = reader.GetGuid(0),
+                    RoleCode = reader.GetString(1),
+                    PermissionCode = reader.GetString(2),
+                    ModuleName = reader.GetString(3),
+                    CreatedAt = reader.GetDateTime(4)
+                });
+            }
+        }
+        catch { }
+
+        // 19. UserDirectPermissions
+        try
+        {
+            using var cmd = new SqlCommand("IF OBJECT_ID('dbo.UserDirectPermissions', 'U') IS NOT NULL SELECT Id, UserId, PermissionCode, ModuleName, CreatedAt FROM dbo.UserDirectPermissions", conn);
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                UserDirectPermissions.Add(new UserDirectPermission
+                {
+                    Id = reader.GetGuid(0),
+                    UserId = reader.GetGuid(1),
+                    PermissionCode = reader.GetString(2),
+                    ModuleName = reader.GetString(3),
+                    CreatedAt = reader.GetDateTime(4)
+                });
+            }
+        }
+        catch { }
+
+        if (SystemRoles.Count == 0)
+        {
+            SeedInitialRolesAndPermissions();
         }
 
         // Wire relation between Questions and Tests
@@ -903,6 +1038,13 @@ public class ApplicationDbContext : IApplicationDbContext
             }
 
             // 14. Sync UserNotifications
+            if (Notifications.Count > 0)
+            {
+                var idList = string.Join(",", Notifications.Select(n => $"'{n.Id}'"));
+                using var cleanCmd = new SqlCommand($"DELETE FROM dbo.UserNotifications WHERE Id NOT IN ({idList})", conn);
+                try { await cleanCmd.ExecuteNonQueryAsync(cancellationToken); } catch { }
+            }
+
             foreach (var notif in Notifications)
             {
                 using var cmd = new SqlCommand(@"
@@ -928,6 +1070,66 @@ public class ApplicationDbContext : IApplicationDbContext
                 cmd.Parameters.AddWithValue("@CreatedAt", notif.CreatedAt);
                 cmd.Parameters.AddWithValue("@ReadAt", (object?)notif.ReadAt ?? DBNull.Value);
                 await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            // 15. Sync UserRoles
+            if (UserRoles != null)
+            {
+                using var truncateCmd = new SqlCommand("IF OBJECT_ID('dbo.UserRoles', 'U') IS NOT NULL TRUNCATE TABLE dbo.UserRoles", conn);
+                try { await truncateCmd.ExecuteNonQueryAsync(cancellationToken); } catch { }
+
+                foreach (var ur in UserRoles)
+                {
+                    using var cmd = new SqlCommand(@"
+                        INSERT INTO dbo.UserRoles (Id, UserId, RoleCode, AssignedAt, AssignedBy)
+                        VALUES (@Id, @UserId, @RoleCode, @AssignedAt, @AssignedBy)", conn);
+                    cmd.Parameters.AddWithValue("@Id", ur.Id);
+                    cmd.Parameters.AddWithValue("@UserId", ur.UserId);
+                    cmd.Parameters.AddWithValue("@RoleCode", ur.RoleCode);
+                    cmd.Parameters.AddWithValue("@AssignedAt", ur.AssignedAt);
+                    cmd.Parameters.AddWithValue("@AssignedBy", (object?)ur.AssignedBy ?? DBNull.Value);
+                    try { await cmd.ExecuteNonQueryAsync(cancellationToken); } catch { }
+                }
+            }
+
+            // 16. Sync RolePermissions
+            if (RolePermissions != null)
+            {
+                using var truncateCmd = new SqlCommand("IF OBJECT_ID('dbo.RolePermissions', 'U') IS NOT NULL TRUNCATE TABLE dbo.RolePermissions", conn);
+                try { await truncateCmd.ExecuteNonQueryAsync(cancellationToken); } catch { }
+
+                foreach (var rp in RolePermissions)
+                {
+                    using var cmd = new SqlCommand(@"
+                        INSERT INTO dbo.RolePermissions (Id, RoleCode, PermissionCode, ModuleName, CreatedAt)
+                        VALUES (@Id, @RoleCode, @PermissionCode, @ModuleName, @CreatedAt)", conn);
+                    cmd.Parameters.AddWithValue("@Id", rp.Id);
+                    cmd.Parameters.AddWithValue("@RoleCode", rp.RoleCode);
+                    cmd.Parameters.AddWithValue("@PermissionCode", rp.PermissionCode);
+                    cmd.Parameters.AddWithValue("@ModuleName", rp.ModuleName);
+                    cmd.Parameters.AddWithValue("@CreatedAt", rp.CreatedAt);
+                    try { await cmd.ExecuteNonQueryAsync(cancellationToken); } catch { }
+                }
+            }
+
+            // 17. Sync UserDirectPermissions
+            if (UserDirectPermissions != null)
+            {
+                using var truncateCmd = new SqlCommand("IF OBJECT_ID('dbo.UserDirectPermissions', 'U') IS NOT NULL TRUNCATE TABLE dbo.UserDirectPermissions", conn);
+                try { await truncateCmd.ExecuteNonQueryAsync(cancellationToken); } catch { }
+
+                foreach (var udp in UserDirectPermissions)
+                {
+                    using var cmd = new SqlCommand(@"
+                        INSERT INTO dbo.UserDirectPermissions (Id, UserId, PermissionCode, ModuleName, CreatedAt)
+                        VALUES (@Id, @UserId, @PermissionCode, @ModuleName, @CreatedAt)", conn);
+                    cmd.Parameters.AddWithValue("@Id", udp.Id);
+                    cmd.Parameters.AddWithValue("@UserId", udp.UserId);
+                    cmd.Parameters.AddWithValue("@PermissionCode", udp.PermissionCode);
+                    cmd.Parameters.AddWithValue("@ModuleName", udp.ModuleName);
+                    cmd.Parameters.AddWithValue("@CreatedAt", udp.CreatedAt);
+                    try { await cmd.ExecuteNonQueryAsync(cancellationToken); } catch { }
+                }
             }
         }
         catch (Exception ex)
@@ -1321,5 +1523,99 @@ public class ApplicationDbContext : IApplicationDbContext
                 ReadAt = now.AddDays(-1)
             }
         });
+
+        SeedInitialRolesAndPermissions();
+    }
+
+    private void SeedInitialRolesAndPermissions()
+    {
+        if (SystemRoles.Count > 0) return;
+
+        var roles = new List<SystemRole>
+        {
+            new SystemRole { Id = Guid.NewGuid(), RoleCode = "ADMIN", RoleName = "Quản trị viên", Description = "Quản trị viên hệ thống có toàn quyền", IsSystem = true, OrderIndex = 1 },
+            new SystemRole { Id = Guid.NewGuid(), RoleCode = "EXPERT", RoleName = "Chuyên viên tư vấn", Description = "Chuyên viên tâm lý tham vấn sinh viên", IsSystem = true, OrderIndex = 2 },
+            new SystemRole { Id = Guid.NewGuid(), RoleCode = "STUDENT", RoleName = "Sinh viên", Description = "Sinh viên tham gia hệ thống", IsSystem = true, OrderIndex = 3 }
+        };
+        SystemRoles.AddRange(roles);
+
+        // 27 permissions
+        var allPerms = new List<(string Code, string Module)>
+        {
+            ("USER_VIEW", "USER_MANAGEMENT"),
+            ("USER_STATUS_TOGGLE", "USER_MANAGEMENT"),
+            ("USER_ROLE_ASSIGN", "USER_MANAGEMENT"),
+            ("ROLE_PERMISSION_MANAGE", "USER_MANAGEMENT"),
+            ("SYSTEM_AUDIT_LOG_VIEW", "USER_MANAGEMENT"),
+
+            ("SLOT_MANAGE", "CONSULTATION_SAFEROOM"),
+            ("APPOINTMENT_APPROVE", "CONSULTATION_SAFEROOM"),
+            ("SAFEROOM_CALL_HOST", "CONSULTATION_SAFEROOM"),
+            ("CLINICAL_NOTE_WRITE", "CONSULTATION_SAFEROOM"),
+            ("EMERGENCY_ESCALATE", "CONSULTATION_SAFEROOM"),
+
+            ("TRIAGE_QUEUE_VIEW", "CRISIS_TRIAGE"),
+            ("TRIAGE_STATUS_UPDATE", "CRISIS_TRIAGE"),
+            ("KEYWORD_RULE_MANAGE", "CRISIS_TRIAGE"),
+            ("AI_SENTIMENT_RUN", "CRISIS_TRIAGE"),
+            ("CRISIS_BROADCAST", "CRISIS_TRIAGE"),
+
+            ("POST_CREATE", "COMMUNITY_MODERATION"),
+            ("COMMENT_CREATE", "COMMUNITY_MODERATION"),
+            ("POST_MODERATE", "COMMUNITY_MODERATION"),
+            ("IMAGE_MODERATE", "COMMUNITY_MODERATION"),
+            ("COMMENT_MODERATE", "COMMUNITY_MODERATION"),
+            ("EXPERT_ADVICE_PIN", "COMMUNITY_MODERATION"),
+
+            ("DASS21_TEST_TAKE", "REPORTS_ANALYTICS"),
+            ("DASS21_REPORT_VIEW", "REPORTS_ANALYTICS"),
+            ("ANALYTICS_DASHBOARD_VIEW", "REPORTS_ANALYTICS"),
+            ("EMOTION_STATS_EXPORT", "REPORTS_ANALYTICS"),
+            ("SYSTEM_HEALTH_MONITOR", "REPORTS_ANALYTICS"),
+            ("REPORT_CONFIG_MANAGE", "REPORTS_ANALYTICS")
+        };
+
+        // Admin gets all 27
+        foreach (var p in allPerms)
+        {
+            RolePermissions.Add(new RolePermission { Id = Guid.NewGuid(), RoleCode = "ADMIN", PermissionCode = p.Code, ModuleName = p.Module });
+        }
+
+        // Expert gets 17
+        var expertCodes = new HashSet<string> {
+            "USER_VIEW", "SLOT_MANAGE", "APPOINTMENT_APPROVE", "SAFEROOM_CALL_HOST", "CLINICAL_NOTE_WRITE", "EMERGENCY_ESCALATE",
+            "TRIAGE_QUEUE_VIEW", "TRIAGE_STATUS_UPDATE", "AI_SENTIMENT_RUN",
+            "POST_CREATE", "COMMENT_CREATE", "POST_MODERATE", "IMAGE_MODERATE", "COMMENT_MODERATE", "EXPERT_ADVICE_PIN",
+            "DASS21_REPORT_VIEW", "ANALYTICS_DASHBOARD_VIEW"
+        };
+        foreach (var p in allPerms.Where(x => expertCodes.Contains(x.Code)))
+        {
+            RolePermissions.Add(new RolePermission { Id = Guid.NewGuid(), RoleCode = "EXPERT", PermissionCode = p.Code, ModuleName = p.Module });
+        }
+
+
+        // Student gets 4
+        var stuCodes = new HashSet<string> {
+            "POST_CREATE", "COMMENT_CREATE", "DASS21_TEST_TAKE", "ANALYTICS_DASHBOARD_VIEW"
+        };
+        foreach (var p in allPerms.Where(x => stuCodes.Contains(x.Code)))
+        {
+            RolePermissions.Add(new RolePermission { Id = Guid.NewGuid(), RoleCode = "STUDENT", PermissionCode = p.Code, ModuleName = p.Module });
+        }
+
+        // Seed initial UserRoles based on current Users
+        foreach (var u in Users)
+        {
+            var rCode = u.Role switch
+            {
+                UserRole.Admin => "ADMIN",
+                UserRole.Expert => "EXPERT",
+                _ => "STUDENT"
+            };
+            if (!UserRoles.Any(x => x.UserId == u.Id && x.RoleCode == rCode))
+            {
+                UserRoles.Add(new UserRoleAssignment { Id = Guid.NewGuid(), UserId = u.Id, RoleCode = rCode, AssignedBy = "SYSTEM" });
+            }
+        }
     }
 }

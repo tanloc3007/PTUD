@@ -35,9 +35,9 @@ export default function SafeCallMeetingRoom({
   const [isVoiceOnlyMode, setIsVoiceOnlyMode] = useState(false);
   const [isImmersive, setIsImmersive] = useState(defaultImmersive);
   const [isNativeFullscreen, setIsNativeFullscreen] = useState(false);
-  const [videoFit, setVideoFit] = useState('contain'); // 'contain' | 'cover'
+  const [videoFit, setVideoFit] = useState('cover'); // 'contain' | 'cover'
   const [isPipMinimized, setIsPipMinimized] = useState(false);
-  const [activeSideDrawer, setActiveSideDrawer] = useState(null); // 'chat' | 'notes' | 'breathe' | 'security' | null
+  const [activeSideDrawer, setActiveSideDrawer] = useState(null); // 'chat' | 'notes' | 'breathe' | null
   const [copiedCode, setCopiedCode] = useState(false);
   const [currentTime, setCurrentTime] = useState(() => new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }));
 
@@ -140,7 +140,7 @@ export default function SafeCallMeetingRoom({
 
       ctx.fillStyle = '#38bdf8';
       ctx.font = '600 15px sans-serif';
-      ctx.fillText('⚡ Thuần WebRTC P2P • Trực Tiếp Giữa 2 Trình Duyệt', 640, 475);
+      ctx.fillText('Đang chờ kết nối Camera...', 640, 475);
 
       canvasAnimRef.current = requestAnimationFrame(draw);
     };
@@ -159,6 +159,81 @@ export default function SafeCallMeetingRoom({
     return stream;
   };
 
+  // Hàm đính kèm stream vào thẻ video của máy bạn
+  const attachLocalStream = (el) => {
+    localVideoRef.current = el;
+    if (el && localStreamRef.current) {
+      el.srcObject = localStreamRef.current;
+      el.play().catch(() => {});
+    }
+  };
+
+  // Yêu cầu kết nối lại với Camera thực tế của máy tính
+  const requestRealCamera = async () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      alert('Trình duyệt không hỗ trợ mở camera (yêu cầu chạy trên HTTPS hoặc localhost).');
+      return false;
+    }
+
+    try {
+      let camStream = null;
+      try {
+        camStream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 1280 }, height: { ideal: 720 } }
+        });
+      } catch {
+        camStream = await navigator.mediaDevices.getUserMedia({ video: true });
+      }
+
+      if (!camStream) return false;
+      const newVideoTrack = camStream.getVideoTracks()[0];
+      if (!newVideoTrack) return false;
+
+      // Hủy animation canvas nếu đang chạy
+      if (canvasAnimRef.current) {
+        cancelAnimationFrame(canvasAnimRef.current);
+        canvasAnimRef.current = null;
+      }
+
+      if (localStreamRef.current) {
+        // Gỡ các video track cũ (ví dụ track canvas giả lập)
+        const oldTracks = localStreamRef.current.getVideoTracks();
+        oldTracks.forEach(t => {
+          localStreamRef.current.removeTrack(t);
+          t.stop();
+        });
+        localStreamRef.current.addTrack(newVideoTrack);
+      } else {
+        localStreamRef.current = camStream;
+      }
+
+      // Cập nhật thẻ video
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = localStreamRef.current;
+        localVideoRef.current.play().catch(() => {});
+      }
+
+      // Đẩy track mới vào PeerConnection thay thế track cũ
+      if (peerConnectionRef.current) {
+        const senders = peerConnectionRef.current.getSenders();
+        const videoSender = senders.find(s => s.track && s.track.kind === 'video');
+        if (videoSender) {
+          await videoSender.replaceTrack(newVideoTrack);
+        } else {
+          peerConnectionRef.current.addTrack(newVideoTrack, localStreamRef.current);
+        }
+      }
+
+      setHasCameraAccess(true);
+      setIsVideoMuted(false);
+      return true;
+    } catch (err) {
+      console.warn('[WebRTC] Người dùng từ chối hoặc camera bận:', err);
+      alert('Không thể kết nối đến camera của máy bạn. Vui lòng kiểm tra quyền truy cập camera của trình duyệt hoặc đảm bảo không có ứng dụng khác đang chiếm dụng camera.');
+      return false;
+    }
+  };
+
   // ══════════════════════════════════════════════════════════════════════════
   // 2. KHỞI TẠO THIẾT BỊ CAMERA / MICROPHONE & VOICE ACTIVITY DETECTOR
   // ══════════════════════════════════════════════════════════════════════════
@@ -167,35 +242,75 @@ export default function SafeCallMeetingRoom({
 
     async function initMediaAndStart() {
       let stream = null;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
-          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
-        });
-        if (!active) {
-          stream.getTracks().forEach(t => t.stop());
-          return;
-        }
-        setHasCameraAccess(true);
-      } catch (err) {
-        console.warn('[WebRTC] Webcam bận hoặc không cấp quyền, sử dụng fallback stream:', err);
-        // Cố gắng xin mic riêng nếu cam bị chiếm
+      let acquiredCamera = false;
+
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        // Cố gắng 1: Video HD + Audio (bỏ facingMode để tương thích mọi webcam PC/Laptop)
         try {
-          const micOnlyStream = await navigator.mediaDevices.getUserMedia({
-            audio: { echoCancellation: true, noiseSuppression: true }
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
           });
-          const canvasStream = createFallbackStream(currentUserName, currentUserRole);
-          micOnlyStream.getAudioTracks().forEach(track => canvasStream.addTrack(track));
-          stream = canvasStream;
-        } catch {
-          stream = createFallbackStream(currentUserName, currentUserRole);
+          acquiredCamera = true;
+        } catch (err1) {
+          console.warn('[WebRTC] Thử HD video+audio thất bại, thử video+audio cơ bản:', err1);
+          // Cố gắng 2: Video + Audio cơ bản
+          try {
+            stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+            acquiredCamera = true;
+          } catch (err2) {
+            console.warn('[WebRTC] Thử video+audio cơ bản thất bại, thử tách riêng webcam và mic:', err2);
+            // Cố gắng 3: Tách riêng Camera và Mic để tránh trường hợp máy không có mic làm hỏng cả camera
+            let videoTrack = null;
+            try {
+              const vStream = await navigator.mediaDevices.getUserMedia({ video: true });
+              videoTrack = vStream.getVideoTracks()[0];
+              if (videoTrack) acquiredCamera = true;
+            } catch (vErr) {
+              console.warn('[WebRTC] Không thể mở webcam riêng:', vErr);
+            }
+
+            let audioTrack = null;
+            try {
+              const aStream = await navigator.mediaDevices.getUserMedia({
+                audio: { echoCancellation: true, noiseSuppression: true }
+              });
+              audioTrack = aStream.getAudioTracks()[0];
+            } catch (aErr) {
+              console.warn('[WebRTC] Không thể mở mic riêng:', aErr);
+            }
+
+            if (videoTrack || audioTrack) {
+              stream = new MediaStream();
+              if (videoTrack) stream.addTrack(videoTrack);
+              if (audioTrack) stream.addTrack(audioTrack);
+              if (!videoTrack) {
+                const canvasStream = createFallbackStream(currentUserName, currentUserRole);
+                const cvTrack = canvasStream.getVideoTracks()[0];
+                if (cvTrack) stream.addTrack(cvTrack);
+              }
+            }
+          }
         }
-        setHasCameraAccess(false);
       }
 
+      // Nếu hoàn toàn không thể lấy được bất kỳ thiết bị nào
+      if (!stream) {
+        stream = createFallbackStream(currentUserName, currentUserRole);
+        acquiredCamera = false;
+      }
+
+      if (!active) {
+        if (stream) stream.getTracks().forEach(t => t.stop());
+        return;
+      }
+
+      setHasCameraAccess(acquiredCamera);
       localStreamRef.current = stream;
+
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = stream;
+        localVideoRef.current.play().catch(() => {});
       }
 
       // Khởi tạo máy phân tích sóng âm thanh (Voice Activity Visualizer)
@@ -558,7 +673,13 @@ export default function SafeCallMeetingRoom({
     }
   };
 
-  const toggleVideo = () => {
+  const toggleVideo = async () => {
+    // Nếu chưa nhận được camera thực tế hoặc đang bị fallback canvas, bấm nút camera sẽ kích hoạt xin quyền mở camera thực
+    if (!hasCameraAccess || !localStreamRef.current?.getVideoTracks().some(t => t.kind === 'video' && !(t.label && t.label.includes('canvas')))) {
+      const ok = await requestRealCamera();
+      if (ok) return;
+    }
+
     const stream = localStreamRef.current;
     if (!stream) return;
     const newMuted = !isVideoMuted;
@@ -843,9 +964,9 @@ export default function SafeCallMeetingRoom({
               animation: isConnected ? 'pulse 1.8s infinite' : 'none'
             }} />
             {isConnected
-              ? 'WEBRTC P2P • MÃ HÓA ĐẦU CUỐI DTLS-SRTP'
+              ? 'ĐÃ KẾT NỐI'
               : connectionStatus === 'negotiating'
-              ? 'ĐANG THIẾT LẬP KẾT NỐI P2P...'
+              ? 'ĐANG KẾT NỐI...'
               : 'CHỜ ĐỐI PHƯƠNG VÀO PHÒNG...'}
           </span>
 
@@ -859,28 +980,6 @@ export default function SafeCallMeetingRoom({
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          {/* Tùy chỉnh chế độ Vừa khung / Tràn viền (Contain / Cover) */}
-          <button
-            type="button"
-            onClick={() => setVideoFit(f => f === 'contain' ? 'cover' : 'contain')}
-            title="Chuyển đổi chế độ hiển thị video (Vừa khung hình / Tràn viền)"
-            style={{
-              padding: '6px 12px',
-              borderRadius: 8,
-              fontSize: 11.5,
-              fontWeight: 700,
-              cursor: 'pointer',
-              border: '1px solid rgba(255,255,255,0.15)',
-              background: videoFit === 'cover' ? 'rgba(56, 189, 248, 0.2)' : 'rgba(255,255,255,0.06)',
-              color: videoFit === 'cover' ? '#38bdf8' : '#e2e8f0',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6
-            }}
-          >
-            <span>{videoFit === 'cover' ? '🔲' : '▫️'}</span>
-            <span>{videoFit === 'cover' ? 'Tràn viền (Cover)' : 'Vừa khung (Fit)'}</span>
-          </button>
 
           {/* Chế độ Thoại Riêng Tư / Video HD */}
           <button
@@ -1052,15 +1151,15 @@ export default function SafeCallMeetingRoom({
 
                   <h3 style={{ fontSize: 20, fontWeight: 800, margin: '0 0 10px' }}>
                     {connectionStatus === 'negotiating'
-                      ? 'Đang bắt tay WebRTC P2P (Trao đổi Offer/Answer)...'
+                      ? 'Đang thiết lập kết nối cuộc gọi...'
                       : isHost
-                      ? 'Phòng WebRTC nội bộ đã sẵn sàng'
+                      ? 'Phòng tư vấn đã sẵn sàng'
                       : `Đang kết nối vào phòng cùng ${peerName}...`}
                   </h3>
                   <p style={{ fontSize: 13.5, color: '#94a3b8', margin: 0, maxWidth: 480, lineHeight: 1.6 }}>
                     {isHost
-                      ? `Hệ thống đã phát tín hiệu đến ${peerName}. Sinh viên truy cập vào là kết nối video trực tiếp ngay lập tức.`
-                      : 'Đang thiết lập luồng WebRTC bảo mật P2P mã hóa đầu-cuối trực tiếp giữa 2 trình duyệt.'}
+                      ? `Hệ thống đã phát tín hiệu đến ${peerName}. Khi sinh viên truy cập, cuộc gọi sẽ tự động kết nối.`
+                      : 'Đang kết nối âm thanh và hình ảnh trực tiếp...'}
                   </p>
                 </div>
               )}
@@ -1140,15 +1239,16 @@ export default function SafeCallMeetingRoom({
               transition: 'all 0.2s ease'
             }}>
               <video
-                ref={localVideoRef}
+                ref={attachLocalStream}
                 autoPlay
                 playsInline
                 muted
+                onLoadedMetadata={e => e.target.play().catch(() => {})}
                 style={{
                   width: '100%',
                   height: '100%',
                   objectFit: 'cover',
-                  transform: isScreenSharing ? 'none' : 'scaleX(-1)',
+                  transform: (isScreenSharing || !hasCameraAccess) ? 'none' : 'scaleX(-1)',
                   display: isVideoMuted ? 'none' : 'block'
                 }}
               />
@@ -1162,6 +1262,38 @@ export default function SafeCallMeetingRoom({
                   <span style={{ fontSize: 26, marginBottom: 4 }}>📷🚫</span>
                   <span>Camera đã tắt</span>
                 </div>
+              )}
+
+              {/* Nút bật Camera khi chưa nhận được webcam */}
+              {!hasCameraAccess && !isVideoMuted && (
+                <button
+                  type="button"
+                  onClick={requestRealCamera}
+                  title="Nhấn để kết nối với Camera máy tính của bạn"
+                  style={{
+                    position: 'absolute',
+                    top: '50%',
+                    left: '50%',
+                    transform: 'translate(-50%, -50%)',
+                    background: 'rgba(13, 148, 136, 0.95)',
+                    border: '1.5px solid #2dd4bf',
+                    borderRadius: 20,
+                    padding: '7px 14px',
+                    color: '#ffffff',
+                    fontSize: 11.5,
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    boxShadow: '0 4px 14px rgba(0,0,0,0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    zIndex: 5,
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  <span>📷</span>
+                  <span>Bật Camera máy tính</span>
+                </button>
               )}
 
               {/* Nút thu nhỏ PiP */}
@@ -1243,7 +1375,6 @@ export default function SafeCallMeetingRoom({
                 {activeSideDrawer === 'chat' && '💬 Trò chuyện trong phiên'}
                 {activeSideDrawer === 'notes' && '📋 Sổ tay & Hồ sơ lâm sàng'}
                 {activeSideDrawer === 'breathe' && '🧘 Bài tập thở 4-7-8 an tâm'}
-                {activeSideDrawer === 'security' && '🛡️ Bảo mật WebRTC P2P'}
               </span>
               <button
                 type="button"
@@ -1511,29 +1642,7 @@ export default function SafeCallMeetingRoom({
               </div>
             )}
 
-            {/* BODY: TAB 4 - BẢO MẬT WEBRTC */}
-            {activeSideDrawer === 'security' && (
-              <div style={{ flex: 1, overflowY: 'auto', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-                <div style={{ background: 'rgba(34, 197, 94, 0.12)', padding: '12px 14px', borderRadius: 10, borderLeft: '3px solid #22c55e' }}>
-                  <strong style={{ color: '#4ade80', fontSize: 13 }}>✓ 100% In-House WebRTC:</strong>
-                  <p style={{ margin: '4px 0 0', fontSize: 12, color: '#94a3b8' }}>
-                    Tự tổ chức nội bộ, không dùng bên thứ 3 (Zoom, Google, Twilio, Agora).
-                  </p>
-                </div>
-                <div style={{ background: 'rgba(56, 189, 248, 0.12)', padding: '12px 14px', borderRadius: 10, borderLeft: '3px solid #38bdf8' }}>
-                  <strong style={{ color: '#38bdf8', fontSize: 13 }}>✓ Mã Hóa DTLS-SRTP P2P:</strong>
-                  <p style={{ margin: '4px 0 0', fontSize: 12, color: '#94a3b8' }}>
-                    Dữ liệu âm thanh và hình ảnh truyền trực tiếp giữa 2 trình duyệt theo chuẩn RFC 5763 và RFC 3711.
-                  </p>
-                </div>
-                <div style={{ background: 'rgba(245, 158, 11, 0.12)', padding: '12px 14px', borderRadius: 10, borderLeft: '3px solid #fbbf24' }}>
-                  <strong style={{ color: '#fbbf24', fontSize: 13 }}>✓ Quyền Riêng Tư &amp; Ẩn Danh:</strong>
-                  <p style={{ margin: '4px 0 0', fontSize: 12, color: '#94a3b8' }}>
-                    Danh tính sinh viên được bảo vệ tuyệt đối. Không ghi hình, không lưu video ra ngoài hệ thống.
-                  </p>
-                </div>
-              </div>
-            )}
+
           </div>
         )}
       </div>
@@ -1820,28 +1929,7 @@ export default function SafeCallMeetingRoom({
             )}
           </button>
 
-          {/* Nút Bảo mật WebRTC */}
-          <button
-            type="button"
-            onClick={() => setActiveSideDrawer(d => d === 'security' ? null : 'security')}
-            title="Xem chứng thực công nghệ bảo mật WebRTC"
-            style={{
-              width: 48,
-              height: 48,
-              borderRadius: '50%',
-              background: activeSideDrawer === 'security' ? '#0284c7' : 'rgba(255,255,255,0.08)',
-              border: `1.5px solid ${activeSideDrawer === 'security' ? '#38bdf8' : 'rgba(255,255,255,0.15)'}`,
-              color: '#fff',
-              fontSize: 18,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              transition: 'all 0.15s ease'
-            }}
-          >
-            🛡️
-          </button>
+
         </div>
       </div>
 

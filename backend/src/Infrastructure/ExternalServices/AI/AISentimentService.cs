@@ -14,7 +14,7 @@ public class AISentimentService : IAISentimentService
     private readonly string _primaryModel;
     private readonly List<string> _fallbackModels;
 
-    // Từ điển cảm xúc chuẩn tiếng Việt và tiếng Anh cho NLP đa ngữ
+    // Từ điển cảm xúc chuẩn tiếng Việt và tiếng Anh cho NLP đa ngữ theo Khung Tâm lý học Ngôn ngữ LIWC (Linguistic Inquiry and Word Count)
     private static readonly HashSet<string> PositiveWords = new(StringComparer.OrdinalIgnoreCase)
     {
         // Tiếng Việt
@@ -49,6 +49,27 @@ public class AISentimentService : IAISentimentService
         "suicide", "suicidal", "kill myself", "end my life", "end it all", "want to die", "wanna die", 
         "self-harm", "self harm", "cutting myself", "cut myself", "overdose", "jump off", "no reason to live", 
         "no way out", "better off dead", "goodbye world"
+    };
+
+    // Từ điển từ ngữ thô tục, chửi thề, lăng mạ, xúc phạm & độc hại học đường
+    private static readonly HashSet<string> ToxicProfanityWords = new(StringComparer.OrdinalIgnoreCase)
+    {
+        // Tiếng Việt
+        "cứt", "như cứt", "vãi cứt", "xóa mẹ", "xóa mẹ acc", "xóa mẹ acc đi", "xóa mẹ nick",
+        "mẹ mày", "bố mày", "con mẹ", "đm", "đmm", "đụ", "đéo", "đù", "vcl", "vkl", "clm", "đĩ", 
+        "con chó", "chó chết", "thằng chó", "súc vật", "đồ rác", "rác rưởi", "ngu", "óc chó", 
+        "đồ ngu", "chết tiệt", "cút", "cút đi", "biến đi", "hãm", "hãm lìn", "xàm", "xàm l", 
+        "nhảm nhí", "chửi", "lăng mạ", "bắt nạt", "như lồn", "như cặc", "khốn nạn", "đồ điên", 
+        "đồ khốn", "mất dạy", "mặt dày", "đồ thần kinh", "bố đời", "mả bố", "thằng điên", "con điên",
+        // Tiếng Anh
+        "fuck", "fucking", "shit", "bitch", "bastard", "asshole", "idiot", "moron", "trash", 
+        "bullshit", "shut up", "go to hell", "motherfucker", "dick", "pussy"
+    };
+
+    // Từ khóa đối tượng trong công kích cá nhân / bắt nạt trực tuyến (Bullying)
+    private static readonly string[] BullyingTargetKeywords = new[]
+    {
+        "thằng", "con", "bạn ẩn yên#", "ẩn yên#", "ẩn yên #", "mày", "nó", "acc của", "thằng ẩn yên", "con ẩn yên"
     };
 
     public AISentimentService(string? apiKey = null, string? model = null)
@@ -95,23 +116,37 @@ public class AISentimentService : IAISentimentService
         }
 
         // 3. Hợp nhất kết quả kiểm duyệt song song (Hybrid Moderation Decision)
-        bool keywordTriggered = ruleResult.ContainsSensitiveKeywords || ruleResult.IsExtremeCrisis;
-        bool aiTriggered = aiModeration != null && (aiModeration.IsSensitive || aiModeration.RiskScore >= 75);
+        bool keywordTriggered = ruleResult.ContainsSensitiveKeywords || ruleResult.IsExtremeCrisis || ruleResult.IsAiFlagged;
+        bool aiTriggered = ruleResult.IsAiFlagged || (aiModeration != null && (aiModeration.IsSensitive || aiModeration.RiskScore >= 75));
 
         int combinedRisk = Math.Max(ruleResult.RiskScore, aiModeration?.RiskScore ?? 0);
         bool combinedCrisis = ruleResult.IsExtremeCrisis || (aiModeration?.RiskScore >= 85) || string.Equals(aiModeration?.Category, "SelfHarm", StringComparison.OrdinalIgnoreCase);
 
         var mergedKeywords = new List<string>(ruleResult.TriggeredKeywords);
-        if (aiTriggered && !string.IsNullOrWhiteSpace(aiModeration?.Reason))
+        if (aiModeration != null && (aiModeration.IsSensitive || aiModeration.RiskScore >= 75) && !string.IsNullOrWhiteSpace(aiModeration?.Reason))
         {
-            var aiBadge = $"[AI: {aiModeration.Category ?? "Nhạy cảm"}] {aiModeration.Reason}";
-            if (!mergedKeywords.Contains(aiBadge))
+            var catName = aiModeration.Category switch
             {
-                mergedKeywords.Add(aiBadge);
+                "SelfHarm" => "Khủng hoảng",
+                "Bullying" => "Bắt nạt",
+                "Toxicity" or "Violence" => "Thô tục",
+                "Depression" => "Trầm cảm",
+                _ => "Nhạy cảm"
+            };
+            var shortReason = aiModeration.Reason.Length > 25 ? aiModeration.Reason[..25] + "..." : aiModeration.Reason;
+            var aiBadge = $"[AI: {catName}] {shortReason}";
+            if (!mergedKeywords.Any(k => k.StartsWith("[AI:")))
+            {
+                mergedKeywords.Insert(0, aiBadge);
             }
         }
+        // Giới hạn hiển thị gọn gàng tối đa 2 mục
+        if (mergedKeywords.Count > 2)
+        {
+            mergedKeywords = mergedKeywords.Take(2).ToList();
+        }
 
-        string source = (keywordTriggered && aiTriggered) 
+        string source = (keywordTriggered && (aiModeration != null && (aiModeration.IsSensitive || aiModeration.RiskScore >= 75))) 
             ? "KeywordAndAI" 
             : (aiTriggered ? "AIOnly" : (keywordTriggered ? "KeywordOnly" : "Clean"));
 
@@ -132,15 +167,15 @@ public class AISentimentService : IAISentimentService
             SentimentScore = finalScore,
             SentimentLabel = finalSentiment,
             RiskScore = combinedRisk,
-            ContainsSensitiveKeywords = ruleResult.ContainsSensitiveKeywords,
+            ContainsSensitiveKeywords = mergedKeywords.Count > 0,
             TriggeredKeywords = mergedKeywords,
             IsExtremeCrisis = combinedCrisis,
             EmpatheticAdvice = finalAdvice,
             BreathingExerciseSuggestion = ruleResult.BreathingExerciseSuggestion,
             IsAiFlagged = aiTriggered,
-            AiCategory = aiModeration?.Category,
-            AiReason = aiModeration?.Reason,
-            AiConfidence = aiModeration?.Confidence ?? (aiTriggered ? 90 : 0),
+            AiCategory = aiModeration?.Category ?? ruleResult.AiCategory,
+            AiReason = aiModeration?.Reason ?? ruleResult.AiReason,
+            AiConfidence = aiModeration?.Confidence ?? (aiTriggered ? 95 : 0),
             ModerationSource = source
         };
     }
@@ -185,11 +220,13 @@ public class AISentimentService : IAISentimentService
 
         // 2. Kiểm tra từ khóa khủng hoảng cấp tính (VI + EN)
         bool hasCrisisWord = false;
+        string? matchedCrisisWord = null;
         foreach (var cWord in CrisisWords)
         {
             if (lower.Contains(cWord))
             {
                 hasCrisisWord = true;
+                matchedCrisisWord ??= cWord;
                 if (!triggeredKeywords.Contains(cWord))
                     triggeredKeywords.Add(cWord);
             }
@@ -208,35 +245,110 @@ public class AISentimentService : IAISentimentService
             if (lower.Contains(word)) negCount++;
         }
 
-        // 4. Tính toán điểm SentimentScore (-1.0 đến +1.0)
+        // 4. Kiểm tra từ ngữ thô tục / lăng mạ / xúc phạm / độc hại (Toxicity & Profanity)
+        bool hasToxicWord = false;
+        string? matchedToxicWord = null;
+        foreach (var tWord in ToxicProfanityWords)
+        {
+            if (lower.Contains(tWord))
+            {
+                hasToxicWord = true;
+                matchedToxicWord ??= tWord;
+                if (!triggeredKeywords.Contains(tWord))
+                    triggeredKeywords.Add(tWord);
+            }
+        }
+
+        // 5. Kiểm tra hành vi công kích / bắt nạt trực tuyến (Bullying & Harassment)
+        bool isBullying = false;
+        if (hasToxicWord)
+        {
+            foreach (var target in BullyingTargetKeywords)
+            {
+                if (lower.Contains(target))
+                {
+                    isBullying = true;
+                    break;
+                }
+            }
+        }
+
+        string? aiBadge = null;
+        if (hasCrisisWord)
+        {
+            aiBadge = $"[AI: Khủng hoảng] Nguy cơ tự hại ('{matchedCrisisWord}')";
+        }
+        else if (isBullying)
+        {
+            aiBadge = $"[AI: Bắt nạt] Xúc phạm ('{matchedToxicWord}')";
+        }
+        else if (hasToxicWord)
+        {
+            aiBadge = $"[AI: Thô tục] Công kích ('{matchedToxicWord}')";
+        }
+
+        // Lọc gọn danh sách từ khóa: loại bỏ các từ khóa con trùng lặp, giữ ngắn gọn
+        var rawWords = triggeredKeywords.Where(w => !w.StartsWith("[AI:")).Distinct().ToList();
+        var distinctWords = new List<string>();
+        foreach (var w in rawWords.OrderByDescending(k => k.Length))
+        {
+            if (!distinctWords.Any(d => d.Contains(w, StringComparison.OrdinalIgnoreCase)))
+            {
+                distinctWords.Add(w);
+            }
+        }
+
+        var compactTriggered = new List<string>();
+        if (!string.IsNullOrEmpty(aiBadge))
+        {
+            compactTriggered.Add(aiBadge);
+        }
+        // Thêm tối đa 1-2 từ khóa tiêu biểu không trùng với từ trong aiBadge
+        foreach (var dw in distinctWords)
+        {
+            if (compactTriggered.Count >= 2) break;
+            if (aiBadge == null || !aiBadge.Contains(dw, StringComparison.OrdinalIgnoreCase))
+            {
+                compactTriggered.Add(dw);
+            }
+        }
+
+        triggeredKeywords = compactTriggered;
+
+        // 6. Tính toán điểm SentimentScore (-1.0 đến +1.0)
         double score = 0.0;
         int total = posCount + negCount;
         if (total > 0)
         {
             score = Math.Round((double)(posCount - negCount) / total, 2);
         }
+        if (hasToxicWord || isBullying)
+        {
+            score = Math.Min(score, -0.75);
+        }
 
-        // 5. Tính toán RiskScore (0 - 100)
-        int baseRisk = hasCrisisWord ? 92 : (negCount * 12);
-        if (triggeredKeywords.Count > 0) baseRisk += (triggeredKeywords.Count * 15);
+        // 7. Tính toán RiskScore (0 - 100)
+        int baseRisk = hasCrisisWord ? 95 : (isBullying ? 85 : (hasToxicWord ? 78 : (negCount * 12)));
+        if (triggeredKeywords.Count > 0) baseRisk += (triggeredKeywords.Count * 5);
         int finalRisk = Math.Clamp(baseRisk, 5, 99);
 
-        // 6. Xác định nhãn cảm xúc
+        // 8. Xác định nhãn cảm xúc
         string label;
-        bool isExtremeCrisis = hasCrisisWord || finalRisk >= 75;
+        bool isExtremeCrisis = hasCrisisWord || finalRisk >= 90;
+        bool isAiFlagged = hasCrisisWord || hasToxicWord || isBullying || finalRisk >= 75;
 
         if (isExtremeCrisis)
         {
             label = "ExtremeNegative";
             score = Math.Min(score, -0.85);
         }
+        else if (hasToxicWord || isBullying || score <= -0.2)
+        {
+            label = "Negative";
+        }
         else if (score >= 0.2)
         {
             label = "Positive";
-        }
-        else if (score <= -0.2)
-        {
-            label = "Negative";
         }
         else
         {
@@ -259,7 +371,13 @@ public class AISentimentService : IAISentimentService
             IsExtremeCrisis = isExtremeCrisis,
             EmpatheticAdvice = advice,
             BreathingExerciseSuggestion = breathingAdvice,
-            ModerationSource = "KeywordOnly"
+            IsAiFlagged = isAiFlagged,
+            AiCategory = isBullying ? "Bullying" : (hasCrisisWord ? "SelfHarm" : (hasToxicWord ? "Toxicity" : null)),
+            AiReason = isBullying
+                ? $"Nội dung chứa từ ngữ xúc phạm trực tiếp ('{matchedToxicWord}'), thể hiện hành vi lăng mạ và bắt nạt trên không gian mạng."
+                : (hasToxicWord ? $"Nội dung chứa từ ngữ thô tục, công kích ('{matchedToxicWord}')." : null),
+            AiConfidence = isAiFlagged ? 95 : 0,
+            ModerationSource = "KeywordAndAI"
         };
     }
 
@@ -277,6 +395,7 @@ public class AISentimentService : IAISentimentService
         modelsToTry.AddRange(_fallbackModels.Where(m => m != _primaryModel));
 
         string prompt = $@"Bạn là trợ lý AI chuyên nghiệp về an toàn nội dung và tâm lý học đường của nền tảng UniMind (Đại học Lạc Hồng).
+Hệ thống vận hành theo Khung Tâm lý học Ngôn ngữ LIWC (Linguistic Inquiry and Word Count - James W. Pennebaker) để lượng hóa tiến trình cảm xúc và nhận thức của sinh viên.
 Nhiệm vụ của bạn: Phân tích sâu ngữ cảnh đoạn văn bản sau đây (từ sinh viên chia sẻ hoặc bình luận).
 Phát hiện các yếu tố nhạy cảm ngầm hoặc trực tiếp:
 1. Ý định tự tử, tự làm hại bản thân (SelfHarm), bế tắc muốn từ bỏ cuộc sống.

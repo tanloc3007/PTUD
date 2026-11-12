@@ -353,66 +353,118 @@ export default function NotificationBell({ role: propRole }) {
                 </p>
               </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
                 {filteredList.map((item) => {
                   const cfg = getCategoryConfig(item.category);
+                  const isUnread = !item.isRead;
                   return (
                     <div
                       key={item.id}
                       onClick={() => handleItemClick(item)}
                       style={{
                         position: 'relative',
-                        padding: '10px 12px',
+                        padding: '12px 14px',
                         borderRadius: 10,
-                        background: item.isRead ? '#ffffff' : '#f0fdfa',
-                        border: item.isRead ? '1px solid #f1f5f9' : '1px solid #ccfbf1',
-                        borderLeft: item.isRead ? '3px solid #cbd5e1' : `3px solid ${cfg.color}`,
+                        background: isUnread ? '#f0fdfa' : '#ffffff',
+                        border: isUnread ? '1.5px solid #5eead4' : '1px solid #e2e8f0',
+                        borderLeft: isUnread ? '4px solid #0d9488' : '3px solid #cbd5e1',
                         cursor: 'pointer',
                         transition: 'all 0.15s ease',
+                        boxShadow: isUnread ? '0 2px 8px rgba(13, 148, 136, 0.08)' : 'none',
                       }}
                       onMouseEnter={e => {
-                        e.currentTarget.style.background = item.isRead ? '#f8fafc' : '#e6fffa';
+                        e.currentTarget.style.background = isUnread ? '#e6fffa' : '#f8fafc';
+                        e.currentTarget.style.borderColor = '#0d9488';
                       }}
                       onMouseLeave={e => {
-                        e.currentTarget.style.background = item.isRead ? '#ffffff' : '#f0fdfa';
+                        e.currentTarget.style.background = isUnread ? '#f0fdfa' : '#ffffff';
+                        e.currentTarget.style.borderColor = isUnread ? '#5eead4' : '#e2e8f0';
+                        e.currentTarget.style.borderLeftColor = isUnread ? '#0d9488' : '#cbd5e1';
                       }}
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 3 }}>
-                        <span style={{
-                          fontSize: 10.5,
-                          fontWeight: 700,
-                          color: cfg.color,
-                          background: cfg.bg,
-                          padding: '1px 6px',
-                          borderRadius: 4,
-                          border: `1px solid ${cfg.border}`
-                        }}>
-                          {cfg.label}
-                        </span>
-
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 5 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ fontSize: 11, color: '#94a3b8' }}>
-                            {formatRelativeTime(item.createdAt)}
+                          <span style={{
+                            fontSize: 10.5,
+                            fontWeight: 700,
+                            color: cfg.color,
+                            background: cfg.bg,
+                            padding: '1.5px 6px',
+                            borderRadius: 4,
+                            border: `1px solid ${cfg.border}`
+                          }}>
+                            {cfg.label}
                           </span>
-                          {!item.isRead && (
-                            <span
-                              style={{
+
+                          {isUnread ? (
+                            <span style={{
+                              fontSize: 10,
+                              fontWeight: 800,
+                              color: '#0f766e',
+                              background: '#ccfbf1',
+                              padding: '1.5px 6px',
+                              borderRadius: 4,
+                              border: '1px solid #99f6e4',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4
+                            }}>
+                              <span style={{
                                 width: 6,
                                 height: 6,
                                 borderRadius: '50%',
                                 background: '#0d9488',
-                                display: 'inline-block'
+                                boxShadow: '0 0 0 2px #99f6e4'
+                              }} />
+                              CHƯA ĐỌC
+                            </span>
+                          ) : (
+                            <span style={{
+                              fontSize: 10,
+                              fontWeight: 600,
+                              color: '#94a3b8',
+                              background: '#f8fafc',
+                              padding: '1.5px 6px',
+                              borderRadius: 4,
+                              border: '1px solid #e2e8f0'
+                            }}>
+                              ✓ Đã đọc
+                            </span>
+                          )}
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: 11, color: isUnread ? '#0f766e' : '#94a3b8', fontWeight: isUnread ? 600 : 400 }}>
+                            {formatRelativeTime(item.createdAt)}
+                          </span>
+                          {isUnread && (
+                            <button
+                              onClick={(e) => handleMarkAsRead(item.id, e)}
+                              title="Đánh dấu đã đọc"
+                              style={{
+                                background: '#ffffff',
+                                border: '1px solid #99f6e4',
+                                borderRadius: 5,
+                                padding: '1px 5px',
+                                fontSize: 10.5,
+                                fontWeight: 700,
+                                color: '#0d9488',
+                                cursor: 'pointer',
                               }}
-                            />
+                              onMouseEnter={e => e.currentTarget.style.background = '#ccfbf1'}
+                              onMouseLeave={e => e.currentTarget.style.background = '#ffffff'}
+                            >
+                              ✓
+                            </button>
                           )}
                         </div>
                       </div>
 
                       <h4 style={{
-                        margin: '0 0 2px',
+                        margin: '0 0 3px',
                         fontSize: 13,
-                        fontWeight: item.isRead ? 700 : 800,
-                        color: '#0f172a',
+                        fontWeight: isUnread ? 800 : 600,
+                        color: isUnread ? '#0f172a' : '#475569',
                         lineHeight: 1.35
                       }}>
                         {item.title}
@@ -421,7 +473,8 @@ export default function NotificationBell({ role: propRole }) {
                       <p style={{
                         margin: 0,
                         fontSize: 12,
-                        color: item.isRead ? '#64748b' : '#334155',
+                        color: isUnread ? '#1e293b' : '#64748b',
+                        fontWeight: isUnread ? 500 : 400,
                         lineHeight: 1.4,
                         display: '-webkit-box',
                         WebkitLineClamp: 2,

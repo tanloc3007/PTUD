@@ -248,3 +248,44 @@ public class UserNotification
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? ReadAt { get; set; }
 }
+
+public class SystemRole
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public string RoleCode { get; set; } = string.Empty;
+    public string RoleName { get; set; } = string.Empty;
+    public string? Description { get; set; }
+    public bool IsSystem { get; set; } = true;
+    public bool IsSystemRole { get => IsSystem; set => IsSystem = value; }
+    public int OrderIndex { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+public class UserRoleAssignment
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid UserId { get; set; }
+    public string RoleCode { get; set; } = string.Empty;
+    public DateTime AssignedAt { get; set; } = DateTime.UtcNow;
+    public string? AssignedBy { get; set; }
+}
+
+public class RolePermission
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public string RoleCode { get; set; } = string.Empty;
+    public string PermissionCode { get; set; } = string.Empty;
+    public string ModuleName { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+public class UserDirectPermission
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid UserId { get; set; }
+    public string PermissionCode { get; set; } = string.Empty;
+    public string ModuleName { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+

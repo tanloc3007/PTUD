@@ -26,7 +26,7 @@ public record RegisterRequest(
     string? YearOfStudy = null
 );
 public record AuthResponse(string Token, UserDto User);
-public record UserDto(Guid Id, string? MSSV, string FullName, string Email, string Role, string? Faculty, string AnonymousCode, string? AvatarUrl, List<string>? Permissions = null, bool IsActive = true, DateTime? CreatedAt = null);
+public record UserDto(Guid Id, string? MSSV, string FullName, string Email, string Role, string? Faculty, string AnonymousCode, string? AvatarUrl, List<string>? Permissions = null, bool IsActive = true, DateTime? CreatedAt = null, List<string>? Roles = null);
 
 // 2. MOOD JOURNAL DTOs
 public record CreateMoodJournalRequest(
@@ -38,7 +38,8 @@ public record CreateMoodJournalRequest(
     int? Mood = null,
     string? Content = null,
     List<string>? Tags = null,
-    Guid? StudentId = null
+    Guid? StudentId = null,
+    string? AiAdvice = null
 )
 {
     public string EffectiveMoodState =>
@@ -47,8 +48,9 @@ public record CreateMoodJournalRequest(
         {
             5 => "Great",
             4 => "Peaceful",
-            3 => "Stressed",
-            2 => "Exhausted",
+            3 => "Sad",
+            2 => "Stressed",
+            1 => "Exhausted",
             _ => "Sad"
         });
 
@@ -193,7 +195,8 @@ public record PostDto(
     string? ImageUrl = null,
     string ImageModerationStatus = "None",
     string? ImageModerationNote = null,
-    Guid? StudentId = null
+    Guid? StudentId = null,
+    string? AiAdvice = null
 );
 
 public record ModerateImageRequest(
@@ -285,6 +288,18 @@ public record TimeSlotDto(
     bool IsBooked
 );
 
+public record BlockSlotRequest(
+    string Date,
+    string Time,
+    string? EndTime = null,
+    string? Reason = null
+);
+
+public record UnblockSlotRequest(
+    string Date,
+    string Time
+);
+
 public record BookedSlotDto(
     string Date,
     string StartTime,
@@ -319,7 +334,47 @@ public record AppointmentDto(
     string? Dass21Summary,
     int RiskScore,
     DateTime CreatedAt,
-    bool IsMeetingActive = false
+    bool IsMeetingActive = false,
+    string? StudentEmail = null
+);
+
+public record SendEmailNotificationRequest(
+    Guid? AppointmentId = null,
+    string? ToEmail = null,
+    string? Subject = null,
+    string? Content = null,
+    string? Type = null
+);
+
+public record UpdateEmailSettingsRequest(
+    string? SmtpHost = null,
+    int SmtpPort = 587,
+    string? SenderEmail = null,
+    string? SenderName = null,
+    string? Password = null,
+    bool EnableSsl = true
+);
+
+public record TestEmailRequest(
+    string? RecipientEmail = null,
+    string? SmtpHost = null,
+    int? SmtpPort = null,
+    string? SenderEmail = null,
+    string? SenderName = null,
+    string? Password = null,
+    bool? EnableSsl = null
+);
+
+public record StartMeetingRequest(
+    string? FrontendBaseUrl = null
+);
+
+public record StartMeetingResultDto(
+    bool EmailSent,
+    bool EmailAttempted,
+    string? RecipientEmail,
+    string? EmailError,
+    string MeetingUrl
 );
 
 public record UpdateAppointmentStatusRequest(string Status, string? RejectionReason);
@@ -580,4 +635,64 @@ public record CreateNotificationRequest(
     string Type,
     string? ActionUrl
 );
+
+// 11. ROLE & PERMISSION MATRIX DTOs
+public record RoleItemDto(
+    Guid Id,
+    string RoleCode,
+    string RoleName,
+    string? Description,
+    bool IsSystemRole,
+    int OrderIndex,
+    int UserCount,
+    int PermissionCount,
+    List<string> Permissions
+);
+
+public record PermissionItemDto(
+    string Code,
+    string Name,
+    string Description,
+    string ModuleName
+);
+
+public record RoleMatrixDto(
+    List<RoleItemDto> Roles,
+    List<PermissionItemDto> AllPermissions,
+    int TotalRoles,
+    int TotalPermissions,
+    int TotalAssignments
+);
+
+public record UpdateRolePermissionsRequest(List<string> PermissionCodes);
+public record UpdateUserRolesRequest(List<string> Roles);
+
+public record UserPermissionDetailDto(
+    Guid UserId,
+    string FullName,
+    string Email,
+    string PrimaryRole,
+    List<string> Roles,
+    List<string> RoleNames,
+    List<string> InheritedPermissions,
+    List<string> DirectPermissions,
+    List<string> EffectivePermissions,
+    List<PermissionItemDto> AllPermissions
+);
+
+public record UserPermissionItemDto(
+    Guid UserId,
+    string FullName,
+    string Email,
+    string PrimaryRole,
+    List<string> Roles,
+    List<string> RoleNames,
+    int EffectivePermissionCount,
+    int DirectPermissionCount,
+    bool IsActive
+);
+
+public record UpdateUserPermissionsRequest(List<string> PermissionCodes);
+
+
 

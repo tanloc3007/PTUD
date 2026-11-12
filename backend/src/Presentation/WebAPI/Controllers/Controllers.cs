@@ -253,6 +253,24 @@ public class PsychologicalTestsController : ControllerBase
         var result = await _testService.GetLatestResultAsync(targetStudentId);
         return Ok(result);
     }
+
+    /// <summary>
+    /// Lấy toàn bộ lịch sử các bài trắc nghiệm đã làm của sinh viên
+    /// </summary>
+    [HttpGet("student/{studentId:guid}/history")]
+    public async Task<ActionResult<Result<List<TestResultDto>>>> GetStudentHistory(Guid studentId)
+    {
+        var result = await _testService.GetStudentTestHistoryAsync(studentId);
+        return Ok(result);
+    }
+
+    [HttpGet("history")]
+    public async Task<ActionResult<Result<List<TestResultDto>>>> GetStudentHistoryDefault([FromQuery] Guid? studentId = null)
+    {
+        var targetStudentId = studentId ?? Guid.Parse("22222222-2222-2222-2222-222222222221");
+        var result = await _testService.GetStudentTestHistoryAsync(targetStudentId);
+        return Ok(result);
+    }
 }
 
 [ApiController]
@@ -453,19 +471,57 @@ public class AppointmentsController : ControllerBase
     [HttpGet("expert/today")]
     public async Task<ActionResult<Result<List<AppointmentDto>>>> GetExpertToday([FromQuery] Guid? expertId = null)
     {
-        var targetExpertId = expertId ?? Request.GetUserIdFromRequest() ?? Guid.Parse("33333333-3333-3333-3333-333333333331");
+        var targetExpertId = expertId ?? Request.GetUserIdFromRequest() ?? Guid.Parse("33333333-3333-3333-3333-333333333330");
         var result = await _appointmentService.GetExpertAppointmentsAsync(targetExpertId);
-        var today = DateTime.UtcNow.ToString("yyyy-MM-dd");
-        var filtered = result.Data?.Where(a => a.Date == today || a.Status == "Confirmed").ToList() ?? new();
+        
+        var nowVn = DateTime.UtcNow.AddHours(7);
+        var todayVn = nowVn.ToString("yyyy-MM-dd");
+
+        var filtered = result.Data?.Where(a => {
+            // Lịch hẹn trong ngày hôm nay đã xác nhận
+            return a.Date == todayVn && (a.Status == "Confirmed" || a.Status == "Pending");
+        }).OrderBy(a => a.StartTime).ToList() ?? new();
+
         return Ok(Result<List<AppointmentDto>>.Ok(filtered));
     }
 
     [HttpGet("expert/pending")]
     public async Task<ActionResult<Result<List<AppointmentDto>>>> GetExpertPending([FromQuery] Guid? expertId = null)
     {
-        var targetExpertId = expertId ?? Request.GetUserIdFromRequest() ?? Guid.Parse("33333333-3333-3333-3333-333333333331");
+        var targetExpertId = expertId ?? Request.GetUserIdFromRequest() ?? Guid.Parse("33333333-3333-3333-3333-333333333330");
         var result = await _appointmentService.GetExpertAppointmentsAsync(targetExpertId);
-        var filtered = result.Data?.Where(a => a.Status == "Pending").ToList() ?? new();
+
+        var nowVn = DateTime.UtcNow.AddHours(7);
+        var todayVn = nowVn.ToString("yyyy-MM-dd");
+        var currentTimeVn = nowVn.ToString("HH:mm");
+
+        var filtered = result.Data?.Where(a => {
+            if (a.Status != "Pending") return false;
+            // Tự động loại bỏ và không hiển thị các ca hẹn đã quá ngày/giờ hẹn
+            if (string.Compare(a.Date, todayVn) < 0) return false;
+            if (a.Date == todayVn && string.Compare(a.StartTime, currentTimeVn) <= 0) return false;
+            return true;
+        }).OrderByDescending(a => a.CreatedAt).ToList() ?? new();
+
+        return Ok(Result<List<AppointmentDto>>.Ok(filtered));
+    }
+
+    [HttpGet("expert/upcoming-week")]
+    public async Task<ActionResult<Result<List<AppointmentDto>>>> GetExpertUpcomingWeek([FromQuery] Guid? expertId = null)
+    {
+        var targetExpertId = expertId ?? Request.GetUserIdFromRequest() ?? Guid.Parse("33333333-3333-3333-3333-333333333330");
+        var result = await _appointmentService.GetExpertAppointmentsAsync(targetExpertId);
+        
+        var nowVn = DateTime.UtcNow.AddHours(7);
+        var todayVn = nowVn.ToString("yyyy-MM-dd");
+        var next7DaysVn = nowVn.AddDays(7).ToString("yyyy-MM-dd");
+
+        var filtered = result.Data?.Where(a => {
+            if (string.Compare(a.Date, todayVn) <= 0) return false;
+            if (string.Compare(a.Date, next7DaysVn) > 0) return false;
+            return a.Status == "Confirmed" || a.Status == "Pending";
+        }).OrderBy(a => a.Date).ThenBy(a => a.StartTime).ToList() ?? new();
+
         return Ok(Result<List<AppointmentDto>>.Ok(filtered));
     }
 
@@ -482,6 +538,26 @@ public class AppointmentsController : ControllerBase
     /// <summary>
     /// Lấy danh sách toàn bộ các khung giờ đã có người đặt của chuyên viên (để frontend ẩn đi)
     /// </summary>
+    /// <summary>
+    /// Chuyên viên khóa khung giờ (báo bận)
+    /// </summary>
+    [HttpPost("expert/{expertId:guid}/block-slot")]
+    public async Task<ActionResult<Result<bool>>> BlockSlot(Guid expertId, [FromBody] BlockSlotRequest request)
+    {
+        var result = await _appointmentService.BlockSlotAsync(expertId, request);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Chuyên viên mở lại khung giờ đã khóa
+    /// </summary>
+    [HttpPost("expert/{expertId:guid}/unblock-slot")]
+    public async Task<ActionResult<Result<bool>>> UnblockSlot(Guid expertId, [FromBody] UnblockSlotRequest request)
+    {
+        var result = await _appointmentService.UnblockSlotAsync(expertId, request);
+        return Ok(result);
+    }
+
     [HttpGet("expert/{expertId:guid}/booked-slots")]
     public async Task<ActionResult<Result<List<BookedSlotDto>>>> GetExpertBookedSlots(Guid expertId)
     {
@@ -521,13 +597,21 @@ public class AppointmentsController : ControllerBase
     }
 
     /// <summary>
-    /// Chuyên viên mở phòng cuộc họp trực tuyến (Kích hoạt thông báo cho sinh viên đặt lịch)
+    /// Chuyên viên mở phòng cuộc họp trực tuyến (Kích hoạt thông báo & tự động gửi email cho sinh viên đặt lịch)
     /// </summary>
     [HttpPost("{appointmentId:guid}/start-meeting")]
-    public async Task<ActionResult<Result>> StartMeeting(Guid appointmentId, [FromQuery] Guid? expertId = null)
+    public async Task<ActionResult<Result<StartMeetingResultDto>>> StartMeeting(
+        Guid appointmentId,
+        [FromQuery] Guid? expertId = null,
+        [FromBody(EmptyBodyBehavior = Microsoft.AspNetCore.Mvc.ModelBinding.EmptyBodyBehavior.Allow)] StartMeetingRequest? request = null)
     {
         var targetExpertId = expertId ?? Request.GetUserIdFromRequest() ?? Guid.Parse("33333333-3333-3333-3333-333333333331");
-        var result = await _appointmentService.StartMeetingAsync(appointmentId, targetExpertId);
+        var originHeader = Request.Headers.Origin.FirstOrDefault();
+        var frontendBaseUrl = !string.IsNullOrWhiteSpace(request?.FrontendBaseUrl)
+            ? request!.FrontendBaseUrl
+            : (!string.IsNullOrWhiteSpace(originHeader) ? originHeader : null);
+
+        var result = await _appointmentService.StartMeetingAsync(appointmentId, targetExpertId, frontendBaseUrl);
         if (!result.Success) return BadRequest(result);
         return Ok(result);
     }
@@ -973,6 +1057,76 @@ public class AdminController : ControllerBase
         if (!result.Success) return BadRequest(result);
         return Ok(result);
     }
+
+    /// <summary>
+    /// Lấy ma trận toàn diện: 6 vai trò hệ thống, 27 quyền thuộc 5 nhóm, thống kê lượt gán
+    /// </summary>
+    [HttpGet("roles")]
+    public async Task<ActionResult<Result<RoleMatrixDto>>> GetRolesMatrix()
+    {
+        var result = await _adminService.GetRolesMatrixAsync();
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Cập nhật ma trận phân quyền cho một vai trò cụ thể
+    /// </summary>
+    [HttpPost("roles/{roleCode}/permissions")]
+    [HttpPut("roles/{roleCode}/permissions")]
+    public async Task<ActionResult<Result>> UpdateRolePermissions(string roleCode, [FromBody] UpdateRolePermissionsRequest request, [FromQuery] Guid? adminId = null)
+    {
+        var targetAdminId = adminId ?? Request.GetUserIdFromRequest() ?? Guid.Parse("11111111-1111-1111-1111-111111111111");
+        var result = await _adminService.UpdateRolePermissionsAsync(roleCode, request, targetAdminId);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Gán hoặc cập nhật nhiều vai trò cho 1 người dùng (Multi-role assignment)
+    /// </summary>
+    [HttpPost("users/{userId:guid}/roles")]
+    [HttpPut("users/{userId:guid}/roles")]
+    public async Task<ActionResult<Result<UserDto>>> UpdateUserRoles(Guid userId, [FromBody] UpdateUserRolesRequest request, [FromQuery] Guid? adminId = null)
+    {
+        var targetAdminId = adminId ?? Request.GetUserIdFromRequest() ?? Guid.Parse("11111111-1111-1111-1111-111111111111");
+        var result = await _adminService.UpdateUserRolesAsync(userId, request, targetAdminId);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Lấy danh sách tóm tắt quyền của tất cả người dùng (phục vụ bộ lọc danh sách)
+    /// </summary>
+    [HttpGet("users/permissions-summary")]
+    public async Task<ActionResult<Result<List<UserPermissionItemDto>>>> GetAllUsersPermissionsSummary()
+    {
+        var result = await _adminService.GetAllUsersPermissionsSummaryAsync();
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Lấy chi tiết phân quyền của một người dùng cụ thể (quyền từ vai trò + quyền riêng)
+    /// </summary>
+    [HttpGet("users/{userId:guid}/permissions")]
+    public async Task<ActionResult<Result<UserPermissionDetailDto>>> GetUserPermissions(Guid userId)
+    {
+        var result = await _adminService.GetUserPermissionsAsync(userId);
+        if (!result.Success) return NotFound(result);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Cập nhật ma trận phân quyền riêng cho một người dùng cụ thể
+    /// </summary>
+    [HttpPost("users/{userId:guid}/permissions")]
+    [HttpPut("users/{userId:guid}/permissions")]
+    public async Task<ActionResult<Result>> UpdateUserPermissions(Guid userId, [FromBody] UpdateUserPermissionsRequest request, [FromQuery] Guid? adminId = null)
+    {
+        var targetAdminId = adminId ?? Request.GetUserIdFromRequest() ?? Guid.Parse("11111111-1111-1111-1111-111111111111");
+        var result = await _adminService.UpdateUserPermissionsAsync(userId, request, targetAdminId);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
 }
 
 /// <summary>
@@ -983,10 +1137,229 @@ public class AdminController : ControllerBase
 public class NotificationsController : ControllerBase
 {
     private readonly INotificationService _notificationService;
+    private readonly UniMind.Application.Common.Interfaces.IApplicationDbContext _context;
+    private readonly UniMind.Application.Common.Interfaces.IEmailService? _emailService;
 
-    public NotificationsController(INotificationService notificationService)
+    public NotificationsController(
+        INotificationService notificationService, 
+        UniMind.Application.Common.Interfaces.IApplicationDbContext context,
+        UniMind.Application.Common.Interfaces.IEmailService? emailService = null)
     {
         _notificationService = notificationService;
+        _context = context;
+        _emailService = emailService;
+    }
+
+    /// <summary>
+    /// Gửi thông báo qua Email / Gmail cho sinh viên khi chuyên viên mở phòng tư vấn hoặc phê duyệt lịch hẹn
+    /// </summary>
+    [HttpPost("email")]
+    public async Task<ActionResult<Result>> SendEmailNotification([FromBody] SendEmailNotificationRequest request)
+    {
+        string targetEmail = request.ToEmail ?? string.Empty;
+        string studentName = "Sinh viên";
+        string bookingCode = "ST-LIVE";
+        Guid? appointmentId = request.AppointmentId;
+
+        if (appointmentId.HasValue && appointmentId != Guid.Empty)
+        {
+            var app = _context.Appointments.FirstOrDefault(a => a.Id == appointmentId.Value);
+            if (app != null)
+            {
+                bookingCode = app.BookingCode;
+                var student = _context.Users.FirstOrDefault(u => u.Id == app.StudentId);
+                if (student != null)
+                {
+                    targetEmail = !string.IsNullOrWhiteSpace(student.Email) ? student.Email : targetEmail;
+                    studentName = !string.IsNullOrWhiteSpace(student.FullName) ? student.FullName : app.AnonymousPseudonym;
+                }
+
+                // Tự động đẩy thông báo tức thời tới sinh viên trong ứng dụng
+                _context.Notifications.Add(new UniMind.Domain.Entities.UserNotification
+                {
+                    Id = Guid.NewGuid(),
+                    UserId = app.StudentId,
+                    TargetRole = "Student",
+                    Title = "🔔 Chuyên viên đã mở phòng tư vấn!",
+                    Message = $"Chuyên viên đã mở phòng tư vấn cho ca hẹn #{bookingCode}. Vui lòng tham gia phòng họp SafeRoom ngay.",
+                    Category = "Appointment",
+                    Type = "success",
+                    ActionUrl = $"/student/meeting/{app.Id}",
+                    IsRead = false,
+                    CreatedAt = DateTime.UtcNow
+                });
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(targetEmail) || !targetEmail.Contains('@'))
+        {
+            return BadRequest(Result.Fail("Không tìm thấy địa chỉ email hợp lệ của sinh viên để gửi thông báo."));
+        }
+
+        var originHeader = Request.Headers.Origin.FirstOrDefault();
+        var baseUrl = !string.IsNullOrWhiteSpace(originHeader) ? originHeader.TrimEnd('/') : "http://localhost:5173";
+        var subject = request.Subject ?? $"[UniMind] Chuyên viên đã mở phòng tư vấn - Ca hẹn #{bookingCode}";
+        var body = request.Content ?? $"Xin chào {studentName},\n\nChuyên viên tư vấn tâm lý UniMind đã mở phòng tư vấn trực tuyến cho ca hẹn #{bookingCode}.\nVui lòng tham gia phòng họp SafeRoom để bắt đầu phiên tham vấn.";
+
+        bool emailSent = false;
+        string emailStatusNote = "Chưa kết nối dịch vụ Email";
+        if (_emailService != null)
+        {
+            try
+            {
+                UniMind.Application.Common.Interfaces.EmailSendOutcome outcome;
+                if (appointmentId.HasValue && appointmentId != Guid.Empty)
+                {
+                    var meetingUrl = $"{baseUrl}/student/meeting/{appointmentId.Value}";
+                    outcome = await _emailService.SendMeetingInvitationDetailedAsync(
+                        toEmail: targetEmail,
+                        studentName: studentName,
+                        bookingCode: bookingCode,
+                        meetingUrl: meetingUrl
+                    );
+                }
+                else
+                {
+                    var html = $"<p>{System.Web.HttpUtility.HtmlEncode(body).Replace("\n", "<br/>")}</p>";
+                    outcome = await _emailService.SendEmailDetailedAsync(targetEmail, subject, html, body);
+                }
+                emailSent = outcome.Success;
+                emailStatusNote = emailSent
+                    ? "Thành công qua SMTP"
+                    : (outcome.ErrorMessage ?? "Gửi thất bại hoặc thiếu App Password");
+            }
+            catch (Exception ex)
+            {
+                emailStatusNote = $"Lỗi: {ex.Message}";
+            }
+        }
+
+        _context.AuditLogs.Add(new UniMind.Domain.Entities.AuditLog
+        {
+            Id = Guid.NewGuid(),
+            ActionType = "EMAIL_NOTIFICATION_AUTO_DISPATCH",
+            ActorRole = "System",
+            Details = $"Hệ thống tự động gửi email thông báo phòng họp SafeRoom tới {targetEmail} cho ca hẹn #{bookingCode}. Kết quả: {emailStatusNote}",
+            IpAddress = "127.0.0.1",
+            CreatedAt = DateTime.UtcNow
+        });
+
+        await _context.SaveChangesAsync();
+
+        if (!emailSent)
+        {
+            return BadRequest(Result.Fail(emailStatusNote));
+        }
+        return Ok(Result.Ok($"Đã tự động gửi email thông báo thành công tới ({targetEmail})!"));
+    }
+
+    /// <summary>
+    /// Lấy cấu hình SMTP hiện hành (được ẩn mật khẩu)
+    /// </summary>
+    [HttpGet("email-settings")]
+    public ActionResult<Result<object>> GetEmailSettings()
+    {
+        if (_emailService == null) return BadRequest(Result.Fail("Email service not available"));
+        var s = _emailService.GetSettings();
+        var isConfigured = !string.IsNullOrWhiteSpace(s.SenderEmail) && !string.IsNullOrWhiteSpace(s.Password);
+        var maskedPassword = string.IsNullOrWhiteSpace(s.Password) 
+            ? "" 
+            : (s.Password.Length > 4 ? new string('•', s.Password.Length - 4) + s.Password.Substring(s.Password.Length - 4) : "••••••••");
+
+        return Ok(Result<object>.Ok(new
+        {
+            smtpHost = s.SmtpHost,
+            smtpPort = s.SmtpPort,
+            senderEmail = s.SenderEmail,
+            senderName = s.SenderName,
+            isConfigured = isConfigured,
+            maskedPassword = maskedPassword,
+            enableSsl = s.EnableSsl
+        }));
+    }
+
+    /// <summary>
+    /// Cập nhật thông tin SMTP và Google App Password tức thời
+    /// </summary>
+    [HttpPut("email-settings")]
+    public async Task<ActionResult<Result>> UpdateEmailSettings([FromBody] UpdateEmailSettingsRequest req)
+    {
+        if (_emailService == null) return BadRequest(Result.Fail("Email service not available"));
+        var current = _emailService.GetSettings();
+        var nextSender = (req.SenderEmail ?? current.SenderEmail ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(nextSender) || !nextSender.Contains('@'))
+        {
+            return BadRequest(Result.Fail("Vui lòng nhập địa chỉ Gmail gửi thư hợp lệ."));
+        }
+
+        var nextPwd = string.IsNullOrWhiteSpace(req.Password)
+            ? current.Password
+            : req.Password.Replace(" ", string.Empty).Trim();
+
+        if (string.IsNullOrWhiteSpace(nextPwd))
+        {
+            return BadRequest(Result.Fail("Vui lòng nhập Mật khẩu ứng dụng Google (App Password 16 ký tự)."));
+        }
+
+        var newSettings = new UniMind.Application.Common.Interfaces.EmailSettingsDto(
+            SmtpHost: string.IsNullOrWhiteSpace(req.SmtpHost) ? current.SmtpHost : req.SmtpHost.Trim(),
+            SmtpPort: req.SmtpPort > 0 ? req.SmtpPort : current.SmtpPort,
+            SenderEmail: nextSender,
+            SenderName: string.IsNullOrWhiteSpace(req.SenderName) ? current.SenderName : req.SenderName.Trim(),
+            Password: nextPwd,
+            EnableSsl: req.EnableSsl
+        );
+
+        await _emailService.UpdateSettingsAsync(newSettings);
+        return Ok(Result.Ok("Đã lưu bền vững và cập nhật cấu hình Gmail SMTP thành công!"));
+    }
+
+    /// <summary>
+    /// Gửi thử một thư nghiệm tới địa chỉ Gmail chỉ định để kiểm tra kết nối SMTP
+    /// </summary>
+    [HttpPost("test-email")]
+    public async Task<ActionResult<Result>> TestEmail([FromBody] TestEmailRequest req)
+    {
+        if (_emailService == null) return BadRequest(Result.Fail("Email service not available"));
+        var to = req.RecipientEmail?.Trim();
+        if (string.IsNullOrWhiteSpace(to) || !to.Contains('@'))
+        {
+            return BadRequest(Result.Fail("Vui lòng nhập địa chỉ Gmail nhận thử nghiệm hợp lệ."));
+        }
+
+        var current = _emailService.GetSettings();
+        UniMind.Application.Common.Interfaces.EmailSettingsDto? overrideSettings = null;
+        if (!string.IsNullOrWhiteSpace(req.SenderEmail) || !string.IsNullOrWhiteSpace(req.Password) || !string.IsNullOrWhiteSpace(req.SmtpHost))
+        {
+            var effSender = !string.IsNullOrWhiteSpace(req.SenderEmail) ? req.SenderEmail.Trim() : current.SenderEmail;
+            var effPwd = !string.IsNullOrWhiteSpace(req.Password)
+                ? req.Password.Replace(" ", string.Empty).Trim()
+                : (string.Equals(effSender, current.SenderEmail, StringComparison.OrdinalIgnoreCase) ? current.Password : string.Empty);
+
+            overrideSettings = new UniMind.Application.Common.Interfaces.EmailSettingsDto(
+                SmtpHost: !string.IsNullOrWhiteSpace(req.SmtpHost) ? req.SmtpHost.Trim() : current.SmtpHost,
+                SmtpPort: req.SmtpPort is > 0 ? req.SmtpPort.Value : current.SmtpPort,
+                SenderEmail: effSender,
+                SenderName: !string.IsNullOrWhiteSpace(req.SenderName) ? req.SenderName.Trim() : current.SenderName,
+                Password: effPwd,
+                EnableSsl: req.EnableSsl ?? current.EnableSsl
+            );
+        }
+
+        var subject = "[UniMind Test] Kiểm tra kết nối máy chủ gửi thư Gmail SMTP";
+        var body = $"Xin chào!\n\nĐây là thư thử nghiệm tự động từ Hệ thống UniMind gửi tới {to}.\nThời gian: {DateTime.UtcNow.AddHours(7):dd/MM/yyyy HH:mm:ss}.\nMáy chủ SMTP hoạt động bình thường!";
+        var html = $@"<div style='font-family: sans-serif; padding: 20px; background: #f8fafc; border-radius: 12px; border: 1px solid #e2e8f0; max-width: 500px;'>
+            <h2 style='color: #059669; margin: 0 0 10px;'>✅ Kiểm tra kết nối Gmail SMTP thành công!</h2>
+            <p>Hệ thống Tham vấn Tâm lý Học đường UniMind đã gửi thư thử nghiệm tự động tới <strong>{System.Net.WebUtility.HtmlEncode(to)}</strong>.</p>
+            <p style='color: #64748b; font-size: 13px;'>Thời gian kiểm tra: {DateTime.UtcNow.AddHours(7):dd/MM/yyyy HH:mm:ss} (Giờ VN)</p>
+        </div>";
+
+        var outcome = await _emailService.SendEmailDetailedAsync(to, subject, html, body, overrideSettings);
+        if (outcome.Success)
+        {
+            return Ok(Result.Ok($"Đã gửi thành công email thử nghiệm tới {to}! Vui lòng kiểm tra hộp thư đến."));
+        }
+        return BadRequest(Result.Fail(outcome.ErrorMessage ?? "Gửi thư thử nghiệm thất bại. Vui lòng kiểm tra lại Gmail và App Password 16 ký tự."));
     }
 
     /// <summary>

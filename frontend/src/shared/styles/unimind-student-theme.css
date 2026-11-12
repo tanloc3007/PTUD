@@ -1,3 +1,8 @@
+
+/* Global form elements typography inherit */
+button, input, select, textarea {
+  font-family: var(--s-font);
+}
 /* ============================================================
    UNIMIND — STUDENT THEME (CSS Design System)
    Palette: Teal / Xanh ngọc — An yên, Tin cậy, Ấm áp

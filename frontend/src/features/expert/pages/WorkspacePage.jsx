@@ -15,10 +15,105 @@ function RiskBar({ score }) {
   );
 }
 
+function getDayLabelFromDate(dateStr) {
+  if (!dateStr) return 'Thứ 5';
+  if (dateStr.includes('Thứ') || dateStr.includes('Chủ nhật')) return dateStr;
+
+  let y, m, d;
+  if (dateStr.includes('/')) {
+    const parts = dateStr.split('/');
+    if (parts.length === 3) {
+      d = parseInt(parts[0], 10);
+      m = parseInt(parts[1], 10) - 1;
+      y = parseInt(parts[2], 10);
+    }
+  } else if (dateStr.includes('-')) {
+    const parts = dateStr.split('T')[0].split('-');
+    if (parts.length === 3) {
+      y = parseInt(parts[0], 10);
+      m = parseInt(parts[1], 10) - 1;
+      d = parseInt(parts[2], 10);
+    }
+  }
+
+  if (y && m !== undefined && d) {
+    const dateObj = new Date(y, m, d);
+    const dayIdx = dateObj.getDay();
+    return dayIdx === 0 ? 'Chủ nhật' : `Thứ ${dayIdx + 1}`;
+  }
+
+  return 'Thứ 5';
+}
+function isTodayAppointmentActive(appt) {
+  if (!appt) return false;
+
+  // Lấy ngày hôm nay theo giờ địa phương YYYY-MM-DD
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  const todayStr = `${y}-${m}-${d}`;
+
+  // Kiểm tra ngày: Phải đúng là ngày hôm nay
+  if (appt.date && appt.date !== todayStr) {
+    return false;
+  }
+
+  // Nếu sinh viên nào qua thời gian đặt lịch rồi thì không hiển thị trong lịch hẹn hôm nay nữa
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+
+  const endTimeStr = appt.endTime || appt.time;
+  if (endTimeStr && endTimeStr.includes(':')) {
+    const [h, min] = endTimeStr.split(':').map(Number);
+    if (!isNaN(h) && !isNaN(min)) {
+      const endMinutes = h * 60 + min;
+      if (currentMinutes >= endMinutes) {
+        return false; // Ca hẹn đã trôi qua
+      }
+    }
+  } else if (appt.startTime && appt.startTime.includes(':')) {
+    const [h, min] = appt.startTime.split(':').map(Number);
+    if (!isNaN(h) && !isNaN(min)) {
+      const startMinutes = h * 60 + min;
+      if (currentMinutes >= startMinutes + 90) {
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+
+// Kiểm tra ca hẹn đã quá hạn (qua ngày hoặc qua giờ bắt đầu hẹn)
+function isAppointmentExpired(appt) {
+  if (!appt || !appt.date) return false;
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  const todayStr = `${y}-${m}-${d}`;
+
+  // 1. Đã qua ngày hẹn trong quá khứ
+  if (appt.date < todayStr) return true;
+
+  // 2. Trùng ngày hôm nay nhưng giờ hẹn đã trôi qua
+  if (appt.date === todayStr && (appt.startTime || appt.time)) {
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    const timeStr = appt.startTime || appt.time;
+    const [h, min] = timeStr.split(':').map(Number);
+    if (!isNaN(h) && !isNaN(min)) {
+      return currentMinutes >= (h * 60 + min);
+    }
+  }
+
+  return false;
+}
+
 export default function ExpertWorkspacePage() {
   const { user } = useAuthStore();
   const [todayAppts, setToday]     = useState([]);
   const [pendingReqs, setPending]   = useState([]);
+  const [upcomingWeekAppts, setUpcomingWeek] = useState([]);
   const [triageAlerts, setTriage]   = useState([]);
   const [assessments, setAssessments] = useState([]);
   const [assessFilter, setAssessFilter] = useState('needs_help'); // 'all' | 'needs_help' | 'urgent' | 'recommended' | 'stable'
@@ -28,17 +123,46 @@ export default function ExpertWorkspacePage() {
 
   const loadData = () => {
     setLoading(true);
-    const expertId = user?.id || '33333333-3333-3333-3333-333333333331';
+    const expertId = user?.id || '33333333-3333-3333-3333-333333333330';
 
     Promise.all([
       axiosClient.get('/appointments/expert/today', { params: { expertId } }).catch(() => ({ data: null })),
       axiosClient.get('/appointments/expert/pending', { params: { expertId } }).catch(() => ({ data: null })),
+      axiosClient.get('/appointments/expert/upcoming-week', { params: { expertId } }).catch(() => ({ data: null })),
+      axiosClient.get(`/appointments/expert/${expertId}`).catch(() => ({ data: null })),
       axiosClient.get('/community/triage-alerts').catch(() => ({ data: null })),
       axiosClient.get('/expert/consultation-assessments').catch(() => ({ data: null })),
       axiosClient.get(`/expert/overview/${expertId}`).catch(() => ({ data: null })),
-    ]).then(([todayRes, pendingRes, triageRes, assessRes, overviewRes]) => {
-      if (todayRes?.data?.data) setToday(todayRes.data.data);
-      if (pendingRes?.data?.data) setPending(pendingRes.data.data);
+    ]).then(([todayRes, pendingRes, upcomingRes, allApptsRes, triageRes, assessRes, overviewRes]) => {
+      const allAppts = allApptsRes?.data?.data && Array.isArray(allApptsRes.data.data) ? allApptsRes.data.data : [];
+      const todayStr = new Date().toISOString().split('T')[0];
+
+      // 1. Lịch hẹn hôm nay
+      if (todayRes?.data?.data && Array.isArray(todayRes.data.data) && todayRes.data.data.length > 0) {
+        setToday(todayRes.data.data);
+      } else {
+        const todayFiltered = allAppts.filter(a => a.date === todayStr && a.status === 'Confirmed');
+        setToday(todayFiltered);
+      }
+
+      // 2. Yêu cầu đặt lịch chờ duyệt (tự động loại bỏ và lọc các ca hẹn đã quá ngày/giờ)
+      const rawPending = (pendingRes?.data?.data && Array.isArray(pendingRes.data.data))
+        ? pendingRes.data.data
+        : allAppts.filter(a => a.status === 'Pending');
+
+      const validPending = rawPending.filter(a => a.status === 'Pending' && !isAppointmentExpired(a));
+      setPending(validPending);
+
+      // 3. Lịch sắp tới trong tuần
+      if (upcomingRes?.data?.data && Array.isArray(upcomingRes.data.data) && upcomingRes.data.data.length > 0) {
+        setUpcomingWeek(upcomingRes.data.data);
+      } else {
+        const now = new Date();
+        const next7DaysStr = new Date(now.getTime() + 7 * 86400000).toISOString().split('T')[0];
+        const upcomingFiltered = allAppts.filter(a => a.date > todayStr && a.date <= next7DaysStr && (a.status === 'Confirmed' || a.status === 'Pending'));
+        setUpcomingWeek(upcomingFiltered);
+      }
+
       if (triageRes?.data?.data) setTriage(triageRes.data.data);
       if (assessRes?.data?.data && Array.isArray(assessRes.data.data)) {
         setAssessments(assessRes.data.data);
@@ -131,8 +255,8 @@ export default function ExpertWorkspacePage() {
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 24, width: '100%' }}>
 
-        {/* HÀNG 1: Lịch hẹn hôm nay & Yêu cầu đặt lịch chờ duyệt (2 Cột 50-50) */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 20 }}>
+        {/* HÀNG 1: Lịch hẹn hôm nay, Yêu cầu đặt lịch chờ duyệt & Lịch sắp tới trong tuần (3 Cột cân đối) */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
 
           {/* Lịch hẹn hôm nay */}
           <div className="e-card" style={{ padding: 22, display: 'flex', flexDirection: 'column' }}>
@@ -167,10 +291,10 @@ export default function ExpertWorkspacePage() {
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <p style={{ fontSize: 14, fontWeight: 800, color: 'var(--e-text)', margin: '0 0 2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {appt.studentAnonymousCode || appt.studentCode || 'Bạn Ẩn Yên #101'}
+                      {appt.studentAnonymousCode || appt.studentCode || appt.bookingCode || 'Sinh viên UniMind'}
                     </p>
                     <p style={{ fontSize: 12, color: 'var(--e-text-muted)', margin: '0 0 6px' }}>
-                      {appt.consultationType === 'Online' ? 'Trực tuyến (SafeRoom)' : `Phòng ${appt.roomLocation || 'P.302'}`}
+                      {appt.consultationType === 'Online' ? 'Trực tuyến (SafeRoom)' : `Phòng ${appt.roomLocation || 'P.302 (Tầng 3)'}`}
                     </p>
                     <RiskBar score={appt.riskScore || 30} />
                   </div>
@@ -179,7 +303,7 @@ export default function ExpertWorkspacePage() {
                       {appt.status === 'Confirmed' ? 'Đã duyệt' : 'Chờ duyệt'}
                     </span>
                     <a
-                      href={`/expert/consultation?id=${appt.id}&code=${encodeURIComponent(appt.studentAnonymousCode || appt.studentCode || 'Bạn Ẩn Yên #101')}&type=${appt.consultationType || 'Online'}`}
+                      href={`/expert/consultation?id=${appt.id}&code=${encodeURIComponent(appt.studentAnonymousCode || appt.studentCode || appt.bookingCode || 'Sinh viên')}&type=${appt.consultationType || 'Online'}`}
                       className="e-btn e-btn-primary"
                       style={{ fontSize: 12, padding: '5px 12px', textDecoration: 'none', background: '#0284c7' }}
                     >
@@ -234,7 +358,72 @@ export default function ExpertWorkspacePage() {
             </div>
           </div>
 
-        </div>
+                  {/* Bảng 3: Lịch sắp tới trong tuần */}
+          <div className="e-card" style={{ padding: 22, display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h2 style={{ fontSize: 16, fontWeight: 800, color: 'var(--e-text)', margin: 0 }}>
+                Lịch sắp tới trong tuần ({upcomingWeekAppts.length})
+              </h2>
+              <span style={{ fontSize: 11.5, background: '#ecfdf5', color: '#059669', padding: '3px 10px', borderRadius: 6, fontWeight: 700 }}>
+                Trong tuần này
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, flex: 1 }}>
+              {upcomingWeekAppts.length === 0 ? (
+                <div style={{ background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: 10, padding: '36px 16px', textAlign: 'center' }}>
+                  <p style={{ color: 'var(--e-text-muted)', fontSize: 13, margin: '0 0 10px' }}>
+                    Chưa có ca hẹn nào sắp tới trong các ngày tiếp theo của tuần.
+                  </p>
+                  <a href="/expert/schedule" className="e-btn e-btn-outline" style={{ fontSize: 12, padding: '6px 14px', textDecoration: 'none', display: 'inline-block' }}>
+                    Xem thời khóa biểu
+                  </a>
+                </div>
+              ) : upcomingWeekAppts.map(appt => {
+                const dayLabel = appt.day || getDayLabelFromDate(appt.date);
+                const isConfirmed = appt.status === 'Confirmed';
+                const isOnline = appt.consultationType === 'Online';
+
+                return (
+                  <div key={appt.id} className="e-appt-card" style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 14, background: 'var(--e-surface)', borderRadius: 10, border: '1px solid var(--e-border)' }}>
+                    <div style={{
+                      padding: '8px 10px', borderRadius: 8,
+                      background: isConfirmed ? '#f0fdf4' : '#fffbeb',
+                      fontWeight: 800, fontSize: 12, color: isConfirmed ? '#047857' : '#b45309',
+                      textAlign: 'center', minWidth: 70
+                    }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b' }}>{dayLabel}</div>
+                      <div>{appt.startTime || '08:00'}</div>
+                    </div>
+
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ fontSize: 13.5, fontWeight: 800, color: 'var(--e-text)', margin: '0 0 2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {appt.studentAnonymousCode || appt.studentCode || appt.bookingCode || 'Sinh viên UniMind'}
+                      </p>
+                      <p style={{ fontSize: 11.5, color: 'var(--e-text-muted)', margin: '0 0 4px' }}>
+                        {isOnline ? '🌐 Trực tuyến (SafeRoom)' : `🏢 Phòng ${appt.roomLocation || 'P.302 (Tầng 3)'}`}
+                      </p>
+                      <RiskBar score={appt.riskScore || 30} />
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end', flexShrink: 0 }}>
+                      <span className={`e-badge ${isConfirmed ? 'e-badge-success' : 'e-badge-warning'}`} style={{ fontSize: 10 }}>
+                        {isConfirmed ? '✓ Đã duyệt' : '⏳ Chờ duyệt'}
+                      </span>
+                      <a
+                        href={isOnline ? `/expert/consultation?id=${appt.id}&code=${encodeURIComponent(appt.studentAnonymousCode || 'Sinh viên')}&type=Online` : '/expert/schedule'}
+                        className="e-btn e-btn-outline"
+                        style={{ fontSize: 11.5, padding: '4px 10px', textDecoration: 'none', borderColor: '#0284c7', color: '#0284c7' }}
+                      >
+                        {isOnline ? 'Vào phòng' : 'Chi tiết'}
+                      </a>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+</div>
 
         {/* HÀNG 2: BẢNG SÀNG LỌC & ĐÁNH GIÁ NHU CẦU TƯ VẤN TÂM LÝ (Triage Assessment Matrix) */}
         <div className="e-card" style={{ padding: 22, border: '1.5px solid #fed7aa', background: '#fffdfa' }}>

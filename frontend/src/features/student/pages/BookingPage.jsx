@@ -20,25 +20,45 @@ export const formatDateToYMD = (d) => {
   return `${year}-${month}-${day}`;
 };
 
+const normalizeStr = (str) => {
+  if (!str) return '';
+  return str
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'd')
+    .trim();
+};
+
+const POPULAR_CATEGORIES = [
+  { id: 'all', label: 'Tất cả lĩnh vực', desc: 'Toàn bộ chuyên gia tâm lý' },
+  { id: 'school', label: 'Tâm lý học đường', keyword: 'học đường', desc: 'Đồ án, thi cử, thích nghi môi trường' },
+  { id: 'career', label: 'Định hướng nghề nghiệp', keyword: 'nghề nghiệp', desc: 'Định hướng tương lai & việc làm' },
+  { id: 'stress', label: 'Áp lực học tập & Đồ án', keyword: 'áp lực', desc: 'Căng thẳng, quá tải, thi cử' },
+  { id: 'depression', label: 'Trầm cảm & Lo âu', keyword: 'trầm cảm', desc: 'Rối loạn cảm xúc, âu lo, kiệt sức' },
+  { id: 'crisis', label: 'Khủng hoảng & SOS', keyword: 'khủng hoảng', desc: 'Hỗ trợ tâm lý khẩn cấp & can thiệp' },
+  { id: 'sleep', label: 'Giấc ngủ & Mối quan hệ', keyword: 'giấc ngủ', desc: 'Mất ngủ, mâu thuẫn bạn bè & gia đình' },
+];
+
 const MOCK_EXPERTS = [
   {
-    id: '44444444-4444-4444-4444-444444444440',
-    fullName: 'Chuyên viên Tư Vấn Mẫu (Demo)',
-    specialization: 'Tâm lý Học đường & Hướng nghiệp sinh viên',
-    academicDegree: 'Thạc sĩ Tâm lý học Lâm sàng',
-    roomLocation: 'P.302 (Tầng 3) - Tòa nhà Hỗ trợ Sinh viên',
+    id: '44444444-4444-4444-4444-444444444442',
+    fullName: 'TS. Tâm lý Trần Mai Lan',
+    specialization: 'Trầm cảm, Rối loạn âu lo & Khủng hoảng tâm lý, Mối quan hệ',
+    academicDegree: 'Tiến sĩ Tâm lý học lâm sàng',
+    roomLocation: 'P.303 (Tầng 3) - Tòa nhà Hỗ trợ Sinh viên',
     rating: 5.0,
-    totalConsultations: 100,
+    totalConsultations: 2100,
     availableSlots: [
-      { id: 's01', startTime: '08:00', endTime: '09:30', isBooked: false },
-      { id: 's02', startTime: '09:45', endTime: '11:15', isBooked: false },
-      { id: 's03', startTime: '13:30', endTime: '15:00', isBooked: false },
+      { id: 's4', startTime: '08:00', endTime: '09:30', isBooked: false },
+      { id: 's5', startTime: '13:30', endTime: '15:00', isBooked: false },
     ]
   },
   {
     id: '44444444-4444-4444-4444-444444444441',
     fullName: 'ThS. Tâm lý Nguyễn Thanh Hà',
-    specialization: 'Áp lực học tập, đồ án & Trị liệu nhận thức (CBT)',
+    specialization: 'Áp lực học tập, Đồ án & Trị liệu nhận thức hành vi (CBT)',
     academicDegree: 'Thạc sĩ Tâm lý học Lâm sàng ĐHQG',
     roomLocation: 'P.302 (Tầng 3) - Tòa nhà Hỗ trợ Sinh viên',
     rating: 4.98,
@@ -50,29 +70,68 @@ const MOCK_EXPERTS = [
     ]
   },
   {
-    id: '44444444-4444-4444-4444-444444444442',
-    fullName: 'TS. Tâm lý Trần Mai Lan',
-    specialization: 'Trầm cảm, Rối loạn âu lo & Khủng hoảng tâm lý',
-    academicDegree: 'Tiến sĩ Tâm lý học lâm sàng',
-    roomLocation: 'P.303 (Tầng 3) - Tòa nhà Hỗ trợ Sinh viên',
-    rating: 5.0,
-    totalConsultations: 2100,
+    id: '44444444-4444-4444-4444-444444444444',
+    fullName: 'ThS. Lê Thanh Tâm',
+    specialization: 'Khủng hoảng tâm lý cấp tính, Rối loạn lo âu, Mất ngủ',
+    academicDegree: 'Thạc sĩ Tâm lý Lâm sàng • Cố vấn SafeRoom SOS',
+    roomLocation: 'P.302 (Tầng 3) - Tòa nhà Hỗ trợ Sinh viên',
+    rating: 4.97,
+    totalConsultations: 1850,
     availableSlots: [
-      { id: 's4', startTime: '08:00', endTime: '09:30', isBooked: false },
-      { id: 's5', startTime: '13:30', endTime: '15:00', isBooked: false },
+      { id: 's8', startTime: '08:00', endTime: '09:30', isBooked: false },
+      { id: 's9', startTime: '14:00', endTime: '15:30', isBooked: false },
     ]
   },
   {
     id: '44444444-4444-4444-4444-444444444443',
     fullName: 'ThS. Lê Quốc Bảo',
-    specialization: 'Định hướng tương lai & Nghề nghiệp',
-    academicDegree: 'Thạc sĩ Tâm lý Phát triển',
+    specialization: 'Định hướng tương lai & Nghề nghiệp, Áp lực đồng trang lứa',
+    academicDegree: 'Thạc sĩ Tâm lý Phát triển & Nghề nghiệp',
     roomLocation: 'P.302 (Tầng 3) - Tòa nhà Hỗ trợ Sinh viên',
     rating: 4.95,
     totalConsultations: 980,
     availableSlots: [
       { id: 's6', startTime: '09:45', endTime: '11:15', isBooked: false },
       { id: 's7', startTime: '15:15', endTime: '16:45', isBooked: false },
+    ]
+  },
+  {
+    id: '44444444-4444-4444-4444-444444444445',
+    fullName: 'TS. Trần Minh Đức',
+    specialization: 'Mâu thuẫn gia đình, Áp lực thi cử, Sang chấn tâm lý',
+    academicDegree: 'Tiến sĩ Tâm lý học',
+    roomLocation: 'P.304 (Tầng 3) - Tòa nhà Hỗ trợ Sinh viên',
+    rating: 4.92,
+    totalConsultations: 2300,
+    availableSlots: [
+      { id: 's10', startTime: '08:30', endTime: '10:00', isBooked: false },
+      { id: 's11', startTime: '13:30', endTime: '15:00', isBooked: false },
+    ]
+  },
+  {
+    id: '44444444-4444-4444-4444-444444444446',
+    fullName: 'ThS. Vũ Phương Linh',
+    specialization: 'Rối loạn âu lo, Giấc ngủ & Thiền định phục hồi',
+    academicDegree: 'Thạc sĩ Tâm lý',
+    roomLocation: 'P.302 (Tầng 3) - Tòa nhà Hỗ trợ Sinh viên',
+    rating: 4.94,
+    totalConsultations: 1150,
+    availableSlots: [
+      { id: 's12', startTime: '09:00', endTime: '10:30', isBooked: false },
+    ]
+  },
+  {
+    id: '44444444-4444-4444-4444-444444444440',
+    fullName: 'Chuyên viên Tư Vấn Mẫu (Demo)',
+    specialization: 'Tâm lý Học đường & Định hướng nghề nghiệp sinh viên',
+    academicDegree: 'Thạc sĩ Tâm lý học Lâm sàng ĐHQG',
+    roomLocation: 'P.302 (Tầng 3) - Tòa nhà Hỗ trợ Sinh viên',
+    rating: 5.0,
+    totalConsultations: 100,
+    availableSlots: [
+      { id: 's01', startTime: '08:00', endTime: '09:30', isBooked: false },
+      { id: 's02', startTime: '09:45', endTime: '11:15', isBooked: false },
+      { id: 's03', startTime: '13:30', endTime: '15:00', isBooked: false },
     ]
   },
 ];
@@ -83,6 +142,10 @@ function ExpertCard({ expert, isSelected, onSelect }) {
   const rating = expert.rating || 5.0;
   const degree = expert.academicDegree || expert.title || 'Chuyên viên';
   const initial = (expert.fullName || 'E').split(' ').pop()?.[0] || 'E';
+  const isDemo = (expert.fullName || '').includes('Mẫu');
+
+  // Tách từ khóa chuyên môn để tạo tag hiển thị nổi bật
+  const specialtyTags = specialty.split(/[,&•]+/).map(s => s.trim()).filter(Boolean);
 
   return (
     <button
@@ -100,9 +163,10 @@ function ExpertCard({ expert, isSelected, onSelect }) {
       <div
         className="s-anon-avatar"
         style={{
-          background: `hsl(${expert.id?.toString().charCodeAt(0) * 45 || 160}, 45%, 38%)`,
-          width: 44, height: 44, fontSize: 16, flexShrink: 0, fontWeight: 800, color: '#fff',
-          borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center'
+          background: isDemo ? '#64748b' : `hsl(${expert.id?.toString().charCodeAt(0) * 45 || 160}, 45%, 38%)`,
+          width: 46, height: 46, fontSize: 16, flexShrink: 0, fontWeight: 800, color: '#fff',
+          borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          boxShadow: isSelected ? '0 4px 10px rgba(16, 185, 129, 0.25)' : 'none'
         }}
       >
         {initial}
@@ -112,22 +176,50 @@ function ExpertCard({ expert, isSelected, onSelect }) {
           <p style={{ fontSize: 14.5, fontWeight: 800, color: 'var(--s-text)', margin: 0 }}>
             {expert.fullName}
           </p>
-          <span style={{ fontSize: 11, background: 'var(--s-primary-soft)', color: 'var(--s-primary)', padding: '2px 8px', borderRadius: 4, fontWeight: 700 }}>
+          <span style={{ fontSize: 11, background: 'var(--s-primary-soft)', color: 'var(--s-primary)', padding: '2px 8px', borderRadius: 6, fontWeight: 700 }}>
             {degree}
           </span>
+          {isDemo ? (
+            <span style={{ fontSize: 10.5, background: '#f1f5f9', color: '#64748b', padding: '2px 8px', borderRadius: 6, fontWeight: 700, border: '1px solid #e2e8f0' }}>
+              Tài khoản mẫu minh họa
+            </span>
+          ) : (
+            sessions >= 1500 ? (
+              <span style={{ fontSize: 10.5, background: '#fef3c7', color: '#92400e', padding: '2px 8px', borderRadius: 6, fontWeight: 700, border: '1px solid #fde68a' }}>
+                ⭐ Cố vấn cấp cao ({sessions} ca)
+              </span>
+            ) : null
+          )}
           {isSelected && (
-            <span style={{ fontSize: 11, background: 'var(--s-primary)', color: '#fff', padding: '2px 8px', borderRadius: 4, fontWeight: 700, marginLeft: 'auto' }}>
-              Đang chọn
+            <span style={{ fontSize: 11, background: 'var(--s-primary)', color: '#fff', padding: '2px 10px', borderRadius: 6, fontWeight: 700, marginLeft: 'auto' }}>
+              ✓ Đang chọn
             </span>
           )}
         </div>
-        <p style={{ fontSize: 12.5, color: 'var(--s-primary)', margin: '4px 0', fontWeight: 600 }}>
-          {specialty}
-        </p>
+
+        {/* Danh mục chuyên môn phân loại rõ ràng */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, margin: '6px 0 6px' }}>
+          {specialtyTags.map((tag, idx) => (
+            <span
+              key={idx}
+              style={{
+                fontSize: 11.5,
+                background: isSelected ? 'rgba(16, 185, 129, 0.15)' : '#f1f5f9',
+                color: isSelected ? 'var(--s-primary)' : '#475569',
+                padding: '2px 8px',
+                borderRadius: 5,
+                fontWeight: 600
+              }}
+            >
+              • {tag}
+            </span>
+          ))}
+        </div>
+
         <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 4 }}>
-          <span style={{ fontSize: 11.5, color: 'var(--s-text-muted)' }}>Đánh giá: {rating}/5.0</span>
+          <span style={{ fontSize: 11.5, color: 'var(--s-text-muted)' }}>Đánh giá: <strong>{rating}/5.0</strong></span>
           <span style={{ fontSize: 11.5, color: 'var(--s-text-muted)' }}>{sessions} ca tham vấn</span>
-          <span style={{ fontSize: 11.5, color: 'var(--s-text-muted)' }}>{expert.roomLocation || 'Phòng tư vấn sinh viên'}</span>
+          <span style={{ fontSize: 11.5, color: 'var(--s-text-muted)' }}>{expert.roomLocation || 'P.302 (Tầng 3)'}</span>
         </div>
       </div>
     </button>
@@ -139,6 +231,52 @@ export default function BookingPage() {
   const [step, setStep]             = useState(1); // 1: chọn expert, 2: chọn ngày/giờ, 3: xác nhận
   const [experts, setExperts]       = useState(MOCK_EXPERTS);
   const [selected, setSelected]     = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isMobile, setIsMobile]     = useState(typeof window !== 'undefined' ? window.innerWidth < 992 : false);
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < 992);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  const getCategoryCount = (cat) => {
+    if (cat.id === 'all') return experts.length;
+    const kw = normalizeStr(cat.keyword);
+    return experts.filter(e => {
+      const spec = normalizeStr(e.specialization || e.specialty);
+      const degree = normalizeStr(e.academicDegree || e.title);
+      return spec.includes(kw) || degree.includes(kw);
+    }).length;
+  };
+
+  // Lọc và sắp xếp chuyên viên: Ưu tiên chuyên viên thực thụ có kinh nghiệm cao lên đầu,
+  // Chuyên viên mẫu đưa về cuối; tìm kiếm đa năng cùng 1 ô theo tên HOẶC danh mục/lĩnh vực
+  const filteredExperts = useMemo(() => {
+    let sorted = [...experts].sort((a, b) => {
+      const isDemoA = (a.fullName || '').includes('Mẫu') ? 1 : 0;
+      const isDemoB = (b.fullName || '').includes('Mẫu') ? 1 : 0;
+      if (isDemoA !== isDemoB) return isDemoA - isDemoB;
+      const sessA = a.totalConsultations ?? a.totalSessions ?? 0;
+      const sessB = b.totalConsultations ?? b.totalSessions ?? 0;
+      if (sessB !== sessA) return sessB - sessA;
+      return (b.rating || 0) - (a.rating || 0);
+    });
+
+    if (!searchQuery.trim()) return sorted;
+
+    const term = normalizeStr(searchQuery);
+
+    return sorted.filter(e => {
+      const name = normalizeStr(e.fullName);
+      const spec = normalizeStr(e.specialization || e.specialty);
+      const deg = normalizeStr(e.academicDegree || e.title);
+      const bio = normalizeStr(e.bio);
+      const room = normalizeStr(e.roomLocation);
+
+      return name.includes(term) || spec.includes(term) || deg.includes(term) || bio.includes(term) || room.includes(term);
+    });
+  }, [experts, searchQuery]);
   
   // Quản lý ngày đặt lịch linh hoạt (Tuần này, Tuần sau, Tháng sau)
   const [weekOffset, setWeekOffset] = useState(0); // 0 = tuần này, 1 = tuần sau, 2 = 2 tuần tới, 4 = tháng sau
@@ -609,28 +747,286 @@ export default function BookingPage() {
             ))}
           </div>
 
-          {/* ══════════════ BƯỚC 1: CHỌN CHUYÊN VIÊN ══════════════ */}
+          {/* ══════════════ BƯỚC 1: CHỌN CHUYÊN VIÊN (BỐ CỤC 2 CỘT: SIDEBAR DANH MỤC TRÁI & FEED PHẢI) ══════════════ */}
           {step === 1 && (
             <div>
               <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--s-text-muted)', marginBottom: 14 }}>
                 Chọn chuyên viên tư vấn tâm lý phù hợp với vấn đề của bạn:
               </p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 20 }}>
-                {experts.map(e => (
-                  <ExpertCard key={e.id} expert={e} isSelected={selected?.id === e.id} onSelect={setSelected} />
-                ))}
+
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: isMobile ? '1fr' : '280px minmax(0, 1fr)',
+                gap: 24,
+                alignItems: 'start'
+              }}>
+
+                {/* ══════════════ CỘT BÊN TRÁI: MENU DANH MỤC LĨNH VỰC (THANH NGANG, KHÔNG ICON, KHÔNG KHUNG DƯỚI) ══════════════ */}
+                <aside style={{
+                  position: isMobile ? 'relative' : 'sticky',
+                  top: isMobile ? 'auto' : 76,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 16,
+                  alignSelf: 'start',
+                }}>
+                  <div style={{
+                    background: '#ffffff',
+                    borderRadius: 16,
+                    border: '1px solid #e5e7eb',
+                    boxShadow: '0 2px 10px rgba(0, 0, 0, 0.03)',
+                    overflow: 'hidden',
+                  }}>
+                    {/* Header của menu (Không icon) */}
+                    <div style={{
+                      padding: '14px 18px',
+                      borderBottom: '1px solid #f1f5f9',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      background: '#fafbfc'
+                    }}>
+                      <span style={{
+                        fontSize: 12.5,
+                        fontWeight: 800,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.05em',
+                        color: '#475569',
+                        fontFamily: "'Plus Jakarta Sans', sans-serif"
+                      }}>
+                        Lĩnh vực tư vấn
+                      </span>
+                      <span style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: '#0d9488',
+                        background: '#f0fdfa',
+                        padding: '2px 8px',
+                        borderRadius: 12,
+                        border: '1px solid #ccfbf1'
+                      }}>
+                        {POPULAR_CATEGORIES.length - 1} lĩnh vực
+                      </span>
+                    </div>
+
+                    {/* Danh sách các item menu ngang (Không icon) */}
+                    <div style={{
+                      padding: '8px 10px',
+                      display: 'flex',
+                      flexDirection: isMobile ? 'row' : 'column',
+                      gap: 4,
+                      overflowX: isMobile ? 'auto' : 'visible',
+                      whiteSpace: isMobile ? 'nowrap' : 'normal',
+                      scrollbarWidth: 'none',
+                      WebkitOverflowScrolling: 'touch'
+                    }}>
+                      {POPULAR_CATEGORIES.map(cat => {
+                        const isActive = cat.id === 'all'
+                          ? !searchQuery.trim()
+                          : searchQuery.toLowerCase().includes(cat.keyword?.toLowerCase() || '');
+                        const count = getCategoryCount(cat);
+
+                        return (
+                          <button
+                            key={cat.id}
+                            type="button"
+                            onClick={() => {
+                              if (cat.id === 'all') {
+                                setSearchQuery('');
+                              } else {
+                                setSearchQuery(cat.keyword);
+                              }
+                            }}
+                            style={{
+                              width: isMobile ? 'auto' : '100%',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              padding: isMobile ? '9px 16px' : '11px 14px',
+                              borderRadius: 10,
+                              border: isActive ? '1px solid #99f6e4' : '1px solid transparent',
+                              borderLeft: isMobile ? (isActive ? '1px solid #99f6e4' : '1px solid transparent') : (isActive ? '4px solid #0d9488' : '1px solid transparent'),
+                              background: isActive ? '#f0fdfa' : 'transparent',
+                              color: isActive ? '#0f766e' : '#334155',
+                              cursor: 'pointer',
+                              textAlign: 'left',
+                              flexShrink: 0,
+                              transition: 'all 0.15s ease',
+                              boxShadow: isActive ? '0 1px 4px rgba(13, 148, 136, 0.08)' : 'none',
+                              fontFamily: "'Manrope', sans-serif",
+                            }}
+                            onMouseEnter={e => {
+                              if (!isActive) {
+                                e.currentTarget.style.background = '#f8fafc';
+                                if (!isMobile) e.currentTarget.style.transform = 'translateX(2px)';
+                              }
+                            }}
+                            onMouseLeave={e => {
+                              if (!isActive) {
+                                e.currentTarget.style.background = 'transparent';
+                                if (!isMobile) e.currentTarget.style.transform = 'translateX(0)';
+                              }
+                            }}
+                          >
+                            <div style={{ minWidth: 0, paddingRight: 8 }}>
+                              <div style={{
+                                fontSize: 13.5,
+                                fontWeight: isActive ? 800 : 600,
+                                color: isActive ? '#0f766e' : '#1e293b',
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis'
+                              }}>
+                                {cat.label}
+                              </div>
+                              {!isMobile && cat.desc && (
+                                <div style={{
+                                  fontSize: 11,
+                                  color: '#94a3b8',
+                                  whiteSpace: 'nowrap',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  marginTop: 2
+                                }}>
+                                  {cat.desc}
+                                </div>
+                              )}
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                              <span style={{
+                                fontSize: 11,
+                                fontWeight: 700,
+                                padding: '1px 7px',
+                                borderRadius: 10,
+                                background: isActive ? '#0d9488' : '#f1f5f9',
+                                color: isActive ? '#ffffff' : '#64748b',
+                                transition: 'all 0.15s'
+                              }}>
+                                {count}
+                              </span>
+                              {!isMobile && (
+                                isActive ? (
+                                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#0d9488' }} />
+                                ) : (
+                                  <span style={{ fontSize: 13, color: '#cbd5e1' }}>›</span>
+                                )
+                              )}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </aside>
+
+                {/* ══════════════ CỘT BÊN PHẢI: TÌM KIẾM VÀ DANH SÁCH CHUYÊN VIÊN ══════════════ */}
+                <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  {/* Ô TÌM KIẾM ĐA NĂNG */}
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    padding: '10px 16px', background: '#ffffff',
+                    border: '1.5px solid var(--s-border)', borderRadius: 14,
+                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.04)',
+                    transition: 'border-color 0.2s'
+                  }}>
+                    <span style={{ fontSize: 16, color: '#94a3b8' }}>🔍</span>
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={e => setSearchQuery(e.target.value)}
+                      placeholder="Tìm theo tên chuyên viên hoặc danh mục (ví dụ: Hà, Mai Lan, học đường, nghề nghiệp, trầm cảm, lo âu, áp lực...)"
+                      style={{
+                        flex: 1, border: 'none', outline: 'none',
+                        fontSize: 13.5, fontFamily: "'Manrope', sans-serif",
+                        color: 'var(--s-text)', background: 'transparent'
+                      }}
+                    />
+                    {searchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setSearchQuery('')}
+                        style={{
+                          background: '#f1f5f9', border: 'none', color: '#64748b',
+                          cursor: 'pointer', padding: '3px 8px', fontSize: 12,
+                          borderRadius: 20, fontWeight: 700
+                        }}
+                        title="Xóa tìm kiếm"
+                      >
+                        ✕ Xóa
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Kết quả tìm kiếm & Số lượng */}
+                  <div style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    padding: '0 4px', fontSize: 12.5, color: 'var(--s-text-muted)'
+                  }}>
+                    <span>
+                      Hiển thị <strong>{filteredExperts.length}</strong> / {experts.length} chuyên viên
+                      {searchQuery.trim() && <span> phù hợp với <em>"{searchQuery}"</em></span>}
+                    </span>
+                    {searchQuery.trim() && (
+                      <button
+                        type="button"
+                        onClick={() => setSearchQuery('')}
+                        style={{
+                          background: 'none', border: 'none', color: 'var(--s-primary)',
+                          cursor: 'pointer', fontWeight: 750, padding: 0
+                        }}
+                      >
+                        ✕ Xem lại tất cả
+                      </button>
+                    )}
+                  </div>
+
+                  {/* DANH SÁCH CHUYÊN VIÊN ĐÃ ĐƯỢC LỌC VÀ SẮP XẾP */}
+                  {filteredExperts.length === 0 ? (
+                    <div style={{
+                      padding: '36px 20px', textAlign: 'center', background: 'var(--s-surface)',
+                      borderRadius: 16, border: '1.5px dashed var(--s-border)', marginBottom: 10
+                    }}>
+                      <div style={{ fontSize: 36, marginBottom: 10 }}>🔍</div>
+                      <p style={{ fontWeight: 800, fontSize: 15, color: 'var(--s-text)', margin: '0 0 6px' }}>
+                        Không tìm thấy chuyên viên nào phù hợp với "{searchQuery}"
+                      </p>
+                      <p style={{ fontSize: 13, color: 'var(--s-text-muted)', margin: '0 0 16px', maxWidth: 440, marginLeft: 'auto', marginRight: 'auto' }}>
+                        Bạn có thể tìm theo tên như <em>"Hà", "Lan", "Bảo", "Đức"</em> hoặc theo lĩnh vực như <em>"học đường", "nghề nghiệp", "trầm cảm", "lo âu", "áp lực"</em>.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setSearchQuery('')}
+                        className="s-btn s-btn-outline"
+                        style={{ fontSize: 12.5, padding: '8px 18px' }}
+                      >
+                        🔄 Xem lại toàn bộ danh sách chuyên gia
+                      </button>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 10 }}>
+                      {filteredExperts.map(e => (
+                        <ExpertCard key={e.id} expert={e} isSelected={selected?.id === e.id} onSelect={setSelected} />
+                      ))}
+                    </div>
+                  )}
+
+                  <button
+                    className="s-btn s-btn-primary"
+                    disabled={!selected}
+                    onClick={() => setStep(2)}
+                    style={{
+                      opacity: selected ? 1 : 0.4,
+                      cursor: selected ? 'pointer' : 'not-allowed',
+                      alignSelf: 'flex-start',
+                      padding: '10px 22px'
+                    }}
+                  >
+                    Tiếp tục chọn ngày giờ →
+                  </button>
+                </div>
+
               </div>
-              <button
-                className="s-btn s-btn-primary"
-                disabled={!selected}
-                onClick={() => setStep(2)}
-                style={{
-                  opacity: selected ? 1 : 0.4,
-                  cursor: selected ? 'pointer' : 'not-allowed'
-                }}
-              >
-                Tiếp tục chọn ngày giờ →
-              </button>
             </div>
           )}
 

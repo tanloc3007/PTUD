@@ -2,11 +2,15 @@ using UniMind.Application.Common.Interfaces;
 using UniMind.Application.Features;
 using UniMind.Infrastructure.ExternalServices.AI;
 using UniMind.Infrastructure.ExternalServices.Cloudinary;
+using UniMind.Infrastructure.ExternalServices.Email;
 using UniMind.Infrastructure.ExternalServices.Security;
 using UniMind.Infrastructure.Persistence.Context;
 using UniMind.WebAPI.Middlewares;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Configuration
+    .AddJsonFile($"appsettings.{builder.Environment.EnvironmentName}.local.json", optional: true, reloadOnChange: true)
+    .AddJsonFile("appsettings.Development.local.json", optional: true, reloadOnChange: true);
 builder.WebHost.UseUrls("http://localhost:5080");
 
 // 1. ADD SERVICES
@@ -40,6 +44,15 @@ builder.Services.AddSingleton<ICloudinaryService>(sp =>
         builder.Configuration["Cloudinary:ApiSecret"]));
 builder.Services.AddSingleton<IAISentimentService>(sp => 
     new AISentimentService(builder.Configuration["Gemini:ApiKey"], builder.Configuration["Gemini:Model"]));
+builder.Services.AddSingleton<IEmailService>(sp =>
+    new EmailService(
+        builder.Configuration["Email:SmtpHost"],
+        int.TryParse(builder.Configuration["Email:SmtpPort"], out var p) ? p : 587,
+        builder.Configuration["Email:SenderEmail"],
+        builder.Configuration["Email:SenderName"],
+        builder.Configuration["Email:Password"],
+        bool.TryParse(builder.Configuration["Email:EnableSsl"], out var ssl) ? ssl : true,
+        connectionString));
 
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IMoodJournalService, MoodJournalService>();

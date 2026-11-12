@@ -1,125 +1,84 @@
 import { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import axiosClient from '../../auth/api/authApi';
 import { useAuthStore } from '../../auth/store/authStore';
 
 const PHASES = [
-  { name: 'Hít vào', duration: 4, instruction: 'Hít vào từ từ bằng mũi, cảm nhận luồng khí căng đầy lồng ngực...', class: 'inhale' },
-  { name: 'Giữ',    duration: 7, instruction: 'Giữ nhẹ hơi thở, thả lỏng toàn bộ cơ mặt và bờ vai...', class: 'hold' },
-  { name: 'Thở ra', duration: 8, instruction: 'Thở ra thật chậm rãi qua bờ môi, giải phóng mọi áp lực...', class: 'exhale' },
-];
-
-const AFFIRMATIONS = [
-  'Bạn đủ tốt. Bạn đủ mạnh mẽ. Bạn xứng đáng được yêu thương và tôn trọng trong từng khoảnh khắc.',
-  'Hơi thở là cầu nối diệu kỳ giữa tâm trí và cơ thể. Hãy tin tưởng vào năng lực tự chữa lành của bản thân.',
-  'Mỗi ngày bạn vẫn kiên trì vượt qua khó khăn đã là một chiến thắng rất đáng tự hào.',
-  'Mọi cảm xúc của bạn đều có ý nghĩa riêng. Hãy đón nhận và dịu dàng ôm ấp chính mình.',
-  'Bầu trời sau cơn mưa bao giờ cũng trong vắt và tươi mới hơn. Mọi chuyện rồi sẽ ổn thôi.',
-];
-
-const READINGS = [
-  {
-    title: 'Bước chậm lại giữa thế gian vội vã',
-    author: 'Đại đức Haemin (Hàn Quốc)',
-    category: 'Chánh niệm & Thong dong',
-    paragraphs: [
-      'Khi bạn cảm thấy thế giới xung quanh đang quay cuồng quá nhanh, hãy nhớ rằng bản thân thế gian này không hề vội vã — chính tâm trí chúng ta đang tự đẩy mình vào guồng quay gấp gáp.',
-      'Hãy dành cho mình vài phút dừng lại. Ngắm nhìn một tách trà ấm, cảm nhận làn gió nhẹ lướt qua khung cửa sổ và lắng nghe từng nhịp thở vào - thở ra. Khi tâm trí bạn chịu lắng dịu xuống, mọi sự vật xung quanh cũng sẽ tự khắc tìm lại trật tự vốn có của nó.',
-      'Đừng tự trách mình vì những lúc mệt mỏi cần nghỉ ngơi. Nghỉ ngơi không phải là sự lùi bước hay yếu đuối, mà là cách bạn tích lũy sự kiên cường và lòng can đảm để bước tiếp chặng đường dài phía trước.'
-    ]
-  },
-  {
-    title: 'Hiểu về trái tim & Ôm ấp cảm xúc',
-    author: 'Thầy Thích Minh Niệm',
-    category: 'Trắc ẩn với chính mình',
-    paragraphs: [
-      'Nỗi buồn, sự thất vọng hay âu lo cũng giống như những vị khách lạ ghé thăm ngôi nhà tâm hồn của bạn. Chúng đến rồi sẽ tự động ra đi theo quy luật tự nhiên, nếu bạn không cố sức xua đuổi hay níu giữ chống đối.',
-      'Thay vì phán xét bản thân tại sao lại yếu lòng hay sợ hãi, hãy mở rộng dung lượng trái tim để ôm ấp lấy chính mình. Hãy đặt tay lên ngực và tự nhủ: "Tôi biết tôi đang lo lắng, nhưng điều đó hoàn toàn bình thường. Tôi đang ở đây để chăm sóc và yêu thương chính tôi."',
-      'Bình yên đích thực không phải là một nơi hoàn toàn không có bão giông, mà là tâm thế vững vàng, sáng suốt và dịu dàng ngay giữa tâm bão.'
-    ]
-  },
-  {
-    title: 'Sức mạnh của hiện tại',
-    author: 'Eckhart Tolle',
-    category: 'Giải phóng tâm trí',
-    paragraphs: [
-      'Phần lớn gánh nặng và nỗi khổ tâm của con người bắt nguồn từ việc tâm trí luôn lang thang về quá khứ đầy tiếc nuối, hoặc phóng chiếu đến tương lai ngập tràn những điều chưa xảy ra.',
-      'Thực tại duy nhất bạn thực sự nắm giữ và có quyền năng thay đổi chính là giây phút này — ngay tại đây. Khi bạn hướng toàn bộ sự chú ý vào cơ thể, vào từng cảm giác xúc chạm và nhịp thở hiện tiền, gánh nặng tâm lý sẽ lập tức tan biến.',
-      'Hãy hít một hơi thật sâu, mỉm cười nhẹ nhàng và cảm nhận sự sống đang âm thầm tuôn chảy qua từng tế bào trong bạn.'
-    ]
-  },
-  {
-    title: 'Khu vườn tâm trí & Sự bao dung',
-    author: 'Trích đoạn chữa lành tâm hồn',
-    category: 'Nuôi dưỡng nội tâm',
-    paragraphs: [
-      'Tâm trí con người như một mảnh vườn màu mỡ. Nếu bạn không chủ động gieo vào đó những hạt mầm của sự kiên nhẫn, tử tế và bao dung, cỏ dại của sự âu lo và bất an sẽ tự động mọc lên.',
-      'Mỗi ngày sau giờ học tập và làm việc căng thẳng, hãy nhớ tưới tắm cho mảnh vườn bên trong bạn bằng những khoảng lặng, bằng một bản nhạc êm dịu, hay đơn giản là sự công nhận rằng hôm nay bạn đã rất nỗ lực rồi.',
-      'Bạn là một cá thể độc nhất, và hành trình của bạn mang vẻ đẹp riêng biệt. Đừng so sánh mùa trổ hoa của mình với khu vườn của bất kỳ ai khác.'
-    ]
-  }
+  { name: 'Hít vào', duration: 4, instruction: 'Hít sâu chậm rãi qua mũi, cảm nhận luồng khí căng đầy cơ hoành...', class: 'inhale' },
+  { name: 'Giữ hơi', duration: 7, instruction: 'Giữ nhẹ hơi thở, thả lỏng bờ vai và các nhóm cơ vùng mặt...', class: 'hold' },
+  { name: 'Thở ra', duration: 8, instruction: 'Thở ra thật chậm qua miệng, giải phóng áp lực tích tụ...', class: 'exhale' },
 ];
 
 const STRETCHES = [
   {
     step: 1,
-    name: 'Thả lỏng & Xoay cổ nhẹ nhàng',
-    desc: 'Ngồi thẳng lưng. Nghiêng đầu sang phải 15 giây, sau đó đổi sang bên trái. Giúp giải phóng áp lực tích tụ ở đốt sống cổ do ngồi học và làm việc nhiều giờ.'
+    name: 'Thả lỏng & Xoay cơ cổ',
+    desc: 'Ngồi thẳng lưng trên ghế. Nghiêng đầu nhẹ nhàng sang phải trong 15 giây, sau đó đổi sang bên trái. Giúp giải tỏa áp lực đốt sống cổ do ngồi học và làm việc trên máy tính nhiều giờ.'
   },
   {
     step: 2,
-    name: 'Kéo giãn và mở rộng lồng ngực',
-    desc: 'Đan hai tay ra sau lưng, nhẹ nhàng đẩy ngực về phía trước, mở rộng vai và hít thở sâu 3 nhịp để dung tích phổi mở tối đa.'
+    name: 'Kéo giãn lồng ngực & Bờ vai',
+    desc: 'Đan hai tay ra sau lưng, nhẹ nhàng đẩy ngực về phía trước, mở rộng hai vai và hít thở sâu 3 nhịp để dung tích phổi được mở tối đa.'
   },
   {
     step: 3,
-    name: 'Duỗi thẳng cột sống hướng lên cao',
+    name: 'Duỗi thẳng cột sống lên cao',
     desc: 'Đan các ngón tay lại, lật lòng bàn tay hướng lên trần nhà, vươn cao toàn bộ thân trên và cảm nhận các đốt sống được giãn nở tự nhiên.'
   },
   {
     step: 4,
-    name: 'Thả lỏng hai tay & Hồi phục',
-    desc: 'Hạ nhẹ hai tay xuống đùi, xoay nhẹ hai cổ tay và thả lỏng toàn bộ cơ thể, thở ra chậm rãi.'
+    name: 'Thả lỏng cổ tay & Hồi phục',
+    desc: 'Hạ hai tay xuống đùi, xoay nhẹ hai cổ tay theo chiều kim đồng hồ rồi đổi chiều, thở ra chậm rãi và thả lỏng toàn bộ cơ thể.'
   }
 ];
 
 export default function SafeRoomPage() {
   const { user } = useAuthStore();
+  const navigate = useNavigate();
 
   // Breathing state
   const [isRunning, setRunning]   = useState(false);
   const [phaseIdx, setPhaseIdx]   = useState(0);
   const [countdown, setCountdown] = useState(4);
-  const [affIdx, setAffIdx]       = useState(0);
   const intervalRef               = useRef(null);
   const countRef                  = useRef(4);
   const phaseRef                  = useRef(0);
 
-  // Active Tool Modal: 'music' | 'reading' | 'stretch' | 'water' | 'journal'
+  // Active Tool Modal: 'music' | 'stretch' | 'journal'
   const [activeModal, setActiveModal] = useState(null);
 
-  // 1. Ambient Music Generator State (Web Audio API)
+  // Ambient Natural Sound State (Web Audio API)
   const [isPlayingMusic, setIsPlayingMusic] = useState(false);
-  const [musicType, setMusicType] = useState('rain'); // 'rain' | 'waves' | 'alpha' | 'bell'
+  const [musicType, setMusicType] = useState('rain'); // 'rain' | 'waves' | 'stream' | 'wind'
   const audioCtxRef = useRef(null);
   const soundNodesRef = useRef([]);
 
-  // 2. Reading state
-  const [readingIdx, setReadingIdx] = useState(0);
-
-  // 3. Stretch state
+  // Stretch state
   const [stretchStep, setStretchStep] = useState(0);
 
-  // 4. Water tracker
-  const [waterCups, setWaterCups] = useState(() => {
-    return parseInt(localStorage.getItem('unimind_water_today') || '3');
-  });
-
-  // 5. Quick journal
+  // Quick journal
   const [journalText, setJournalText] = useState('');
   const [isSavingJournal, setIsSavingJournal] = useState(false);
   const [journalSaved, setJournalSaved] = useState(false);
 
+  // Active Meeting state
+  const [activeMeeting, setActiveMeeting] = useState(null);
+
   const currentPhase = PHASES[phaseIdx];
+
+  // Kiểm tra ca tư vấn trực tuyến đang mở
+  useEffect(() => {
+    const studentId = user?.id || '22222222-2222-2222-2222-222222222221';
+    if (!studentId) return;
+
+    axiosClient.get(`/appointments/student/${studentId}/active-meeting`)
+      .then(res => {
+        if (res.data?.data?.hasActiveMeeting) {
+          setActiveMeeting(res.data.data);
+        }
+      })
+      .catch(() => {});
+  }, [user?.id]);
 
   // Breathing interval
   useEffect(() => {
@@ -141,13 +100,7 @@ export default function SafeRoomPage() {
     return () => clearInterval(intervalRef.current);
   }, [isRunning]);
 
-  // Affirmations rotate
-  useEffect(() => {
-    const t = setInterval(() => setAffIdx(i => (i + 1) % AFFIRMATIONS.length), 8000);
-    return () => clearInterval(t);
-  }, []);
-
-  // Web Audio Ambient Synthesizer Cleanup
+  // Web Audio Cleanup
   const stopAudio = () => {
     try {
       soundNodesRef.current.forEach(node => {
@@ -168,7 +121,7 @@ export default function SafeRoomPage() {
     return () => stopAudio();
   }, []);
 
-  // Web Audio Sound Generator for all ambient sounds
+  // Web Audio Synthesizer cho 4 âm thanh tự nhiên thực tế
   const playAmbientSound = async (type) => {
     stopAudio();
     setMusicType(type);
@@ -185,8 +138,7 @@ export default function SafeRoomPage() {
       const nodes = [];
 
       if (type === 'rain') {
-        // --- REALISTIC RAIN SYNTHESIS ---
-        // Pink/brown noise generator with lowpass + gentle bandpass
+        // --- TIẾNG MƯA RƠI (PINK/BROWN NOISE ĐIỀU LỌC) ---
         const bufferSize = ctx.sampleRate * 4;
         const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
         const output = noiseBuffer.getChannelData(0);
@@ -221,8 +173,7 @@ export default function SafeRoomPage() {
 
         nodes.push(rainSource, rainFilter, rainGain);
       } else if (type === 'waves') {
-        // --- RHYTHMIC OCEAN WAVES SYNTHESIS ---
-        // Pink noise modulated by an LFO to create rising and receding wave tides
+        // --- SÓNG BIỂN VỖ BỜ (PINK NOISE MODULATED BỞI LFO) ---
         const bufferSize = ctx.sampleRate * 5;
         const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
         const output = noiseBuffer.getChannelData(0);
@@ -231,36 +182,29 @@ export default function SafeRoomPage() {
           const white = Math.random() * 2 - 1;
           output[i] = (lastOut + (0.02 * white)) / 1.02;
           lastOut = output[i];
-          output[i] *= 3.5; // boost brown noise
+          output[i] *= 3.2;
         }
 
         const waveSource = ctx.createBufferSource();
         waveSource.buffer = noiseBuffer;
         waveSource.loop = true;
 
-        // Dynamic filter modulated by LFO
         const waveFilter = ctx.createBiquadFilter();
         waveFilter.type = 'lowpass';
         waveFilter.frequency.setValueAtTime(450, ctx.currentTime);
-        waveFilter.Q.setValueAtTime(3.0, ctx.currentTime);
+        waveFilter.Q.setValueAtTime(2.5, ctx.currentTime);
 
         const waveGain = ctx.createGain();
         waveGain.gain.setValueAtTime(0.18, ctx.currentTime);
 
-        // LFO for wave cycles (approx 8 seconds per surge)
         const lfo = ctx.createOscillator();
-        lfo.type = 'sine';
-        lfo.frequency.setValueAtTime(0.12, ctx.currentTime); // ~8s cycle
-
         const lfoGain = ctx.createGain();
-        lfoGain.gain.setValueAtTime(300, ctx.currentTime); // modulates filter cutoff +/- 300Hz
-        lfo.connect(lfoGain);
-        lfoGain.connect(waveFilter.frequency);
+        lfo.type = 'sine';
+        lfo.frequency.setValueAtTime(0.12, ctx.currentTime);
+        lfoGain.gain.setValueAtTime(0.12, ctx.currentTime);
 
-        // LFO for volume swells
-        const volLfo = ctx.createGain();
-        volLfo.gain.setValueAtTime(0.12, ctx.currentTime);
-        lfo.connect(volLfo.gain);
+        lfo.connect(lfoGain);
+        lfoGain.connect(waveGain.gain);
 
         waveSource.connect(waveFilter);
         waveFilter.connect(waveGain);
@@ -269,55 +213,72 @@ export default function SafeRoomPage() {
         waveSource.start();
         lfo.start();
 
-        nodes.push(waveSource, waveFilter, waveGain, lfo, lfoGain, volLfo);
-      } else if (type === 'alpha') {
-        // --- 432Hz ALPHA BRAINWAVE SYNTHESIS ---
-        // Pure harmonic sine wave + warm subharmonic + slow subtle binaural beat
-        const osc1 = ctx.createOscillator();
-        const osc2 = ctx.createOscillator();
-        const masterGain = ctx.createGain();
+        nodes.push(waveSource, waveFilter, waveGain, lfo, lfoGain);
+      } else if (type === 'stream') {
+        // --- TIẾNG SUỐI NƯỚC RÓC RÁCH (BANDPASS FILTER NOISE) ---
+        const bufferSize = ctx.sampleRate * 3;
+        const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+        const output = noiseBuffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+          output[i] = (Math.random() * 2 - 1) * 0.15;
+        }
 
-        osc1.type = 'sine';
-        osc1.frequency.setValueAtTime(432, ctx.currentTime);
+        const streamSource = ctx.createBufferSource();
+        streamSource.buffer = noiseBuffer;
+        streamSource.loop = true;
 
-        osc2.type = 'sine';
-        osc2.frequency.setValueAtTime(216, ctx.currentTime); // sub-octave warmth
+        const bpFilter = ctx.createBiquadFilter();
+        bpFilter.type = 'bandpass';
+        bpFilter.frequency.setValueAtTime(1100, ctx.currentTime);
+        bpFilter.Q.setValueAtTime(2.0, ctx.currentTime);
 
-        const g1 = ctx.createGain();
-        g1.gain.setValueAtTime(0.09, ctx.currentTime);
-        const g2 = ctx.createGain();
-        g2.gain.setValueAtTime(0.05, ctx.currentTime);
+        const streamGain = ctx.createGain();
+        streamGain.gain.setValueAtTime(0.20, ctx.currentTime);
 
-        osc1.connect(g1);
-        osc2.connect(g2);
-        g1.connect(masterGain);
-        g2.connect(masterGain);
+        streamSource.connect(bpFilter);
+        bpFilter.connect(streamGain);
+        streamGain.connect(ctx.destination);
+        streamSource.start();
 
-        masterGain.gain.setValueAtTime(0.15, ctx.currentTime);
-        masterGain.connect(ctx.destination);
+        nodes.push(streamSource, bpFilter, streamGain);
+      } else if (type === 'wind') {
+        // --- TIẾNG GIÓ RỪNG THÔNG (RESONANT LOWPASS + SLOW LFO) ---
+        const bufferSize = ctx.sampleRate * 4;
+        const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+        const output = noiseBuffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+          output[i] = (Math.random() * 2 - 1) * 0.12;
+        }
 
-        osc1.start();
-        osc2.start();
-        nodes.push(osc1, osc2, g1, g2, masterGain);
-      } else if (type === 'bell') {
-        // --- 528Hz ZEN SINGING BOWL HARMONICS ---
-        const fundamental = 528;
-        const masterGain = ctx.createGain();
-        masterGain.gain.setValueAtTime(0.14, ctx.currentTime);
-        masterGain.connect(ctx.destination);
+        const windSource = ctx.createBufferSource();
+        windSource.buffer = noiseBuffer;
+        windSource.loop = true;
 
-        [fundamental, fundamental * 2, fundamental * 3].forEach((freq, idx) => {
-          const osc = ctx.createOscillator();
-          const gain = ctx.createGain();
-          osc.type = 'sine';
-          osc.frequency.setValueAtTime(freq, ctx.currentTime);
-          gain.gain.setValueAtTime(0.08 / (idx + 1), ctx.currentTime);
-          osc.connect(gain);
-          gain.connect(masterGain);
-          osc.start();
-          nodes.push(osc, gain);
-        });
-        nodes.push(masterGain);
+        const windFilter = ctx.createBiquadFilter();
+        windFilter.type = 'lowpass';
+        windFilter.frequency.setValueAtTime(320, ctx.currentTime);
+        windFilter.Q.setValueAtTime(3.0, ctx.currentTime);
+
+        const windGain = ctx.createGain();
+        windGain.gain.setValueAtTime(0.18, ctx.currentTime);
+
+        const windLfo = ctx.createOscillator();
+        const windLfoGain = ctx.createGain();
+        windLfo.type = 'sine';
+        windLfo.frequency.setValueAtTime(0.08, ctx.currentTime);
+        windLfoGain.gain.setValueAtTime(180, ctx.currentTime);
+
+        windLfo.connect(windLfoGain);
+        windLfoGain.connect(windFilter.frequency);
+
+        windSource.connect(windFilter);
+        windFilter.connect(windGain);
+        windGain.connect(ctx.destination);
+
+        windSource.start();
+        windLfo.start();
+
+        nodes.push(windSource, windFilter, windGain, windLfo, windLfoGain);
       }
 
       soundNodesRef.current = nodes;
@@ -344,12 +305,6 @@ export default function SafeRoomPage() {
     setRunning(v => !v);
   };
 
-  const handleDrinkWater = () => {
-    const next = Math.min(waterCups + 1, 12);
-    setWaterCups(next);
-    localStorage.setItem('unimind_water_today', next.toString());
-  };
-
   const handleSaveQuickJournal = async () => {
     if (!journalText.trim()) return;
     setIsSavingJournal(true);
@@ -358,8 +313,8 @@ export default function SafeRoomPage() {
       await axiosClient.post(`/mood-journals/student/${studentId}`, {
         moodState: 'Peaceful',
         energyLevel: 8,
-        triggers: ['Thực hành Phòng An Yên'],
-        journalContent: `[Ghi chép An Yên]: ${journalText.trim()}`,
+        triggers: ['Thực hành SafeRoom'],
+        journalContent: `[Ghi chép SafeRoom]: ${journalText.trim()}`,
         shareToCommunity: false,
         studentId
       });
@@ -380,135 +335,105 @@ export default function SafeRoomPage() {
     }
   };
 
+  const SOUND_OPTIONS = [
+    { key: 'rain', label: 'Tiếng mưa rơi', desc: 'Âm thanh tự nhiên giúp loại bỏ tạp âm và tăng khả năng tập trung học tập.' },
+    { key: 'waves', label: 'Sóng biển vỗ bờ', desc: 'Nhịp điệu đại dương chậm rãi, hỗ trợ điều hòa hơi thở và giảm căng thẳng.' },
+    { key: 'stream', label: 'Suối nước róc rách', desc: 'Dòng nước mát lành mang lại không gian tĩnh tâm sau giờ học căng thẳng.' },
+    { key: 'wind', label: 'Gió thổi rừng cây', desc: 'Tiếng gió tự nhiên xoa dịu áp lực, thích hợp cho việc đọc sách và nghỉ ngơi.' },
+  ];
+
   const WELLNESS_TOOLS = [
     {
       id: 'music',
-      tag: 'Âm thanh tự nhiên',
-      title: 'Âm nhạc trị liệu & Tiếng ồn trắng',
-      desc: 'Phát trực tiếp tiếng mưa rào, tiếng sóng biển vỗ bờ hoặc tần số sóng não 432Hz giúp xoa dịu hệ thần kinh tức thì.',
-      icon: (
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#0d9488" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M9 18V5l12-2v13" />
-          <circle cx="6" cy="18" r="3" />
-          <circle cx="18" cy="16" r="3" />
-        </svg>
-      ),
-      bg: '#f0fdfa',
+      tag: 'Âm thanh môi trường',
+      title: 'Âm thanh tự nhiên thư giãn',
+      desc: 'Phát trực tiếp tiếng mưa rơi, sóng biển, suối nước hoặc gió rừng giúp giảm căng thẳng và tăng khả năng tập trung.',
       color: '#0d9488',
-      btnLabel: isPlayingMusic ? '🎵 Đang phát nhạc (Mở điều khiển)' : '▶ Bật âm thanh trị liệu'
-    },
-    {
-      id: 'reading',
-      tag: 'Nuôi dưỡng tâm trí',
-      title: 'Đọc sách 10 phút nuôi dưỡng tâm hồn',
-      desc: 'Trích đoạn sách chánh niệm, vượt qua âu lo từ các bậc thầy giúp mở rộng dung lượng trái tim và tìm lại sự bình yên.',
-      icon: (
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-        </svg>
-      ),
-      bg: '#eff6ff',
-      color: '#3b82f6',
-      btnLabel: '📖 Đọc trích đoạn chữa lành'
+      bg: '#f0fdfa',
+      btnLabel: isPlayingMusic ? 'Đang phát âm thanh (Mở điều khiển)' : 'Bật âm thanh tự nhiên'
     },
     {
       id: 'stretch',
-      tag: 'Thể chất & Cơ thể',
-      title: 'Vận động & Giãn cơ vai gáy',
-      desc: 'Hướng dẫn 4 động tác duỗi cơ cổ, vai và cột sống khoa học giải phóng áp lực học tập và giảm đau mỏi khi ngồi lâu.',
-      icon: (
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="12" cy="5" r="2" />
-          <path d="M9 20l3-6 3 6" />
-          <path d="M6 10l6 2 6-2" />
-          <path d="M12 12v4" />
-        </svg>
-      ),
-      bg: '#fffbeb',
-      color: '#f59e0b',
-      btnLabel: '🧘 Bắt đầu bài tập giãn cơ'
-    },
-    {
-      id: 'water',
-      tag: 'Thói quen lành mạnh',
-      title: 'Uống một ngụm nước ấm',
-      desc: `Cấp nước ấm để cơ thể nhận tín hiệu an toàn và điều hòa nhịp tim. Hôm nay bạn đã uống: ${waterCups}/8 ly.`,
-      icon: (
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#0284c7" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z" />
-        </svg>
-      ),
-      bg: '#f0f9ff',
-      color: '#0284c7',
-      btnLabel: '💧 Ghi nhận uống nước (+1 ly)'
+      tag: 'Vận động thể chất',
+      title: 'Bài tập giãn cơ cổ & vai gáy',
+      desc: '4 động tác kéo giãn cổ, vai và cột sống khoa học giúp giải phóng nhức mỏi do ngồi học và làm đồ án máy tính nhiều giờ.',
+      color: '#0f766e',
+      bg: '#f0fdf9',
+      btnLabel: 'Bắt đầu bài tập giãn cơ'
     },
     {
       id: 'journal',
       tag: 'Giải tỏa suy nghĩ',
-      title: 'Viết nhật ký & Lòng biết ơn',
-      desc: 'Ghi nhanh 3 điều bạn biết ơn hoặc trút bỏ những suy nghĩ ngổn ngang trong đầu vào không gian an toàn riêng tư.',
-      icon: (
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-        </svg>
-      ),
-      bg: '#f5f3ff',
-      color: '#8b5cf6',
-      btnLabel: '✍️ Viết nhanh suy nghĩ'
+      title: 'Ghi chú giải tỏa áp lực nhanh',
+      desc: 'Viết nhanh những điều đang gây áp lực (thi cử, đồ án, băn khoăn) để giải phóng tâm trí, lưu trữ an toàn vào nhật ký riêng tư.',
+      color: '#115e59',
+      bg: '#f2fbf9',
+      btnLabel: 'Viết ghi chú giải tỏa'
     },
   ];
 
   return (
-    <div className="student-page-shell">
+    <div className="student-page-shell" style={{ width: '100%', margin: '0 auto', maxWidth: 1080 }}>
 
-      {/* Header */}
-      <div style={{ textAlign: 'center', marginBottom: 24 }}>
-        <h1 style={{ fontSize: 24, fontWeight: 900, color: 'var(--s-text)', margin: '0 0 6px', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+      {/* Header trang chuẩn mực */}
+      <div style={{ marginBottom: 22 }}>
+        <h1 style={{ fontSize: 23, fontWeight: 900, color: 'var(--s-text)', margin: '0 0 4px', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
           Phòng An Yên (SafeRoom)
         </h1>
         <p style={{ fontSize: 13.5, color: 'var(--s-text-muted)', margin: 0 }}>
-          Không gian tương tác thực tế, điều hòa nhịp thở và tái tạo năng lượng tích cực cho sinh viên
+          Không gian điều hòa nhịp thở, thư giãn tâm trí và kết nối hỗ trợ tâm lý học đường dành cho sinh viên
         </p>
       </div>
 
-      {/* Breathing exercise */}
-      <div className="s-card" style={{ textAlign: 'center', marginBottom: 22, padding: '32px 24px', position: 'relative', overflow: 'hidden' }}>
-        <h2 style={{ fontSize: 18, fontWeight: 800, color: 'var(--s-text)', margin: '0 0 6px' }}>
-          Bài Hít Thở Khoa Học 4-7-8
-        </h2>
-        <p style={{ fontSize: 13, color: 'var(--s-text-muted)', margin: '0 0 24px' }}>
-          Kỹ thuật kích hoạt hệ thần kinh phó giao cảm — giúp giảm căng thẳng và ổn định nhịp tim tức thời
-        </p>
+      {/* ══════════════ KHỐI 1: BÀI TẬP HÍT THỞ KHOA HỌC 4-7-8 ══════════════ */}
+      <div className="s-card" style={{ textAlign: 'center', marginBottom: 22, padding: '32px 24px', position: 'relative', overflow: 'hidden', background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: 16 }}>
+        <div style={{ maxWidth: 560, margin: '0 auto' }}>
+          <span style={{ fontSize: 11.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#0d9488', background: '#f0fdfa', border: '1px solid #ccfbf1', padding: '3px 10px', borderRadius: 6, display: 'inline-block', marginBottom: 8 }}>
+            Kỹ Thuật Thư Giãn Chuẩn Y Khoa
+          </span>
+          <h2 style={{ fontSize: 19, fontWeight: 900, color: '#0f172a', margin: '0 0 6px', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+            Phương Pháp Hít Thở 4-7-8
+          </h2>
+          <p style={{ fontSize: 13, color: '#64748b', margin: '0 0 24px', lineHeight: 1.5 }}>
+            Kỹ thuật kích hoạt hệ thần kinh phó giao cảm — hỗ trợ hạ nhịp tim, giảm bớt hồi hộp và ổn định tinh thần tức thì.
+          </p>
+        </div>
 
-        {/* Breathing circle */}
-        <div className={`s-breath-circle${isRunning ? ` ${currentPhase.class}` : ''}`}>
+        {/* Breathing Circle */}
+        <div className={`s-breath-circle${isRunning ? ` ${currentPhase.class}` : ''}`} style={{ margin: '0 auto' }}>
           <div style={{ textAlign: 'center' }}>
             {isRunning ? (
               <>
-                <div style={{ fontSize: 36, fontWeight: 900, lineHeight: 1 }}>{countdown}</div>
-                <div style={{ fontSize: 12, opacity: 0.9, marginTop: 4, fontWeight: 700 }}>{currentPhase.name}</div>
+                <div style={{ fontSize: 36, fontWeight: 900, lineHeight: 1, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{countdown}</div>
+                <div style={{ fontSize: 12.5, opacity: 0.95, marginTop: 4, fontWeight: 800 }}>{currentPhase.name}</div>
               </>
             ) : (
-              <div style={{ fontSize: 14, fontWeight: 700 }}>Bắt đầu</div>
+              <div style={{ fontSize: 13.5, fontWeight: 800, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Bắt đầu</div>
             )}
           </div>
         </div>
 
         {isRunning && (
-          <p style={{ fontSize: 15, color: 'var(--s-primary)', fontWeight: 700, margin: '18px 0 0', animation: 'pulse 1s ease infinite' }}>
+          <p style={{ fontSize: 14.5, color: '#0d9488', fontWeight: 700, margin: '18px 0 0', animation: 'pulse 1s ease infinite' }}>
             {currentPhase.instruction}
           </p>
         )}
 
         <div style={{ marginTop: 22 }}>
           <button
+            type="button"
             className={`s-btn ${isRunning ? 's-btn-outline' : 's-btn-primary'}`}
             onClick={handleToggleBreathing}
-            style={{ minWidth: 160 }}
+            style={{
+              minWidth: 170,
+              padding: '11px 24px',
+              borderRadius: 10,
+              fontSize: 13.5,
+              fontWeight: 800,
+              fontFamily: "'Plus Jakarta Sans', 'Manrope', sans-serif"
+            }}
           >
-            {isRunning ? '⏹️ Dừng bài tập' : '▶ Bắt đầu bài tập thở'}
+            {isRunning ? 'Dừng bài tập' : 'Bắt đầu bài tập thở'}
           </button>
         </div>
 
@@ -516,10 +441,11 @@ export default function SafeRoomPage() {
         <div style={{ display: 'flex', gap: 10, justifyContent: 'center', marginTop: 20, flexWrap: 'wrap' }}>
           {PHASES.map((p, i) => (
             <div key={p.name} style={{
-              padding: '6px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700,
-              background: isRunning && phaseIdx === i ? 'var(--s-primary-soft)' : 'var(--s-bg-soft)',
-              color: isRunning && phaseIdx === i ? 'var(--s-primary)' : 'var(--s-text-muted)',
-              border: `1.5px solid ${isRunning && phaseIdx === i ? 'var(--s-primary)' : 'var(--s-border)'}`,
+              padding: '6px 16px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+              background: isRunning && phaseIdx === i ? '#f0fdfa' : '#f8fafc',
+              color: isRunning && phaseIdx === i ? '#0d9488' : '#64748b',
+              border: `1.5px solid ${isRunning && phaseIdx === i ? '#0d9488' : '#e2e8f0'}`,
+              fontFamily: "'Manrope', sans-serif"
             }}>
               {p.name}: {p.duration} giây
             </div>
@@ -527,69 +453,195 @@ export default function SafeRoomPage() {
         </div>
       </div>
 
-      {/* Affirmation card */}
+      {/* ══════════════ KHỐI 2: THAM VẤN TRỰC TUYẾN & ĐƯỜNG DÂY HỖ TRỢ HỌC ĐƯỜNG ══════════════ */}
       <div style={{
-        background: 'linear-gradient(135deg, #0d9488, #0f766e)',
-        borderRadius: 16, padding: '22px 26px', marginBottom: 26, color: '#fff',
-        textAlign: 'center',
-        boxShadow: '0 4px 18px rgba(13,148,136,0.18)'
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+        gap: 16,
+        marginBottom: 24
       }}>
-        <span style={{ fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', opacity: 0.85, fontWeight: 800, display: 'block', marginBottom: 6 }}>
-          Thông điệp chánh niệm hôm nay
-        </span>
-        <p style={{ fontSize: 14.5, fontWeight: 700, lineHeight: 1.6, margin: 0, fontStyle: 'italic' }}>
-          "{AFFIRMATIONS[affIdx]}"
-        </p>
+        {/* Card 1: Kênh Tham Vấn Trực Tuyến 1-1 */}
+        <div style={{
+          background: '#ffffff',
+          borderRadius: 16,
+          border: '1px solid #e5e7eb',
+          padding: '20px 22px',
+          boxShadow: '0 2px 10px rgba(0,0,0,0.03)',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'space-between'
+        }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <span style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#0d9488', background: '#f0fdfa', border: '1px solid #ccfbf1', padding: '2px 8px', borderRadius: 4 }}>
+                Kênh Tham Vấn Trực Tuyến SafeCall
+              </span>
+              {activeMeeting ? (
+                <span style={{ fontSize: 11, fontWeight: 800, color: '#16a34a', background: '#dcfce7', padding: '2px 8px', borderRadius: 10 }}>
+                  Phòng đang mở
+                </span>
+              ) : (
+                <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b' }}>
+                  Bảo mật 100%
+                </span>
+              )}
+            </div>
+
+            <h3 style={{ fontSize: 16, fontWeight: 800, color: '#0f172a', margin: '0 0 6px', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+              {activeMeeting ? 'Cuộc Hẹn Trực Tuyến Đang Chờ Bạn' : 'Tư Vấn 1-1 Với Chuyên Gia Tâm Lý'}
+            </h3>
+            <p style={{ fontSize: 12.5, color: '#64748b', margin: 0, lineHeight: 1.6 }}>
+              {activeMeeting
+                ? `Chuyên viên ${activeMeeting.counselorName || 'Tư Vấn'} đã mở phòng họp trực tuyến cho ca hẹn của bạn. Hãy tham gia để bắt đầu buổi tham vấn.`
+                : 'Bạn đang gặp áp lực học tập, lo âu đồ án hay mâu thuẫn cuộc sống? Đặt lịch tư vấn trực tiếp hoặc trực tuyến hoàn toàn ẩn danh và miễn phí.'}
+            </p>
+          </div>
+
+          <div style={{ marginTop: 16 }}>
+            {activeMeeting ? (
+              <button
+                type="button"
+                onClick={() => navigate(`/student/meeting/${activeMeeting.appointmentId}`)}
+                className="s-btn s-btn-primary"
+                style={{ width: '100%', fontSize: 13, padding: '10px 18px', borderRadius: 10 }}
+              >
+                Vào phòng tư vấn ngay
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => navigate('/student/booking')}
+                style={{
+                  width: '100%',
+                  padding: '10px 18px',
+                  borderRadius: 10,
+                  border: '1px solid #0d9488',
+                  background: '#f0fdfa',
+                  color: '#0f766e',
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  fontFamily: "'Plus Jakarta Sans', 'Manrope', sans-serif"
+                }}
+              >
+                Đặt lịch hẹn với chuyên viên
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Card 2: Đường Dây Nóng Khẩn Cấp (SOS) */}
+        <div style={{
+          background: '#ffffff',
+          borderRadius: 16,
+          border: '1px solid #e5e7eb',
+          padding: '20px 22px',
+          boxShadow: '0 2px 10px rgba(0,0,0,0.03)',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'space-between'
+        }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <span style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#dc2626', background: '#fef2f2', border: '1px solid #fecaca', padding: '2px 8px', borderRadius: 4 }}>
+                Hỗ Trợ Khẩn Cấp (SOS 24/7)
+              </span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#dc2626' }}>
+                Miễn phí cuộc gọi
+              </span>
+            </div>
+
+            <h3 style={{ fontSize: 16, fontWeight: 800, color: '#0f172a', margin: '0 0 6px', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+              Hotline Tâm Lý &amp; Văn Phòng Hỗ Trợ
+            </h3>
+            <p style={{ fontSize: 12.5, color: '#64748b', margin: 0, lineHeight: 1.6 }}>
+              Nếu bạn đang cảm thấy kiệt sức, khủng hoảng cảm xúc hoặc cần sự hỗ trợ ngay lập tức, đừng ngần ngại liên hệ:
+            </p>
+
+            <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12.5, color: '#334155' }}>
+              <div>
+                <strong>Hotline SOS:</strong> <code style={{ color: '#0d9488', fontWeight: 800, background: '#f0fdfa', border: '1px solid #ccfbf1', padding: '2px 6px', borderRadius: 4 }}>1900 1267</code> (Trực 24/7)
+              </div>
+              <div>
+                <strong>Văn phòng:</strong> P.302 (Tầng 3) - Tòa nhà Hỗ trợ Sinh viên ĐH Lạc Hồng
+              </div>
+            </div>
+          </div>
+
+          <div style={{ marginTop: 16 }}>
+            <a
+              href="tel:19001267"
+              style={{
+                display: 'block',
+                width: '100%',
+                padding: '10px 18px',
+                borderRadius: 10,
+                border: '1px solid #fecaca',
+                background: '#fef2f2',
+                color: '#dc2626',
+                fontSize: 13,
+                fontWeight: 800,
+                textAlign: 'center',
+                textDecoration: 'none',
+                boxSizing: 'border-box',
+                fontFamily: "'Plus Jakarta Sans', 'Manrope', sans-serif"
+              }}
+            >
+              Gọi ngay hotline 1900 1267
+            </a>
+          </div>
+        </div>
       </div>
 
-      {/* Wellness tools section */}
+      {/* ══════════════ KHỐI 3: TIỆN ÍCH PHỤC HỒI & TẬP TRUNG HỌC TẬP ══════════════ */}
       <div style={{ marginBottom: 14 }}>
-        <h3 style={{ fontSize: 17, fontWeight: 800, color: 'var(--s-text)', margin: '0 0 6px', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
-          Tiện ích phục hồi &amp; Tái tạo năng lượng
+        <h3 style={{ fontSize: 17, fontWeight: 800, color: 'var(--s-text)', margin: '0 0 4px', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+          Tiện Ích Phục Hồi &amp; Tập Trung
         </h3>
         <p style={{ fontSize: 13, color: 'var(--s-text-muted)', margin: 0 }}>
-          Các công cụ hỗ trợ thư giãn chủ động giúp giải tỏa áp lực và duy trì tinh thần sáng suốt
+          Các công cụ hỗ trợ thư giãn chủ động và giải tỏa căng thẳng học tập
         </p>
       </div>
 
-      {/* Grid of 5 Well-Arranged Wellness Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}>
         {WELLNESS_TOOLS.map(item => (
           <div
             key={item.id}
-            className="s-card"
             style={{
-              textAlign: 'left',
-              padding: '22px',
+              padding: '20px 22px',
               display: 'flex',
               flexDirection: 'column',
               justifyContent: 'space-between',
-              border: activeModal === item.id || (item.id === 'music' && isPlayingMusic) ? '2px solid #0d9488' : '1px solid var(--s-border)',
-              background: '#ffffff',
-              borderRadius: 16,
-              boxShadow: '0 4px 14px rgba(0,0,0,0.03)',
-              transition: 'transform 0.2s, box-shadow 0.2s',
+              border: activeModal === item.id || (item.id === 'music' && isPlayingMusic)
+                ? `1.5px solid ${item.color}`
+                : '1px solid #e5e7eb',
+              background: activeModal === item.id || (item.id === 'music' && isPlayingMusic) ? item.bg : '#ffffff',
+              borderRadius: 14,
+              boxShadow: '0 2px 8px rgba(0,0,0,0.02)',
+              transition: 'border-color 0.2s, background 0.2s',
             }}
           >
             <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-                <div style={{ width: 44, height: 44, borderRadius: 12, background: item.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  {item.icon}
-                </div>
-                {item.id === 'music' && isPlayingMusic ? (
-                  <span style={{ fontSize: 11.5, background: '#dcfce7', color: '#16a34a', padding: '3px 10px', borderRadius: 20, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#16a34a', animation: 'pulse 1s infinite' }} /> Đang phát
-                  </span>
-                ) : (
-                  <span style={{ fontSize: 11, background: 'var(--s-bg-soft)', color: 'var(--s-text-muted)', padding: '3px 9px', borderRadius: 6, fontWeight: 700 }}>
-                    {item.tag}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                <span style={{
+                  fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em',
+                  color: item.color, background: item.bg, padding: '2px 8px', borderRadius: 4,
+                  border: `1px solid ${item.color}30`
+                }}>
+                  {item.tag}
+                </span>
+                {item.id === 'music' && isPlayingMusic && (
+                  <span style={{ fontSize: 11, background: '#dcfce7', color: '#16a34a', padding: '2px 8px', borderRadius: 10, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#16a34a', animation: 'pulse 1s infinite' }} />
+                    Đang phát
                   </span>
                 )}
               </div>
-              <h4 style={{ fontSize: 16, fontWeight: 800, color: 'var(--s-text)', margin: '0 0 8px', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+
+              <h4 style={{ fontSize: 15, fontWeight: 800, color: 'var(--s-text)', margin: '0 0 6px', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
                 {item.title}
               </h4>
-              <p style={{ fontSize: 13, color: 'var(--s-text-muted)', margin: 0, lineHeight: 1.55 }}>
+              <p style={{ fontSize: 12.5, color: 'var(--s-text-muted)', margin: 0, lineHeight: 1.55 }}>
                 {item.desc}
               </p>
             </div>
@@ -598,61 +650,51 @@ export default function SafeRoomPage() {
               type="button"
               onClick={() => setActiveModal(item.id)}
               style={{
-                marginTop: 18,
-                padding: '10px 16px',
-                borderRadius: 10,
-                border: item.id === 'music' && isPlayingMusic ? '1.5px solid #0d9488' : '1px solid #0d9488',
-                background: item.id === 'music' && isPlayingMusic ? '#0d9488' : '#f0fdfa',
-                color: item.id === 'music' && isPlayingMusic ? '#ffffff' : '#0f766e',
-                fontSize: 13,
-                fontWeight: 800,
+                marginTop: 16,
+                padding: '9px 14px',
+                borderRadius: 8,
+                border: `1px solid ${item.color}`,
+                background: 'transparent',
+                color: item.color,
+                fontSize: 12.5,
+                fontWeight: 700,
                 cursor: 'pointer',
                 textAlign: 'center',
-                fontFamily: "'Manrope', sans-serif",
-                transition: 'all 0.15s'
+                transition: 'all 0.15s',
+                fontFamily: "'Plus Jakarta Sans', 'Manrope', sans-serif",
               }}
-              onMouseEnter={e => {
-                if (!(item.id === 'music' && isPlayingMusic)) {
-                  e.currentTarget.style.background = '#0d9488';
-                  e.currentTarget.style.color = '#fff';
-                }
-              }}
-              onMouseLeave={e => {
-                if (!(item.id === 'music' && isPlayingMusic)) {
-                  e.currentTarget.style.background = '#f0fdfa';
-                  e.currentTarget.style.color = '#0f766e';
-                }
-              }}
+              onMouseEnter={e => { e.currentTarget.style.background = item.color; e.currentTarget.style.color = '#fff'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = item.color; }}
             >
-              {item.btnLabel}
+              {item.id === 'music' && isPlayingMusic ? 'Điều khiển âm thanh' : item.btnLabel}
             </button>
           </div>
         ))}
       </div>
 
-      {/* ── MODAL 1: ÂM NHẠC TRỊ LIỆU ── */}
+      {/* ══════════════ MODAL 1: ÂM THANH TỰ NHIÊN THƯ GIÃN (KHÔNG EMOJI, TỐI GIẢN) ══════════════ */}
       {activeModal === 'music' && (
         <div style={modalOverlayStyle}>
           <div style={modalBoxStyle}>
             <div style={modalHeaderStyle}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 18 }}>🎵</span>
-                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: '#0f172a' }}>Âm Nhạc Trị Liệu &amp; Sóng Não Chữa Lành</h3>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: '#0f172a', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+                  Âm Thanh Tự Nhiên Thư Giãn
+                </h3>
+                <span style={{ fontSize: 12, color: '#64748b' }}>
+                  Hỗ trợ giảm căng thẳng và tăng khả năng tập trung học tập
+                </span>
               </div>
-              <button onClick={() => setActiveModal(null)} style={closeBtnStyle}>✕</button>
+              <button onClick={() => setActiveModal(null)} style={closeBtnStyle} title="Đóng">✕</button>
             </div>
+
             <div style={{ padding: 22 }}>
               <p style={{ fontSize: 13, color: '#475569', margin: '0 0 16px', lineHeight: 1.5 }}>
-                Hệ thống tổng hợp âm thanh thư giãn trực tiếp từ trình duyệt giúp hạ nhịp tim, loại bỏ tạp âm và kích thích trạng thái thư giãn sâu:
+                Chọn một môi trường âm thanh tự nhiên phù hợp với nhu cầu hiện tại của bạn:
               </p>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
-                {[
-                  { key: 'rain', icon: '🌧️', label: 'Tiếng mưa rào êm dịu', desc: 'Tiếng ồn hồng êm ả lấn át tạp âm' },
-                  { key: 'waves', icon: '🌊', label: 'Sóng biển dạt dào', desc: 'Nhịp thở đại dương điều hòa hơi thở' },
-                  { key: 'alpha', icon: '🧘', label: 'Sóng não Alpha 432Hz', desc: 'Tần số hòa hợp và cân bằng tâm trí' },
-                  { key: 'bell', icon: '🔔', label: 'Chuông thiền Zen 528Hz', desc: 'Năng lượng chuyển hóa và tĩnh lặng' },
-                ].map(snd => {
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20 }}>
+                {SOUND_OPTIONS.map(snd => {
                   const isThisActive = isPlayingMusic && musicType === snd.key;
                   return (
                     <button
@@ -660,21 +702,29 @@ export default function SafeRoomPage() {
                       type="button"
                       onClick={() => togglePlayAudio(snd.key)}
                       style={{
-                        padding: '14px 16px',
-                        borderRadius: 12,
+                        padding: '12px 14px',
+                        borderRadius: 10,
                         textAlign: 'left',
                         cursor: 'pointer',
-                        border: `2px solid ${isThisActive ? '#0d9488' : '#e2e8f0'}`,
+                        border: `1.5px solid ${isThisActive ? '#0d9488' : '#e2e8f0'}`,
+                        borderLeft: isThisActive ? '4px solid #0d9488' : '1.5px solid #e2e8f0',
                         background: isThisActive ? '#f0fdfa' : '#ffffff',
-                        boxShadow: isThisActive ? '0 4px 12px rgba(13,148,136,0.12)' : 'none',
-                        transition: 'all 0.15s'
+                        boxShadow: isThisActive ? '0 2px 8px rgba(13,148,136,0.1)' : 'none',
+                        transition: 'all 0.15s',
+                        fontFamily: "'Manrope', sans-serif"
                       }}
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                        <span style={{ fontSize: 18 }}>{snd.icon}</span>
-                        <strong style={{ fontSize: 13.5, color: isThisActive ? '#0f766e' : '#1e293b' }}>{snd.label}</strong>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                        <strong style={{ fontSize: 13.5, color: isThisActive ? '#0f766e' : '#1e293b' }}>
+                          {snd.label}
+                        </strong>
+                        {isThisActive && (
+                          <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#0d9488' }} />
+                        )}
                       </div>
-                      <span style={{ fontSize: 11.5, color: '#64748b', display: 'block', lineHeight: 1.4 }}>{snd.desc}</span>
+                      <span style={{ fontSize: 11.5, color: '#64748b', display: 'block', lineHeight: 1.4 }}>
+                        {snd.desc}
+                      </span>
                     </button>
                   );
                 })}
@@ -683,23 +733,26 @@ export default function SafeRoomPage() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #e2e8f0', paddingTop: 16 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{
-                    width: 10, height: 10, borderRadius: '50%',
+                    width: 8, height: 8, borderRadius: '50%',
                     background: isPlayingMusic ? '#16a34a' : '#94a3b8',
                     animation: isPlayingMusic ? 'pulse 1s infinite' : 'none'
                   }} />
                   <span style={{ fontSize: 13, color: isPlayingMusic ? '#16a34a' : '#64748b', fontWeight: 700 }}>
-                    {isPlayingMusic ? `Đang phát: ${
-                      musicType === 'rain' ? 'Tiếng mưa rào' :
-                      musicType === 'waves' ? 'Sóng biển dạt dào' :
-                      musicType === 'alpha' ? 'Sóng não Alpha 432Hz' : 'Chuông thiền Zen 528Hz'
-                    }` : 'Âm thanh đang tạm dừng'}
+                    {isPlayingMusic
+                      ? `Đang phát: ${SOUND_OPTIONS.find(s => s.key === musicType)?.label || 'Âm thanh'}`
+                      : 'Âm thanh đang tạm dừng'}
                   </span>
                 </div>
                 <button
                   type="button"
                   onClick={() => togglePlayAudio(musicType)}
                   className="s-btn s-btn-primary"
-                  style={{ fontSize: 13.5, padding: '9px 20px', borderRadius: 8 }}
+                  style={{
+                    fontSize: 13,
+                    padding: '8px 20px',
+                    borderRadius: 8,
+                    fontFamily: "'Plus Jakarta Sans', 'Manrope', sans-serif"
+                  }}
                 >
                   {isPlayingMusic ? 'Tắt âm thanh' : 'Bật âm thanh'}
                 </button>
@@ -709,121 +762,30 @@ export default function SafeRoomPage() {
         </div>
       )}
 
-      {/* ── MODAL 2: ĐỌC SÁCH NUÔI DƯỠNG TÂM HỒN (EXPANDED & RICH CONTENT) ── */}
-      {activeModal === 'reading' && (
-        <div style={modalOverlayStyle}>
-          <div style={{ ...modalBoxStyle, maxWidth: 660 }}>
-            <div style={modalHeaderStyle}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 18 }}>📖</span>
-                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: '#0f172a' }}>Đọc Sách Nuôi Dưỡng Tâm Hồn &amp; Chánh Niệm</h3>
-              </div>
-              <button onClick={() => setActiveModal(null)} style={closeBtnStyle}>✕</button>
-            </div>
-            <div style={{ padding: '22px 24px' }}>
-              {/* Reading Tabs */}
-              <div style={{ display: 'flex', gap: 8, marginBottom: 18, overflowX: 'auto', paddingBottom: 4 }}>
-                {READINGS.map((r, i) => (
-                  <button
-                    key={i}
-                    onClick={() => setReadingIdx(i)}
-                    style={{
-                      padding: '6px 14px',
-                      borderRadius: 8,
-                      fontSize: 12,
-                      fontWeight: 700,
-                      cursor: 'pointer',
-                      whiteSpace: 'nowrap',
-                      border: `1.5px solid ${readingIdx === i ? '#0d9488' : '#e2e8f0'}`,
-                      background: readingIdx === i ? '#0d9488' : '#f8fafc',
-                      color: readingIdx === i ? '#ffffff' : '#475569',
-                      transition: 'all 0.15s'
-                    }}
-                  >
-                    Bài #{i + 1}: {r.category}
-                  </button>
-                ))}
-              </div>
-
-              {/* Reader Card */}
-              <div style={{
-                background: 'linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)',
-                padding: '24px 26px',
-                borderRadius: 14,
-                border: '1px solid #e2e8f0',
-                marginBottom: 20,
-                maxHeight: '52vh',
-                overflowY: 'auto'
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
-                  <h4 style={{ margin: 0, fontSize: 17, fontWeight: 900, color: '#0f172a', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
-                    {READINGS[readingIdx].title}
-                  </h4>
-                  <span style={{ fontSize: 11, background: '#e0f2fe', color: '#0369a1', padding: '2px 8px', borderRadius: 4, fontWeight: 800 }}>
-                    {READINGS[readingIdx].category}
-                  </span>
-                </div>
-                <div style={{ fontSize: 12.5, color: '#0d9488', fontWeight: 800, marginBottom: 16 }}>
-                  Tác giả: {READINGS[readingIdx].author}
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                  {READINGS[readingIdx].paragraphs.map((para, pIdx) => (
-                    <p
-                      key={pIdx}
-                      style={{
-                        fontSize: 14,
-                        color: '#334155',
-                        lineHeight: 1.8,
-                        margin: 0,
-                        textAlign: 'justify'
-                      }}
-                    >
-                      {para}
-                    </p>
-                  ))}
-                </div>
-              </div>
-
-              {/* Footer navigation */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: 12.5, color: '#64748b' }}>
-                  🌿 Hãy đọc chậm rãi, hít thở sâu và suy ngẫm từng câu chữ.
-                </span>
-                <button
-                  type="button"
-                  className="s-btn s-btn-primary"
-                  style={{ padding: '8px 18px', fontSize: 13 }}
-                  onClick={() => setReadingIdx((readingIdx + 1) % READINGS.length)}
-                >
-                  Đổi bài đọc tiếp theo →
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── MODAL 3: VẬN ĐỘNG NHẸ NHÀNG ── */}
+      {/* ══════════════ MODAL 2: BÀI TẬP GIÃN CƠ VAI GÁY CHO SINH VIÊN ══════════════ */}
       {activeModal === 'stretch' && (
         <div style={modalOverlayStyle}>
           <div style={modalBoxStyle}>
             <div style={modalHeaderStyle}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 18 }}>🧘</span>
-                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: '#0f172a' }}>Bài Tập Giãn Cơ Cổ &amp; Vai Gáy Cho Sinh Viên</h3>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: '#0f172a', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+                  Bài Tập Giãn Cơ Cổ &amp; Vai Gáy
+                </h3>
+                <span style={{ fontSize: 12, color: '#64748b' }}>
+                  Giảm đau mỏi và căng cơ cho sinh viên học máy tính nhiều giờ
+                </span>
               </div>
-              <button onClick={() => setActiveModal(null)} style={closeBtnStyle}>✕</button>
+              <button onClick={() => setActiveModal(null)} style={closeBtnStyle} title="Đóng">✕</button>
             </div>
             <div style={{ padding: 22 }}>
-              <div style={{ background: '#f0fdfa', border: '1px solid #99f6e4', borderRadius: 14, padding: 20, marginBottom: 18 }}>
-                <span style={{ fontSize: 11, background: '#0d9488', color: '#fff', padding: '3px 9px', borderRadius: 6, fontWeight: 800, letterSpacing: '0.04em' }}>
+              <div style={{ background: '#f0fdfa', border: '1px solid #99f6e4', borderRadius: 12, padding: 18, marginBottom: 18 }}>
+                <span style={{ fontSize: 11, background: '#0d9488', color: '#fff', padding: '2px 8px', borderRadius: 4, fontWeight: 800, letterSpacing: '0.04em' }}>
                   ĐỘNG TÁC {stretchStep + 1} / {STRETCHES.length}
                 </span>
-                <h4 style={{ fontSize: 16.5, fontWeight: 800, color: '#0f766e', margin: '10px 0 6px' }}>
+                <h4 style={{ fontSize: 15.5, fontWeight: 800, color: '#0f766e', margin: '8px 0 6px', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
                   {STRETCHES[stretchStep].name}
                 </h4>
-                <p style={{ fontSize: 13.5, color: '#334155', lineHeight: 1.65, margin: 0 }}>
+                <p style={{ fontSize: 13, color: '#334155', lineHeight: 1.6, margin: 0 }}>
                   {STRETCHES[stretchStep].desc}
                 </p>
               </div>
@@ -833,7 +795,7 @@ export default function SafeRoomPage() {
                   disabled={stretchStep === 0}
                   className="s-btn s-btn-outline"
                   onClick={() => setStretchStep(s => s - 1)}
-                  style={{ opacity: stretchStep === 0 ? 0.5 : 1 }}
+                  style={{ opacity: stretchStep === 0 ? 0.4 : 1, fontSize: 12.5, padding: '7px 16px' }}
                 >
                   ← Động tác trước
                 </button>
@@ -848,8 +810,9 @@ export default function SafeRoomPage() {
                       setStretchStep(s => s + 1);
                     }
                   }}
+                  style={{ fontSize: 12.5, padding: '7px 18px' }}
                 >
-                  {stretchStep === STRETCHES.length - 1 ? '✓ Hoàn thành bài tập' : 'Động tác tiếp theo →'}
+                  {stretchStep === STRETCHES.length - 1 ? 'Hoàn thành bài tập' : 'Động tác tiếp theo →'}
                 </button>
               </div>
             </div>
@@ -857,80 +820,36 @@ export default function SafeRoomPage() {
         </div>
       )}
 
-      {/* ── MODAL 4: UỐNG NƯỚC ẤM ── */}
-      {activeModal === 'water' && (
-        <div style={modalOverlayStyle}>
-          <div style={modalBoxStyle}>
-            <div style={modalHeaderStyle}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 18 }}>💧</span>
-                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: '#0f172a' }}>Theo Dõi &amp; Nhắc Uống Nước Ấm</h3>
-              </div>
-              <button onClick={() => setActiveModal(null)} style={closeBtnStyle}>✕</button>
-            </div>
-            <div style={{ padding: 22, textAlign: 'center' }}>
-              <div style={{ fontSize: 44, margin: '6px 0' }}>🥤</div>
-              <h4 style={{ margin: '0 0 6px', fontSize: 18, color: '#0f172a', fontWeight: 900 }}>
-                Hôm nay bạn đã uống {waterCups} / 8 ly nước ấm
-              </h4>
-              <p style={{ fontSize: 13, color: '#64748b', margin: '0 auto 20px', maxWidth: 380, lineHeight: 1.55 }}>
-                Uống từng ngụm nước ấm chậm rãi giúp xoa dịu thần kinh giao cảm, làm giảm cảm giác hồi hộp lo âu và cấp ẩm cho não bộ.
-              </p>
-              <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginBottom: 22, flexWrap: 'wrap' }}>
-                {Array.from({ length: 8 }).map((_, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      width: 34, height: 34, borderRadius: 8,
-                      background: i < waterCups ? '#0284c7' : '#e2e8f0',
-                      color: i < waterCups ? '#ffffff' : '#94a3b8',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: 13, fontWeight: 800
-                    }}
-                  >
-                    {i + 1}
-                  </div>
-                ))}
-              </div>
-              <button
-                type="button"
-                className="s-btn s-btn-primary"
-                onClick={handleDrinkWater}
-                style={{ fontSize: 14, padding: '10px 24px', borderRadius: 8 }}
-              >
-                +1 Vừa uống thêm 1 ngụm nước ấm
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── MODAL 5: GHI CHÉP CẢM XÚC NHANH ── */}
+      {/* ══════════════ MODAL 3: GHI CHÚ GIẢI TỎA ÁP LỰC ══════════════ */}
       {activeModal === 'journal' && (
         <div style={modalOverlayStyle}>
           <div style={modalBoxStyle}>
             <div style={modalHeaderStyle}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 18 }}>✍️</span>
-                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: '#0f172a' }}>Ghi Chép Nhanh Tâm Tư &amp; Lòng Biết Ơn</h3>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: '#0f172a', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+                  Ghi Chú Giải Tỏa Áp Lực
+                </h3>
+                <span style={{ fontSize: 12, color: '#64748b' }}>
+                  Viết ra những suy nghĩ ngổn ngang để giải tỏa tâm trí
+                </span>
               </div>
-              <button onClick={() => setActiveModal(null)} style={closeBtnStyle}>✕</button>
+              <button onClick={() => setActiveModal(null)} style={closeBtnStyle} title="Đóng">✕</button>
             </div>
             <div style={{ padding: 22 }}>
               {journalSaved ? (
-                <div style={{ padding: '20px', background: '#f0fdf4', color: '#16a34a', borderRadius: 12, textAlign: 'center', fontWeight: 800 }}>
-                  ✓ Đã lưu tâm sự của bạn vào nhật ký cảm xúc thành công!
+                <div style={{ padding: '20px', background: '#f0fdf4', color: '#16a34a', borderRadius: 12, textAlign: 'center', fontWeight: 800, fontSize: 13.5 }}>
+                  Đã lưu ghi chú của bạn vào nhật ký cảm xúc an toàn!
                 </div>
               ) : (
                 <>
                   <label style={{ fontSize: 13, fontWeight: 700, color: '#334155', display: 'block', marginBottom: 8 }}>
-                    3 điều bạn cảm thấy biết ơn hoặc điều đang làm bạn bận tâm hôm nay:
+                    Điều gì đang làm bạn bận tâm hoặc cảm thấy quá tải hôm nay?
                   </label>
                   <textarea
                     rows={5}
                     value={journalText}
                     onChange={e => setJournalText(e.target.value)}
-                    placeholder="1. Một buổi sáng bình yên và một tách trà ấm...&#10;2. Đã hoàn thành được một bài tập khó...&#10;3. Mình vẫn đang nỗ lực hết mình mỗi ngày..."
+                    placeholder="Viết tự do những điều bạn đang nghĩ: áp lực thi cử, tiến độ đồ án, nỗi lo lắng hiện tại..."
                     style={{
                       width: '100%', padding: '12px 14px', borderRadius: 10,
                       border: '1px solid #cbd5e1', fontSize: 13.5, fontFamily: "'Manrope', sans-serif",
@@ -938,11 +857,14 @@ export default function SafeRoomPage() {
                     }}
                   />
                   <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-                    <button className="s-btn s-btn-outline" onClick={() => setActiveModal(null)}>Đóng</button>
+                    <button className="s-btn s-btn-outline" onClick={() => setActiveModal(null)} style={{ fontSize: 12.5, padding: '7px 16px' }}>
+                      Đóng
+                    </button>
                     <button
                       className="s-btn s-btn-primary"
                       disabled={isSavingJournal || !journalText.trim()}
                       onClick={handleSaveQuickJournal}
+                      style={{ fontSize: 12.5, padding: '7px 18px' }}
                     >
                       {isSavingJournal ? 'Đang lưu...' : 'Lưu vào nhật ký'}
                     </button>
